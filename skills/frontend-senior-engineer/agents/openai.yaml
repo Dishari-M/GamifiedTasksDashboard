@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Senior Engineer"
+  short_description: "Build polished, accessible, responsive UI and verify changes with Playwright."
+  default_prompt: "Use this skill to implement or review frontend changes with senior-level attention to accessibility, responsiveness, failure states, professional UI quality, and Playwright CLI browser verification."
