@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backend Senior Engineer"
+  short_description: "Build reliable production backend APIs, persistence, connectors, AI endpoints, and tests."
+  default_prompt: "Use this skill to implement or review backend changes with senior-level attention to API contracts, DB-generated IDs, transactional inserts and updates, failure handling, external connectors, AI validation, observability, tests, and UI follow-through with Playwright when applicable."

@@ -1,0 +1,133 @@
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.app-shell,
+.workspace,
+.dashboard-page,
+.page-stack,
+.focus-page,
+.content-grid,
+.content-grid > *,
+.surface,
+.stat-card,
+.mission-card,
+.mission-copy,
+.task-table-wrap,
+.topbar,
+.topbar-title {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workspace,
+.dashboard-page,
+.page-stack,
+.focus-page {
+  overflow-x: hidden;
+}
+
+.task-table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.topbar-title h1,
+.topbar-title p,
+.event-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 1061px) {
+  .topbar {
+    grid-template-columns: minmax(320px, 1fr) minmax(240px, 420px) auto auto auto;
+  }
+
+  .topbar-title h1,
+  .topbar-title p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 1061px) and (max-width: 1540px) {
+  .topbar {
+    grid-template-columns: minmax(320px, 1fr) minmax(220px, 330px) auto auto auto;
+    gap: 14px;
+  }
+
+  .search-box {
+    max-width: 340px;
+  }
+}
+
+@media (max-width: 1500px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+  }
+}
+
+@media (min-width: 1061px) and (max-width: 1240px) {
+  .topbar {
+    grid-template-columns: minmax(280px, 1fr) auto auto auto;
+  }
+
+  .search-box {
+    display: none;
+  }
+}
+
+.mission-card h3,
+.mission-card p,
+.section-heading h2 {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1060px) {
+  .topbar-title h1,
+  .topbar-title p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-scrim {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: min(292px, 86vw);
+    inset: 0 0 0 min(292px, 86vw);
+  }
+}
+
+@media (max-width: 760px) {
+  .stats-grid,
+  .weekly-grid,
+  .capacity-grid,
+  .add-task-form,
+  .focus-page {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-page,
+  .page-stack,
+  .focus-page {
+    padding-bottom: 96px;
+  }
+
+  .section-heading {
+    align-items: flex-start;
+  }
+
+  .add-task-link,
+  .primary-action {
+    width: 100%;
+  }
+}
