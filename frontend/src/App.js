@@ -42,6 +42,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
+import { dashboardApi } from "./api/client";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -113,6 +114,11 @@ const formatDateTime = (isoValue) => {
   }).format(new Date(isoValue));
 };
 
+const formatTime = (isoValue) => {
+  if (!isoValue) return "";
+  return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(isoValue));
+};
+
 const formatTimer = (seconds) => {
   const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
   const secs = (seconds % 60).toString().padStart(2, "0");
@@ -139,13 +145,13 @@ const buildAiFields = (task) => {
   const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
   const notesBoost = task.notes ? 0.4 : 0;
   const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
-  const priorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
+  const calculatedPriorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
   const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
   const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
   return {
-    difficulty,
+    difficulty: task.difficulty || difficulty,
     impact,
-    priorityScore,
+    priorityScore: Number.isFinite(Number(task.priorityScore)) ? Number(task.priorityScore) : calculatedPriorityScore,
     effort,
     xp,
     aiInsight: task.aiInsight || `${task.priority} priority ${task.type || "Task"} with ${formatMinutes(effort)} expected effort. ${task.notes ? "Use the notes as context for standup and overview summaries." : "Add notes as you learn more to improve the summary."}`,
@@ -286,6 +292,40 @@ const defaultOverview = {
   wentWrong: "Timeout details were split across a few systems.",
 };
 
+const normalizeApiTask = (task) =>
+  normalizeTask({
+    id: String(task.external_id || task.task_id),
+    taskId: task.task_id,
+    externalId: task.external_id || "",
+    title: task.title,
+    description: task.description,
+    source: task.external_source || "Custom",
+    type: task.task_type || "Task",
+    priority: task.priority || "Medium",
+    status: task.status || "To Do",
+    time: task.estimated_minutes || task.ai?.effort_minutes || 60,
+    actualMinutes: task.actual_minutes || 0,
+    xp: task.xp_value || 0,
+    workingToday: Boolean(task.working_today),
+    completedAt: task.completed_at,
+    impact: task.ai?.impact_score || 5,
+    priorityScore: task.ai?.priority_score,
+    difficulty: task.ai?.difficulty,
+    aiInsight: task.ai?.insight,
+    notes: task.notes || "",
+    labels: [],
+  });
+
+const normalizeApiSchedule = (events = []) =>
+  events.map((event) => ({
+    time: formatTime(event.start_at),
+    title: event.title,
+    duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),
+    durationMinutes: event.duration_minutes,
+    color: event.is_focus_block ? "green" : "blue",
+    focus: Boolean(event.is_focus_block),
+  }));
+
 const Pill = ({ children, tone = "neutral", testId }) => (
   <span className={`pill pill-${tone}`} data-testid={testId}>
     {children}
@@ -404,11 +444,11 @@ const MissionCard = ({ task, index }) => {
   );
 };
 
-const SchedulePanel = () => (
+const SchedulePanel = ({ events = schedule }) => (
   <section className="surface schedule-panel" data-testid="schedule-panel">
     <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Schedule</h2><NavLink to="/calendar" data-testid="view-calendar-link">View Calendar</NavLink></div>
     <div className="timeline" data-testid="schedule-timeline">
-      {schedule.map((event) => (
+      {events.map((event) => (
         <div className="timeline-row" key={event.time} data-testid={`schedule-row-${slug(event.time)}`}>
           <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
           <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
@@ -645,10 +685,12 @@ const generateStandupNote = (tasks) => {
   };
 };
 
-const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
-  const completedCount = completedTodayTasks(tasks).length;
+const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
+  const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
-  const totalXp = tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
+  const totalXp = dashboardStats?.total_xp ?? tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
+  const focusMinutes = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes;
+  const meetingMinutes = dashboardStats?.meeting_minutes;
   const topMissions = [...(todayTasks.length ? todayTasks : tasks.filter((task) => task.status !== "Done"))]
     .sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))
     .slice(0, 3);
@@ -659,14 +701,14 @@ const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
         <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value="2h 35m" detail="22% vs yesterday" icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value="3h 10m" detail="Tracked in overview" icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Focus Time" value={focusMinutes ? formatMinutes(focusMinutes) : "2h 35m"} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "22% vs yesterday"} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">View quests</NavLink></div><div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} />)}</div></section>
-        <SchedulePanel />
+        <SchedulePanel events={dashboardSchedule} />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{["All", "Working Today", "Done", "Blocked"].map((tab, index) => <button key={tab} className={index === 0 ? "tab active" : "tab"} role="tab" data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={tasks} onComplete={onComplete} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} /></section>
-        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} planned</span><span data-testid="ai-impact-value">{Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
+        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
     </main>
@@ -814,6 +856,10 @@ const SettingsPage = () => <main className="page-stack" data-testid="settings-pa
 const AppShell = () => {
   const [tasks, setTasks] = useState(initialTasks);
   const [overview, setOverview] = useState(defaultOverview);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [dashboardInsight, setDashboardInsight] = useState(null);
+  const [dashboardStatus, setDashboardStatus] = useState("fallback");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const statusCycle = useMemo(() => ["To Do", "In Progress", "Blocked", "Done"], []);
 
@@ -829,6 +875,33 @@ const AppShell = () => {
   const handleEditTask = (updatedTask) => setTasks((items) => items.map((task) => (task.id === updatedTask.id ? normalizeTask(updatedTask) : task)));
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
 
+  useEffect(() => {
+    let cancelled = false;
+    dashboardApi.today({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setTasks((data.tasks || []).map(normalizeApiTask));
+        setDashboardStats(data.stats || null);
+        setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
+        setDashboardInsight(data.ai_insight || null);
+        setDashboardStatus("live");
+        if (data.stats) {
+          setOverview((current) => ({
+            ...current,
+            meetingMinutes: data.stats.meeting_minutes ?? current.meetingMinutes,
+            focusMinutes: data.stats.focus_minutes ?? data.stats.available_focus_minutes ?? current.focusMinutes,
+          }));
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDashboardStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="app-shell" data-testid="app-shell">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -836,7 +909,7 @@ const AppShell = () => {
       <div className="workspace" data-testid="workspace">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <Routes>
-          <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage />} />
