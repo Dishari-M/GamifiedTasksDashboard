@@ -3,6 +3,8 @@ from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
 from services.ai_service import enrich_task
 from services.task_service import complete_task
+from services.phase8_capacity_service import capacity_response
+from services.phase8_dashboard_service import dashboard_today_response
 from fastapi.middleware.cors import CORSMiddleware
 
 app=FastAPI()
@@ -22,6 +24,14 @@ def tasks(): return get_tasks()
 
 @app.get("/quests")
 def quests(): return get_quests()
+
+@app.get("/api/v1/capacity")
+def capacity(date: str | None = None):
+    return capacity_response(date)
+
+@app.get("/api/v1/dashboard/today")
+def dashboard_today(date: str | None = None):
+    return dashboard_today_response(date)
 
 @app.post("/tasks")
 async def add_task(task:dict):
