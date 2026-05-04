@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
 from services.ai_service import enrich_task
@@ -6,8 +7,41 @@ from services.task_service import complete_task
 from services.phase8_capacity_service import capacity_response
 from services.phase8_dashboard_service import dashboard_today_response
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-app=FastAPI()
+class TaskCreate(BaseModel):
+    title: str = Field(..., examples=["Fix payment gateway timeout issue"])
+    description: str = Field(..., examples=["Users face timeout while making payments on checkout."])
+    priority: str = Field(..., examples=["High"])
+
+tags_metadata = [
+    {
+        "name": "Health",
+        "description": "Local service health and documentation discovery.",
+    },
+    {
+        "name": "Tasks",
+        "description": "Create, list, and complete DevQuest work items.",
+    },
+    {
+        "name": "Quests",
+        "description": "Read prioritized daily quest recommendations.",
+    },
+    {
+        "name": "Dashboard",
+        "description": "Phase 8 dashboard summary and capacity APIs.",
+    },
+]
+
+app=FastAPI(
+    title="DevQuest API",
+    description="Local API for the DevQuest gamified developer productivity dashboard.",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    openapi_tags=tags_metadata,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # allow all origins (OK for local dev)
@@ -16,28 +50,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
+@app.get("/", tags=["Health"])
 def root(): return {"msg":"DevQuest Pro"}
 
-@app.get("/tasks")
+@app.get("/swagger", include_in_schema=False)
+def swagger_redirect():
+    return RedirectResponse(url="/docs")
+
+@app.get("/tasks", tags=["Tasks"])
 def tasks(): return get_tasks()
 
-@app.get("/quests")
+@app.get("/quests", tags=["Quests"])
 def quests(): return get_quests()
 
-@app.get("/api/v1/capacity")
-def capacity(date: str | None = None):
-    return capacity_response(date)
+@app.get("/api/v1/capacity", tags=["Dashboard"])
+def capacity(date: str | None = None): return capacity_response(date)
 
-@app.get("/api/v1/dashboard/today")
-def dashboard_today(date: str | None = None):
-    return dashboard_today_response(date)
+@app.get("/api/v1/dashboard/today", tags=["Dashboard"])
+def dashboard_today(date: str | None = None): return dashboard_today_response(date)
 
-@app.post("/tasks")
-async def add_task(task:dict):
-    ai=await enrich_task(task["title"],task["description"])
-    return create_task(task,ai)
+@app.post("/tasks", tags=["Tasks"])
+async def add_task(task:TaskCreate):
+    task_payload=task.model_dump()
+    ai=await enrich_task(task_payload["title"],task_payload["description"])
+    return create_task(task_payload,ai)
 
-@app.post("/tasks/{task_id}/complete")
+@app.post("/tasks/{task_id}/complete", tags=["Tasks"])
 def mark_complete(task_id: str):
     return complete_task(task_id)

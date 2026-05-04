@@ -3,7 +3,6 @@
 # IDE and editors
 .idea/
 .vscode/
-.gitconfig
 
 # Dependencies
 node_modules/
@@ -119,4 +118,4 @@ Wallet_*/
 **/truststore.jks
 
 # Mobile development
-android-sdk/-e
+android-sdk/-e 
