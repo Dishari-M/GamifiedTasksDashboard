@@ -27,6 +27,7 @@ ALIASES = {
     "actualMinutes": "actual_minutes",
     "xp": "xp_value",
     "workingToday": "working_today",
+    "workedDates": "worked_dates",
     "runAiEnrichment": "run_ai_enrichment",
 }
 
@@ -63,6 +64,7 @@ def create_filesystem_task(payload):
             "xp_value": task_input.get("xp_value"),
             "notes": task_input.get("notes") or "",
             "labels": task_input.get("labels") or [],
+            "worked_dates": task_input.get("worked_dates") or "",
             "working_today": task_input.get("working_today", False),
             "run_ai_enrichment": task_input.get("run_ai_enrichment", False),
             "row_version": 1,
@@ -88,7 +90,7 @@ def create_filesystem_task(payload):
         write_records(DAILY_WORK_ITEMS_FILE, daily_items)
         write_records(AI_RUNS_FILE, ai_runs)
 
-        return task
+        return _response_task(task)
 
     return with_store_lock(action)
 
@@ -96,7 +98,7 @@ def create_filesystem_task(payload):
 def list_filesystem_tasks(filters=None):
     def action():
         filters_data = filters or {}
-        tasks = [_with_frontend_aliases(dict(task)) for task in read_records(WORK_ITEMS_FILE)]
+        tasks = read_records(WORK_ITEMS_FILE)
         filtered_tasks = _filter_tasks(tasks, filters_data)
         page = _positive_int(filters_data.get("page"), "page", 1)
         page_size = _positive_int(filters_data.get("page_size"), "page_size", 50)
@@ -105,7 +107,7 @@ def list_filesystem_tasks(filters=None):
         start = (page - 1) * page_size
         end = start + page_size
         return {
-            "items": filtered_tasks[start:end],
+            "items": [_response_task(task, filters_data.get("worked_date")) for task in filtered_tasks[start:end]],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -126,7 +128,7 @@ def get_filesystem_task(task_id):
                 detail={"code": "TASK_NOT_FOUND", "message": "Task was not found."},
             )
 
-        task_detail = _with_frontend_aliases(dict(task))
+        task_detail = _response_task(task)
         task_events = [
             event
             for event in events
@@ -151,21 +153,28 @@ def update_filesystem_task_today(task_id, payload):
                 detail={"code": "TASK_NOT_FOUND", "message": "Task was not found."},
             )
 
-        requested_value = _extract_working_today(payload, task)
         now = _now_iso()
+        work_date = _extract_work_date(payload, now)
+        requested_value = _extract_working_today(payload, task, work_date)
+        worked_dates = _task_worked_dates(task)
+        if requested_value:
+            worked_dates = _add_worked_date(worked_dates, work_date)
+        else:
+            worked_dates = [date for date in worked_dates if date != work_date]
+        task["worked_dates"] = _worked_dates_to_storage(worked_dates)
         task["working_today"] = requested_value
         task["workingToday"] = requested_value
         task["updated_at"] = now
         task["row_version"] = int(task.get("row_version") or 1) + 1
 
-        daily_item = _upsert_daily_work_item(daily_items, task, now, requested_value)
+        daily_item = _upsert_daily_work_item(daily_items, task, now, requested_value, work_date)
         events.append(_create_today_event(events, task, daily_item, now))
 
         write_records(WORK_ITEMS_FILE, tasks)
         write_records(DAILY_WORK_ITEMS_FILE, daily_items)
         write_records(WORK_ITEM_EVENTS_FILE, events)
 
-        return _with_frontend_aliases(dict(task))
+        return _response_task(task, work_date)
 
     return with_store_lock(action)
 
@@ -188,7 +197,7 @@ def update_filesystem_task(task_id, payload):
             task.update(_build_ai_fields(task))
             task["ai_run_id"] = ai_run["ai_run_id"]
 
-        updated_task = _with_frontend_aliases(dict(task))
+        updated_task = _response_task(task)
         events.append(_create_change_event(events, updated_task, "TASK_UPDATED", now, {"fields": sorted(update_data)}))
 
         write_records(WORK_ITEMS_FILE, tasks)
@@ -216,7 +225,7 @@ def update_filesystem_task_notes(task_id, payload):
             task.update(_build_ai_fields(task))
             task["ai_run_id"] = ai_run["ai_run_id"]
 
-        updated_task = _with_frontend_aliases(dict(task))
+        updated_task = _response_task(task)
         events.append(_create_change_event(events, updated_task, "NOTES_UPDATED", now, {"notes": task["notes"]}))
 
         write_records(WORK_ITEMS_FILE, tasks)
@@ -250,7 +259,7 @@ def update_filesystem_task_status(task_id, payload):
             task["completed_at"] = None
         _finish_task_update(task, now)
 
-        updated_task = _with_frontend_aliases(dict(task))
+        updated_task = _response_task(task)
         events.append(_create_change_event(events, updated_task, "STATUS_CHANGED", now, {"status": status}))
 
         write_records(WORK_ITEMS_FILE, tasks)
@@ -288,7 +297,7 @@ def complete_filesystem_task(task_id, payload):
             task.update(_build_ai_fields(task))
         _finish_task_update(task, now)
 
-        updated_task = _with_frontend_aliases(dict(task))
+        updated_task = _response_task(task)
         events.append(
             _create_change_event(
                 events,
@@ -312,6 +321,7 @@ def _filter_tasks(tasks, filters):
     source_values = _filter_values(filters.get("source") or filters.get("external_source"))
     priority_values = _filter_values(filters.get("priority"))
     working_today = filters.get("working_today")
+    worked_date = _normalize_date(_empty_to_none(filters.get("worked_date")) or _today_key(_now_iso()), "worked_date")
     completed_date = _empty_to_none(filters.get("completed_date"))
     completed_from = _empty_to_none(filters.get("completed_from"))
     completed_to = _empty_to_none(filters.get("completed_to"))
@@ -324,7 +334,9 @@ def _filter_tasks(tasks, filters):
     if priority_values:
         results = [task for task in results if task.get("priority") in priority_values]
     if working_today is not None:
-        results = [task for task in results if bool(task.get("working_today") or task.get("workingToday")) is bool(working_today)]
+        results = [task for task in results if _has_worked_date(task, worked_date) is bool(working_today)]
+    if filters.get("worked_date"):
+        results = [task for task in results if _has_worked_date(task, worked_date)]
     if completed_date:
         results = [task for task in results if _date_part(task.get("completed_at") or task.get("completedAt")) == completed_date]
     if completed_from:
@@ -369,7 +381,11 @@ def _normalize_payload(payload):
     data["xp_value"] = _optional_number(data.get("xp_value"), "xp_value")
     data["notes"] = _empty_to_default(data.get("notes"), "")
     data["labels"] = _normalize_labels(data.get("labels"))
-    data["working_today"] = bool(data.get("working_today", False))
+    worked_dates = _normalize_worked_dates(data.get("worked_dates"))
+    if bool(data.get("working_today", False)):
+        worked_dates = _add_worked_date(worked_dates, _today_key(_now_iso()))
+    data["worked_dates"] = _worked_dates_to_storage(worked_dates)
+    data["working_today"] = _today_key(_now_iso()) in worked_dates
     data["run_ai_enrichment"] = bool(data.get("run_ai_enrichment", False))
     return data
 
@@ -394,6 +410,7 @@ def _normalize_update_payload(payload):
         "xp_value",
         "notes",
         "labels",
+        "worked_dates",
     }
     data = {field: raw[field] for field in allowed if field in raw}
 
@@ -427,12 +444,16 @@ def _normalize_update_payload(payload):
         data["notes"] = _empty_to_default(data["notes"], "")
     if "labels" in data:
         data["labels"] = _normalize_labels(data["labels"])
+    if "worked_dates" in data:
+        data["worked_dates"] = _worked_dates_to_storage(_normalize_worked_dates(data["worked_dates"]))
     return data
 
 
 def _apply_task_updates(task, update_data):
     for field, value in update_data.items():
         task[field] = value
+    if "worked_dates" in update_data:
+        task["working_today"] = _has_worked_date(task, _today_key(_now_iso()))
     if "status" in update_data:
         if update_data.get("status") == "Done" and not task.get("completed_at"):
             task["completed_at"] = _now_iso()
@@ -611,6 +632,54 @@ def _normalize_labels(value):
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
+def _normalize_worked_dates(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        raw_dates = value
+    else:
+        raw_dates = str(value).split(",")
+    return sorted({_normalize_date(date, "worked_dates") for date in raw_dates if str(date).strip()})
+
+
+def _normalize_date(value, field):
+    text = _empty_to_none(value)
+    if not text:
+        _validation_error(f"{field} is required.", {"field": field})
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        _validation_error(f"{field} must use YYYY-MM-DD format.", {"field": field, "received": value})
+    return text
+
+
+def _worked_dates_to_storage(worked_dates):
+    return ",".join(sorted(worked_dates))
+
+
+def _task_worked_dates(task):
+    worked_dates = _normalize_worked_dates(task.get("worked_dates"))
+    if not worked_dates and bool(task.get("working_today") or task.get("workingToday")):
+        worked_dates = [_today_key(_now_iso())]
+    return worked_dates
+
+
+def _has_worked_date(task, worked_date):
+    return worked_date in _task_worked_dates(task)
+
+
+def _add_worked_date(worked_dates, worked_date):
+    return sorted(set(worked_dates + [_normalize_date(worked_date, "worked_date")]))
+
+
+def _extract_work_date(payload, now):
+    data = dict(payload or {})
+    return _normalize_date(
+        data.get("work_date") or data.get("workDate") or data.get("worked_date") or data.get("workedDate") or _today_key(now),
+        "work_date",
+    )
+
+
 def _next_id(records, id_field):
     ids = [record.get(id_field, 0) for record in records if isinstance(record.get(id_field), int)]
     return max(ids, default=0) + 1
@@ -643,17 +712,21 @@ def _find_task(tasks, task_id):
     return None
 
 
-def _extract_working_today(payload, task):
+def _extract_working_today(payload, task, work_date=None):
     data = dict(payload or {})
     if "working_today" in data:
         return bool(data["working_today"])
     if "workingToday" in data:
         return bool(data["workingToday"])
-    return not bool(task.get("working_today") or task.get("workingToday"))
+    if "is_working_today" in data:
+        return bool(data["is_working_today"])
+    if "isWorkingToday" in data:
+        return bool(data["isWorkingToday"])
+    return not _has_worked_date(task, work_date or _today_key(_now_iso()))
 
 
-def _upsert_daily_work_item(daily_items, task, now, is_working_today=True):
-    work_date = _today_key(now)
+def _upsert_daily_work_item(daily_items, task, now, is_working_today=True, work_date=None):
+    work_date = work_date or _today_key(now)
     for item in daily_items:
         if (
             item.get("user_id") == task["user_id"]
@@ -744,7 +817,20 @@ def _build_ai_fields(task):
     }
 
 
+def _response_task(task, work_date=None):
+    response = _with_frontend_aliases(dict(task))
+    worked_dates = _task_worked_dates(task)
+    requested_date = _normalize_date(work_date, "worked_date") if work_date else _today_key(_now_iso())
+    response["worked_dates"] = worked_dates
+    response["workedDates"] = worked_dates
+    response["working_today"] = requested_date in worked_dates
+    response["workingToday"] = response["working_today"]
+    return response
+
+
 def _with_frontend_aliases(task):
+    worked_dates = _task_worked_dates(task)
+    task["worked_dates"] = _worked_dates_to_storage(worked_dates)
     task["source"] = task["external_source"]
     task["type"] = task["task_type"]
     task["externalId"] = task["external_id"]
@@ -754,6 +840,8 @@ def _with_frontend_aliases(task):
     task["time"] = task["estimated_minutes"]
     task["actualMinutes"] = task["actual_minutes"]
     task["xp"] = task["xp_value"]
+    task["workedDates"] = worked_dates
+    task["working_today"] = _has_worked_date(task, _today_key(_now_iso()))
     task["workingToday"] = task["working_today"]
     task["completedAt"] = task["completed_at"]
     if "priority_score" in task:

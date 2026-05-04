@@ -108,6 +108,55 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(body["xp_value"], 80)
         self.assertEqual(body["labels"], ["frontend", "api"])
 
+    def test_create_task_validates_deduplicates_sorts_and_returns_worked_dates(self):
+        response = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "source": "Custom",
+                "title": "Worked dates task",
+                "type": "Task",
+                "priority": "Medium",
+                "status": "To Do",
+                "worked_dates": ["2026-05-07", "2026-05-06", "2026-05-06"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["worked_dates"], ["2026-05-06", "2026-05-07"])
+        self.assertEqual(body["workedDates"], ["2026-05-06", "2026-05-07"])
+        self.assertFalse(body["working_today"])
+
+        stored_task = self._read_json("work_items.json")[0]
+        self.assertEqual(stored_task["worked_dates"], "2026-05-06,2026-05-07")
+
+    def test_working_today_true_adds_today_to_worked_dates(self):
+        response = self._create_task("Today work", working_today=True)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn(self._today(), body["worked_dates"])
+        self.assertTrue(body["working_today"])
+
+        stored_task = self._read_json("work_items.json")[0]
+        self.assertIn(self._today(), stored_task["worked_dates"].split(","))
+
+    def test_invalid_worked_dates_returns_validation_error(self):
+        response = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "source": "Custom",
+                "title": "Bad date",
+                "type": "Task",
+                "priority": "Medium",
+                "status": "To Do",
+                "worked_dates": ["2026/05/04"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["details"]["field"], "worked_dates")
+
     def test_missing_title_returns_validation_error(self):
         response = self.client.post(
             "/api/v1/tasks",
@@ -283,6 +332,39 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertTrue(body["has_next"])
         self.assertEqual(len(body["items"]), 1)
 
+    def test_list_tasks_filters_by_worked_date(self):
+        self.client.post(
+            "/api/v1/tasks",
+            json={
+                "source": "Custom",
+                "title": "Worked Monday",
+                "type": "Task",
+                "priority": "Medium",
+                "status": "To Do",
+                "worked_dates": ["2026-05-04"],
+            },
+        )
+        self.client.post(
+            "/api/v1/tasks",
+            json={
+                "source": "Custom",
+                "title": "Worked Tuesday",
+                "type": "Task",
+                "priority": "Medium",
+                "status": "To Do",
+                "worked_dates": ["2026-05-05"],
+            },
+        )
+
+        response = self.client.get("/api/v1/tasks", params={"worked_date": "2026-05-04"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["title"], "Worked Monday")
+        self.assertEqual(body["items"][0]["worked_dates"], ["2026-05-04"])
+        self.assertTrue(body["items"][0]["working_today"])
+
     def test_get_task_detail_returns_full_task_and_audit_events(self):
         create_response = self._create_task("Detail task", notes="Has notes", run_ai_enrichment=True)
         task_id = create_response.json()["id"]
@@ -298,6 +380,7 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertIn("working_today", body)
         self.assertEqual(len(body["audit_events"]), 1)
         self.assertEqual(body["audit_events"][0]["event_type"], "TASK_CREATED")
+        self.assertIsInstance(body["worked_dates"], list)
 
     def test_get_task_detail_returns_404_for_missing_task(self):
         response = self.client.get("/api/v1/tasks/999")
@@ -326,11 +409,14 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(update_response.status_code, 200)
         self.assertTrue(update_response.json()["working_today"])
         self.assertTrue(update_response.json()["workingToday"])
+        self.assertIn(self._today(), update_response.json()["worked_dates"])
 
         daily_items = self._read_json("daily_work_items.json")
         self.assertEqual(len(daily_items), 1)
         self.assertEqual(daily_items[0]["task_id"], create_response.json()["task_id"])
         self.assertTrue(daily_items[0]["is_working_today"])
+        stored_task = self._read_json("work_items.json")[0]
+        self.assertIn(self._today(), stored_task["worked_dates"].split(","))
 
     def test_update_today_false_updates_daily_work_item(self):
         create_response = self.client.post(
@@ -353,11 +439,14 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(update_response.status_code, 200)
         self.assertFalse(update_response.json()["working_today"])
         self.assertFalse(update_response.json()["workingToday"])
+        self.assertNotIn(self._today(), update_response.json()["worked_dates"])
 
         daily_items = self._read_json("daily_work_items.json")
         self.assertEqual(len(daily_items), 1)
         self.assertEqual(daily_items[0]["task_id"], create_response.json()["task_id"])
         self.assertFalse(daily_items[0]["is_working_today"])
+        stored_task = self._read_json("work_items.json")[0]
+        self.assertNotIn(self._today(), stored_task.get("worked_dates", "").split(","))
 
     def test_patch_task_updates_provided_fields_and_writes_event(self):
         create_response = self._create_task("Patch me")
@@ -380,6 +469,25 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(body["labels"], ["backend", "phase6"])
         self.assertEqual(body["row_version"], 2)
         self.assertEqual(self._read_json("work_item_events.json")[-1]["event_type"], "TASK_UPDATED")
+
+    def test_patch_task_updates_worked_dates(self):
+        create_response = self._create_task("Patch worked dates")
+        task = create_response.json()
+
+        response = self.client.patch(
+            f"/api/v1/tasks/{task['id']}",
+            json={
+                "row_version": task["row_version"],
+                "workedDates": ["2026-05-07", "2026-05-06", "2026-05-06"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["worked_dates"], ["2026-05-06", "2026-05-07"])
+
+        stored_task = self._read_json("work_items.json")[0]
+        self.assertEqual(stored_task["worked_dates"], "2026-05-06,2026-05-07")
 
     def test_patch_task_rejects_stale_row_version(self):
         create_response = self._create_task("Stale patch")
