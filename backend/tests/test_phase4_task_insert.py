@@ -20,10 +20,197 @@ class Phase4TaskInsertTests(unittest.TestCase):
 
         self.main = importlib.reload(main)
         self.client = TestClient(self.main.app)
+        self.user = self._register_user("Navya", "K", "navya", "navya@example.com", "secret")
+        self.auth_headers = {"X-DevQuest-User-Id": self.user["user_id"]}
+        self.client.headers.update(self.auth_headers)
 
     def tearDown(self):
         self.env_patch.stop()
         self.temp_dir.cleanup()
+
+    def test_create_account_success_returns_profile_without_password(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "first_name": "Maya",
+                "last_name": "Rao",
+                "username": "maya",
+                "email": "maya@example.com",
+                "password": "pass123",
+                "confirm_password": "pass123",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["first_name"], "Maya")
+        self.assertEqual(body["last_name"], "Rao")
+        self.assertEqual(body["username"], "maya")
+        self.assertEqual(body["email"], "maya@example.com")
+        self.assertNotIn("password", body)
+
+        users = self._read_json("users.json")
+        self.assertEqual(users[-1]["password"], "pass123")
+
+    def test_create_account_rejects_duplicate_username(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "firstName": "Other",
+                "lastName": "User",
+                "username": "navya",
+                "email": "other@example.com",
+                "password": "secret",
+                "confirmPassword": "secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"]["code"], "USERNAME_TAKEN")
+
+    def test_create_account_allows_username_with_different_case(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "firstName": "Other",
+                "lastName": "User",
+                "username": "NAVYA",
+                "email": "other@example.com",
+                "password": "secret",
+                "confirmPassword": "secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "NAVYA")
+
+    def test_create_account_rejects_duplicate_email(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "first_name": "Other",
+                "last_name": "User",
+                "username": "other",
+                "email": "NAVYA@example.com",
+                "password": "secret",
+                "confirm_password": "secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"]["code"], "EMAIL_TAKEN")
+
+    def test_create_account_rejects_invalid_email(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "first_name": "Bad",
+                "last_name": "Email",
+                "username": "bademail",
+                "email": "not-an-email",
+                "password": "secret",
+                "confirm_password": "secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["details"]["field"], "email")
+
+    def test_create_account_rejects_password_mismatch(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "first_name": "Mismatch",
+                "last_name": "User",
+                "username": "mismatch",
+                "email": "mismatch@example.com",
+                "password": "secret",
+                "confirm_password": "different",
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["details"]["field"], "confirm_password")
+
+    def test_login_by_username_success(self):
+        response = self.client.post("/api/v1/auth/login", json={"identifier": "navya", "password": "secret"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_id"], self.user["user_id"])
+        self.assertNotIn("password", response.json())
+
+    def test_login_by_username_is_case_sensitive(self):
+        response = self.client.post("/api/v1/auth/login", json={"identifier": "NAVYA", "password": "secret"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"]["code"], "INVALID_CREDENTIALS")
+
+    def test_login_by_email_success(self):
+        response = self.client.post("/api/v1/auth/login", json={"identifier": "NAVYA@example.com", "password": "secret"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "navya")
+
+    def test_login_wrong_password_returns_401(self):
+        response = self.client.post("/api/v1/auth/login", json={"identifier": "navya", "password": "wrong"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"]["code"], "INVALID_CREDENTIALS")
+
+    def test_logout_endpoint_accepts_logged_in_user(self):
+        response = self.client.post("/api/v1/auth/logout")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        self.assertEqual(response.json()["user_id"], self.user["user_id"])
+
+    def test_profile_lookup_returns_name_without_password(self):
+        response = self.client.get("/api/v1/users/profile", params={"identifier": "navya@example.com"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["first_name"], "Navya")
+        self.assertEqual(body["last_name"], "K")
+        self.assertEqual(body["firstName"], "Navya")
+        self.assertEqual(body["lastName"], "K")
+        self.assertNotIn("password", body)
+
+    def test_task_list_only_returns_current_user_tasks(self):
+        other_user = self._register_user("Maya", "Rao", "maya", "maya@example.com", "pass123")
+        self._create_task("Mine")
+        self.client.post(
+            "/api/v1/tasks",
+            headers={"X-DevQuest-User-Id": other_user["user_id"]},
+            json={
+                "source": "Custom",
+                "title": "Theirs",
+                "type": "Task",
+                "priority": "Medium",
+                "status": "To Do",
+            },
+        )
+
+        response = self.client.get("/api/v1/tasks")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["title"], "Mine")
+        self.assertEqual(body["items"][0]["user_id"], self.user["user_id"])
+
+    def test_task_update_cannot_modify_another_users_task(self):
+        other_user = self._register_user("Maya", "Rao", "maya", "maya@example.com", "pass123")
+        create_response = self._create_task("Mine")
+        task = create_response.json()
+
+        response = self.client.patch(
+            f"/api/v1/tasks/{task['id']}",
+            headers={"X-DevQuest-User-Id": other_user["user_id"]},
+            json={"row_version": task["row_version"], "title": "Stolen"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"]["code"], "TASK_FORBIDDEN")
 
     def test_create_task_with_all_phase4_fields(self):
         response = self.client.post(
@@ -53,7 +240,7 @@ class Phase4TaskInsertTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["task_id"], 1)
         self.assertEqual(body["id"], "1")
-        self.assertEqual(body["user_id"], "local-user")
+        self.assertEqual(body["user_id"], self.user["user_id"])
         self.assertEqual(body["external_source"], "Jira")
         self.assertEqual(body["source"], "Jira")
         self.assertEqual(body["task_type"], "Task")
@@ -578,6 +765,21 @@ class Phase4TaskInsertTests(unittest.TestCase):
         path = Path(self.temp_dir.name) / name
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
+
+    def _register_user(self, first_name, last_name, username, email, password):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            json={
+                "first_name": first_name,
+                "last_name": last_name,
+                "username": username,
+                "email": email,
+                "password": password,
+                "confirm_password": password,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
 
     def _create_task(
         self,

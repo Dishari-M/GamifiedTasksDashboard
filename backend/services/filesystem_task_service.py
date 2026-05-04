@@ -32,7 +32,7 @@ ALIASES = {
 }
 
 
-def create_filesystem_task(payload):
+def create_filesystem_task(payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
@@ -41,14 +41,14 @@ def create_filesystem_task(payload):
 
         task_input = _normalize_payload(payload)
         _validate_task_input(task_input)
-        _validate_unique_external_identity(tasks, task_input)
+        _validate_unique_external_identity(tasks, task_input, user_id)
 
         now = _now_iso()
         task_id = _next_id(tasks, "task_id")
         task = {
             "task_id": task_id,
             "id": str(task_id),
-            "user_id": LOCAL_USER_ID,
+            "user_id": user_id,
             "external_source": task_input["external_source"],
             "external_id": task_input.get("external_id"),
             "title": task_input["title"],
@@ -95,11 +95,11 @@ def create_filesystem_task(payload):
     return with_store_lock(action)
 
 
-def list_filesystem_tasks(filters=None):
+def list_filesystem_tasks(filters=None, user_id=LOCAL_USER_ID):
     def action():
         filters_data = filters or {}
         tasks = read_records(WORK_ITEMS_FILE)
-        filtered_tasks = _filter_tasks(tasks, filters_data)
+        filtered_tasks = _filter_tasks(tasks, filters_data, user_id)
         page = _positive_int(filters_data.get("page"), "page", 1)
         page_size = _positive_int(filters_data.get("page_size"), "page_size", 50)
         page_size = min(page_size, 100)
@@ -117,22 +117,18 @@ def list_filesystem_tasks(filters=None):
     return with_store_lock(action)
 
 
-def get_filesystem_task(task_id):
+def get_filesystem_task(task_id, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
-        task = _find_task(tasks, task_id)
-        if task is None:
-            raise HTTPException(
-                status_code=404,
-                detail={"code": "TASK_NOT_FOUND", "message": "Task was not found."},
-            )
+        task = _require_task(tasks, task_id, user_id)
 
         task_detail = _response_task(task)
         task_events = [
             event
             for event in events
             if str(event.get("task_id")) == str(task_detail.get("task_id"))
+            and event.get("user_id") == user_id
         ]
         task_detail["audit_events"] = sorted(task_events, key=lambda event: event.get("created_at") or "")
         return task_detail
@@ -140,18 +136,13 @@ def get_filesystem_task(task_id):
     return with_store_lock(action)
 
 
-def update_filesystem_task_today(task_id, payload):
+def update_filesystem_task_today(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
         daily_items = read_records(DAILY_WORK_ITEMS_FILE)
 
-        task = _find_task(tasks, task_id)
-        if task is None:
-            raise HTTPException(
-                status_code=404,
-                detail={"code": "TASK_NOT_FOUND", "message": "Task was not found."},
-            )
+        task = _require_task(tasks, task_id, user_id)
 
         now = _now_iso()
         work_date = _extract_work_date(payload, now)
@@ -179,12 +170,12 @@ def update_filesystem_task_today(task_id, payload):
     return with_store_lock(action)
 
 
-def update_filesystem_task(task_id, payload):
+def update_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
         ai_runs = read_records(AI_RUNS_FILE)
-        task = _require_task(tasks, task_id)
+        task = _require_task(tasks, task_id, user_id)
         _validate_row_version(task, payload)
 
         update_data = _normalize_update_payload(payload)
@@ -208,12 +199,12 @@ def update_filesystem_task(task_id, payload):
     return with_store_lock(action)
 
 
-def update_filesystem_task_notes(task_id, payload):
+def update_filesystem_task_notes(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
         ai_runs = read_records(AI_RUNS_FILE)
-        task = _require_task(tasks, task_id)
+        task = _require_task(tasks, task_id, user_id)
         _validate_row_version(task, payload)
 
         now = _now_iso()
@@ -236,11 +227,11 @@ def update_filesystem_task_notes(task_id, payload):
     return with_store_lock(action)
 
 
-def update_filesystem_task_status(task_id, payload):
+def update_filesystem_task_status(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
-        task = _require_task(tasks, task_id)
+        task = _require_task(tasks, task_id, user_id)
         if (payload or {}).get("row_version") is not None:
             _validate_row_version(task, payload)
 
@@ -269,11 +260,11 @@ def update_filesystem_task_status(task_id, payload):
     return with_store_lock(action)
 
 
-def complete_filesystem_task(task_id, payload):
+def complete_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
-        task = _require_task(tasks, task_id)
+        task = _require_task(tasks, task_id, user_id)
         _validate_row_version(task, payload)
 
         data = dict(payload or {})
@@ -315,8 +306,8 @@ def complete_filesystem_task(task_id, payload):
     return with_store_lock(action)
 
 
-def _filter_tasks(tasks, filters):
-    results = list(tasks)
+def _filter_tasks(tasks, filters, user_id):
+    results = [task for task in tasks if task.get("user_id") == user_id]
     status_values = _filter_values(filters.get("status"))
     source_values = _filter_values(filters.get("source") or filters.get("external_source"))
     priority_values = _filter_values(filters.get("priority"))
@@ -467,14 +458,14 @@ def _finish_task_update(task, now):
     _with_frontend_aliases(task)
 
 
-def _require_task(tasks, task_id):
+def _require_task(tasks, task_id, user_id):
     task = _find_task(tasks, task_id)
     if task is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "TASK_NOT_FOUND", "message": "Task was not found."},
         )
-    if task.get("user_id") != LOCAL_USER_ID:
+    if task.get("user_id") != user_id:
         raise HTTPException(
             status_code=403,
             detail={"code": "TASK_FORBIDDEN", "message": "Task does not belong to the current user."},
@@ -558,14 +549,14 @@ def _validate_task_input(data):
             _validation_error(f"{field} cannot be negative.", {"field": field})
 
 
-def _validate_unique_external_identity(tasks, data):
+def _validate_unique_external_identity(tasks, data, user_id):
     external_id = data.get("external_id")
     if not external_id:
         return
 
     for task in tasks:
         if (
-            task.get("user_id") == LOCAL_USER_ID
+            task.get("user_id") == user_id
             and task.get("external_source") == data["external_source"]
             and task.get("external_id") == external_id
         ):

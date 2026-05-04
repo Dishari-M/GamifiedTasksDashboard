@@ -29,6 +29,7 @@ import {
   Plus,
   RocketLaunch,
   ShieldStar,
+  SignOut,
   SidebarSimple,
   Sparkle,
   SquaresFour,
@@ -42,7 +43,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, tasksApi } from "./api/client";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -66,6 +67,25 @@ const todayKey = () => new Date().toLocaleDateString("en-CA");
 const nowIso = () => new Date().toISOString();
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+const profileFirstName = (user) => user?.first_name || user?.firstName || "User";
+const profileLastName = (user) => user?.last_name || user?.lastName || "";
+const profileFullName = (user) => [profileFirstName(user), profileLastName(user)].filter(Boolean).join(" ");
+const profileInitials = (user) => {
+  const first = profileFirstName(user).charAt(0);
+  const last = profileLastName(user).charAt(0);
+  return `${first}${last || ""}`.toUpperCase();
+};
+
+const readCurrentUser = () => {
+  try {
+    return JSON.parse(window.localStorage.getItem(CURRENT_USER_STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+};
+
+const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
 
 const parseNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -300,6 +320,138 @@ const IconBadge = ({ icon: Icon, tone = "violet", testId }) => (
   </span>
 );
 
+const AuthPage = ({ onAuthenticated }) => {
+  const [mode, setMode] = useState("login");
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    identifier: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [authError, setAuthError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const update = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+    setAuthError("");
+  };
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setFieldErrors({});
+    setAuthError("");
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (mode === "login") {
+      if (!form.identifier.trim()) errors.identifier = "Enter your username or email.";
+      if (!form.password) errors.password = "Enter your password.";
+    } else {
+      if (!form.firstName.trim()) errors.firstName = "First name is required.";
+      if (!form.lastName.trim()) errors.lastName = "Last name is required.";
+      if (!form.username.trim()) errors.username = "Username is required.";
+      if (!form.email.trim()) errors.email = "Email is required.";
+      else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errors.email = "Enter a valid email address.";
+      if (!form.password) errors.password = "Password is required.";
+      if (!form.confirmPassword) errors.confirmPassword = "Confirm your password.";
+      else if (form.password !== form.confirmPassword) errors.confirmPassword = "Passwords must match.";
+    }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const completeAuth = async (profileIdentifier) => {
+    const profile = await authApi.getProfile(profileIdentifier);
+    window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(profile));
+    onAuthenticated(profile);
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!validate()) return;
+    setIsSubmitting(true);
+    setAuthError("");
+    try {
+      if (mode === "login") {
+        const loginResult = await authApi.login({ identifier: form.identifier.trim(), password: form.password });
+        await completeAuth(loginResult.username || loginResult.email || form.identifier.trim());
+      } else {
+        const created = await authApi.register({
+          first_name: form.firstName.trim(),
+          last_name: form.lastName.trim(),
+          username: form.username.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          confirm_password: form.confirmPassword,
+        });
+        await completeAuth(created.username || form.username.trim());
+      }
+    } catch (error) {
+      setAuthError(authErrorMessage(error, mode === "login" ? "Unable to log in." : "Unable to create account."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-page" data-testid="auth-page">
+      <section className="auth-panel" aria-labelledby="auth-title">
+        <div className="auth-brand">
+          <span className="brand-mark"><RocketLaunch size={34} weight="fill" aria-hidden="true" /></span>
+          <span className="brand-name">DevQuest</span>
+        </div>
+        <div className="auth-heading">
+          <h1 id="auth-title">{mode === "login" ? "Welcome back" : "Create your profile"}</h1>
+          <p>{mode === "login" ? "Log in to continue your task dashboard." : "Set up your local profile to personalize DevQuest."}</p>
+        </div>
+        <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
+          <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")} data-testid="login-mode-button">Login</button>
+          <button type="button" role="tab" aria-selected={mode === "create"} className={mode === "create" ? "active" : ""} onClick={() => switchMode("create")} data-testid="create-mode-button">Create Account</button>
+        </div>
+        <form className="auth-form" onSubmit={submit} noValidate data-testid={`${mode}-auth-form`}>
+          {mode === "create" && (
+            <>
+              <label>First Name<input value={form.firstName} onChange={(event) => update("firstName", event.target.value)} autoComplete="given-name" data-testid="first-name-input" /></label>
+              {fieldErrors.firstName && <span className="field-error">{fieldErrors.firstName}</span>}
+              <label>Last Name<input value={form.lastName} onChange={(event) => update("lastName", event.target.value)} autoComplete="family-name" data-testid="last-name-input" /></label>
+              {fieldErrors.lastName && <span className="field-error">{fieldErrors.lastName}</span>}
+              <label>User Name<input value={form.username} onChange={(event) => update("username", event.target.value)} autoComplete="username" data-testid="username-input" /></label>
+              {fieldErrors.username && <span className="field-error">{fieldErrors.username}</span>}
+              <label>Email address<input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} autoComplete="email" data-testid="email-input" /></label>
+              {fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}
+            </>
+          )}
+          {mode === "login" && (
+            <>
+              <label>Username or email<input value={form.identifier} onChange={(event) => update("identifier", event.target.value)} autoComplete="username" data-testid="login-identifier-input" /></label>
+              {fieldErrors.identifier && <span className="field-error">{fieldErrors.identifier}</span>}
+            </>
+          )}
+          <label>Password<input type="password" value={form.password} onChange={(event) => update("password", event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} data-testid="password-input" /></label>
+          {fieldErrors.password && <span className="field-error">{fieldErrors.password}</span>}
+          {mode === "create" && (
+            <>
+              <label>Confirm Password<input type="password" value={form.confirmPassword} onChange={(event) => update("confirmPassword", event.target.value)} autoComplete="new-password" data-testid="confirm-password-input" /></label>
+              {fieldErrors.confirmPassword && <span className="field-error">{fieldErrors.confirmPassword}</span>}
+            </>
+          )}
+          {authError && <p className="form-error auth-error" role="alert" data-testid="auth-error">{authError}</p>}
+          <button className="primary-action auth-submit" type="submit" disabled={isSubmitting} data-testid="auth-submit-button">
+            <ShieldStar size={19} weight="duotone" aria-hidden="true" />
+            {isSubmitting ? "Please wait..." : mode === "login" ? "Login" : "Create Account"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+};
+
 const Sidebar = ({ open, onClose }) => (
   <aside className={`sidebar ${open ? "sidebar-open" : ""}`} data-testid="app-sidebar">
     <div className="brand" data-testid="app-brand">
@@ -342,9 +494,10 @@ const Sidebar = ({ open, onClose }) => (
   </aside>
 );
 
-const Topbar = ({ onMenuClick }) => {
+const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick }) => {
   const location = useLocation();
-  const title = location.pathname === "/" ? "Good morning, Dishari" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const title = location.pathname === "/" ? `Good morning, ${profileFirstName(currentUser)}` : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -365,11 +518,34 @@ const Topbar = ({ onMenuClick }) => {
         <Bell size={28} weight="duotone" />
         <span data-testid="notification-count">3</span>
       </button>
-      <button className="profile-button" aria-label="Open profile menu" data-testid="profile-menu-button">
-        <span className="avatar" data-testid="profile-avatar">DM</span>
-        <span data-testid="profile-name">Dishari Mukherjee</span>
-        <CaretDown size={16} weight="bold" aria-hidden="true" />
-      </button>
+      <div className="profile-cluster">
+        <button
+          className="profile-button"
+          aria-label={`Profile for ${profileFullName(currentUser)}`}
+          aria-haspopup="menu"
+          aria-expanded={isProfileMenuOpen}
+          onClick={() => setIsProfileMenuOpen((value) => !value)}
+          data-testid="profile-menu-button"
+        >
+          <span className="avatar" data-testid="profile-avatar">{profileInitials(currentUser)}</span>
+          <span data-testid="profile-name">{profileFullName(currentUser)}</span>
+          <CaretDown size={16} weight="bold" aria-hidden="true" />
+        </button>
+        {isProfileMenuOpen && (
+          <div className="profile-menu" role="menu" data-testid="profile-dropdown-menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onLogout}
+              disabled={isLoggingOut}
+              data-testid="logout-button"
+            >
+              <SignOut size={20} weight="duotone" aria-hidden="true" />
+              <span>{isLoggingOut ? "Logging out..." : "Logout"}</span>
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   );
 };
@@ -825,7 +1001,7 @@ const SyncPage = () => <main className="page-stack" data-testid="sync-page"><sec
 
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value="1.5x" readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
-const AppShell = () => {
+const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [tasks, setTasks] = useState([]);
   const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
@@ -912,7 +1088,7 @@ const AppShell = () => {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />
       <div className="workspace" data-testid="workspace">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} />
         {taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
@@ -930,8 +1106,37 @@ const AppShell = () => {
   );
 };
 
+const AuthenticatedApp = () => {
+  const [currentUser, setCurrentUser] = useState(() => readCurrentUser());
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleAuthenticated = (profile) => {
+    window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(profile));
+    setCurrentUser(profile);
+  };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await authApi.logout();
+    } catch {
+      // Local auth has no server-side session; always clear local state.
+    } finally {
+      window.localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+      setCurrentUser(null);
+      setIsLoggingOut(false);
+    }
+  };
+
+  if (!currentUser?.user_id) {
+    return <AuthPage onAuthenticated={handleAuthenticated} />;
+  }
+
+  return <AppShell currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={handleLogout} />;
+};
+
 function App() {
-  return <BrowserRouter><AppShell /></BrowserRouter>;
+  return <BrowserRouter><AuthenticatedApp /></BrowserRouter>;
 }
 
 export default App;

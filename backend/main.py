@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header
 from fastapi.responses import RedirectResponse
 from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
@@ -13,6 +13,13 @@ from services.filesystem_task_service import (
     update_filesystem_task_notes,
     update_filesystem_task_status,
     update_filesystem_task_today,
+)
+from services.filesystem_user_service import (
+    get_user_profile,
+    login_user,
+    logout_user,
+    register_user,
+    require_user_id,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -34,6 +41,14 @@ tags_metadata = [
     {
         "name": "Quests",
         "description": "Read prioritized daily quest recommendations.",
+    },
+    {
+        "name": "Auth",
+        "description": "Local filesystem login and profile creation.",
+    },
+    {
+        "name": "Users",
+        "description": "Read local user profile details.",
     },
 ]
 
@@ -77,9 +92,28 @@ async def add_task(task:TaskCreate):
 def mark_complete(task_id: str):
     return complete_task(task_id)
 
+def current_user_id(x_devquest_user_id: str | None = Header(default=None, alias="X-DevQuest-User-Id")):
+    return require_user_id(x_devquest_user_id)
+
+@app.post("/api/v1/auth/register", tags=["Auth"])
+def register_filesystem_user(payload: dict):
+    return register_user(payload)
+
+@app.post("/api/v1/auth/login", tags=["Auth"])
+def login_filesystem_user(payload: dict):
+    return login_user(payload)
+
+@app.post("/api/v1/auth/logout", tags=["Auth"])
+def logout_filesystem_user(user_id: str = Depends(current_user_id)):
+    return logout_user(user_id)
+
+@app.get("/api/v1/users/profile", tags=["Users"])
+def filesystem_user_profile(identifier: str):
+    return get_user_profile(identifier)
+
 @app.post("/api/v1/tasks")
-def add_filesystem_task(task: dict):
-    return create_filesystem_task(task)
+def add_filesystem_task(task: dict, user_id: str = Depends(current_user_id)):
+    return create_filesystem_task(task, user_id)
 
 @app.get("/api/v1/tasks")
 def filesystem_tasks(
@@ -96,6 +130,7 @@ def filesystem_tasks(
     q: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    user_id: str = Depends(current_user_id),
 ):
     return list_filesystem_tasks(
         {
@@ -112,29 +147,30 @@ def filesystem_tasks(
             "q": q,
             "page": page,
             "page_size": page_size,
-        }
+        },
+        user_id,
     )
 
 @app.get("/api/v1/tasks/{task_id}")
-def filesystem_task_detail(task_id: str):
-    return get_filesystem_task(task_id)
+def filesystem_task_detail(task_id: str, user_id: str = Depends(current_user_id)):
+    return get_filesystem_task(task_id, user_id)
 
 @app.patch("/api/v1/tasks/{task_id}")
-def patch_filesystem_task(task_id: str, payload: dict):
-    return update_filesystem_task(task_id, payload)
+def patch_filesystem_task(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
+    return update_filesystem_task(task_id, payload, user_id)
 
 @app.put("/api/v1/tasks/{task_id}/notes")
-def update_filesystem_notes(task_id: str, payload: dict):
-    return update_filesystem_task_notes(task_id, payload)
+def update_filesystem_notes(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
+    return update_filesystem_task_notes(task_id, payload, user_id)
 
 @app.patch("/api/v1/tasks/{task_id}/status")
-def patch_filesystem_status(task_id: str, payload: dict):
-    return update_filesystem_task_status(task_id, payload)
+def patch_filesystem_status(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
+    return update_filesystem_task_status(task_id, payload, user_id)
 
 @app.post("/api/v1/tasks/{task_id}/complete")
-def complete_filesystem_status(task_id: str, payload: dict):
-    return complete_filesystem_task(task_id, payload)
+def complete_filesystem_status(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
+    return complete_filesystem_task(task_id, payload, user_id)
 
 @app.put("/api/v1/tasks/{task_id}/today")
-def update_filesystem_today(task_id: str, payload: dict):
-    return update_filesystem_task_today(task_id, payload)
+def update_filesystem_today(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
+    return update_filesystem_task_today(task_id, payload, user_id)

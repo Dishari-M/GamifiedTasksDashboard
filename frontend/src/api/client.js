@@ -1,6 +1,15 @@
 import axios from "axios";
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+export const CURRENT_USER_STORAGE_KEY = "devquest.currentUser";
+
+const readStoredUser = () => {
+  try {
+    return JSON.parse(window.localStorage.getItem(CURRENT_USER_STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+};
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -9,7 +18,22 @@ export const api = axios.create({
   },
 });
 
+api.interceptors.request.use((config) => {
+  const user = readStoredUser();
+  if (user?.user_id) {
+    config.headers["X-DevQuest-User-Id"] = user.user_id;
+  }
+  return config;
+});
+
 const unwrap = (response) => response.data?.data ?? response.data;
+
+export const authApi = {
+  register: (payload) => api.post("/auth/register", payload).then(unwrap),
+  login: (payload) => api.post("/auth/login", payload).then(unwrap),
+  logout: () => api.post("/auth/logout", {}).then(unwrap),
+  getProfile: (identifier) => api.get("/users/profile", { params: { identifier } }).then(unwrap),
+};
 
 export const tasksApi = {
   list: (params = {}) => api.get("/tasks", { params }).then(unwrap),
