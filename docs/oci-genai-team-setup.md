@@ -193,6 +193,8 @@ model_sample_count=<non-zero>
 
 ## App Environment Variables
 
+Set these in PowerShell before starting the backend process. They are not code config values and should not be committed to the repository.
+
 For DevQuest real AI mode against the temporary test compartment, use:
 
 ```powershell

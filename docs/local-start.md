@@ -125,8 +125,11 @@ Without these DB variables, the root endpoint `/` can still run, but DB-backed e
 
 Local development uses mock AI insight by default:
 
+Set these in the same PowerShell window before starting the backend. These are process environment variables, not values to commit into repo files.
+
 ```powershell
 $env:DEVQUEST_AI_MODE="mock"
+$env:DEVQUEST_DATA_MODE="mock"
 $env:DEVQUEST_AI_PROVIDER="oci_genai"
 ```
 
@@ -152,6 +155,8 @@ $env:OCI_GENAI_SERVING_MODE="on_demand"
 ```
 
 Use `OCI_GENAI_SERVING_MODE="dedicated"` only when Oracle provides a dedicated GenAI endpoint OCID. In that case, put the endpoint OCID in `OCI_GENAI_MODEL_ID`.
+
+Restart the backend after changing any `DEVQUEST_*` or `OCI_*` value.
 
 ## Common URLs
 

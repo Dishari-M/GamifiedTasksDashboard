@@ -98,10 +98,13 @@ Mock data should mirror future table concepts so it can be replaced with Oracle 
 
 The mock-vs-real data mode is a shared backend concern, not a Phase 8-only concern. All backend work should use the same flag so UI and backend teams can switch the whole API surface consistently.
 
-Environment variable:
+Set this as an environment variable in the shell that starts the backend. Do not hard-code personal values in `backend/config.py` or commit local config files.
 
-```text
-DEVQUEST_DATA_MODE=mock
+PowerShell example:
+
+```powershell
+$env:DEVQUEST_DATA_MODE="mock"
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 Supported values:
@@ -135,16 +138,28 @@ API endpoints should keep the same response shape when switching from mock to Or
 
 Dashboard AI insight should be production-shaped now, with mock behavior only at the AI boundary.
 
-Environment variables:
+Set these as environment variables in the shell that starts the backend. The code reads them through `os.getenv(...)` in `backend/config.py`, so changing values requires a backend restart.
 
-```text
-DEVQUEST_AI_MODE=mock
-DEVQUEST_AI_PROVIDER=oci_genai
-OCI_GENAI_MODEL_ID=
-OCI_COMPARTMENT_ID=
-OCI_AUTH_TYPE=config_file
-OCI_CONFIG_PROFILE=DEFAULT
-OCI_GENAI_REQUEST_FORMAT=generic
+PowerShell mock/default example:
+
+```powershell
+$env:DEVQUEST_AI_MODE="mock"
+$env:DEVQUEST_AI_PROVIDER="oci_genai"
+$env:DEVQUEST_DATA_MODE="mock"
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+PowerShell real OCI GenAI example:
+
+```powershell
+$env:DEVQUEST_AI_MODE="real"
+$env:DEVQUEST_AI_PROVIDER="oci_genai"
+$env:OCI_GENAI_MODEL_ID="<MODEL_ID>"
+$env:OCI_COMPARTMENT_ID="<COMPARTMENT_OCID>"
+$env:OCI_AUTH_TYPE="config_file"
+$env:OCI_CONFIG_FILE="$env:USERPROFILE\.oci\config"
+$env:OCI_CONFIG_PROFILE="DEFAULT"
+$env:OCI_GENAI_REQUEST_FORMAT="generic"
 ```
 
 Supported values:
@@ -163,13 +178,13 @@ Supported values:
 
 Temporary local testing also supports `OCI_AUTH_TYPE=api_key` for explicit API-key environment variables. This should be used only for local testing and never with committed secrets:
 
-```text
-OCI_REGION=us-ashburn-1
-OCI_USER_OCID=
-OCI_TENANCY_OCID=
-OCI_KEY_FILE=
-OCI_KEY_FINGERPRINT=
-OCI_KEY_PASSPHRASE=
+```powershell
+$env:OCI_REGION="us-ashburn-1"
+$env:OCI_USER_OCID="<USER_OCID>"
+$env:OCI_TENANCY_OCID="<TENANCY_OCID>"
+$env:OCI_KEY_FILE="$env:USERPROFILE\.oci_mohit\oci_api_key.pem"
+$env:OCI_KEY_FINGERPRINT="<KEY_FINGERPRINT>"
+$env:OCI_KEY_PASSPHRASE="<PRIVATE_KEY_PASSPHRASE>"
 ```
 
 Current shared config file:
@@ -238,6 +253,8 @@ Use these switches consistently. Defaults must keep the app usable for teammates
 When an AI coding assistant works on this repo:
 
 - Keep `DEVQUEST_AI_MODE=mock` as the default in code and docs.
+- Treat switch values as process environment variables, not committed code config.
+- Tell developers to set PowerShell `$env:...` values before starting/restarting the backend.
 - Do not require real OCI config for local build, frontend build, or normal smoke tests.
 - Do not commit OCI user OCIDs, private keys, passphrases, or personal config files.
 - Use `DEVQUEST_AI_MODE=real` only when the user explicitly wants a real OCI GenAI test.
