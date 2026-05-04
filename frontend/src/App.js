@@ -115,6 +115,8 @@ const formatDateTime = (isoValue) => {
 
 const FOCUS_SESSIONS_STORAGE_KEY = "devquest.focusSessions.v1";
 const ACTIVE_FOCUS_STORAGE_KEY = "devquest.activeFocusSession.v1";
+const QUEST_PLAN_STORAGE_KEY = "devquest.questPlan.v1";
+const TASKS_STORAGE_KEY = "devquest.tasks.v1";
 const focusOutcomes = ["Progress made", "Blocked", "Ready for review", "Completed"];
 
 const readStoredJson = (key, fallback) => {
@@ -336,6 +338,11 @@ const initialTasks = [
   }),
 ];
 
+const readStoredTasks = () => {
+  const storedTasks = readStoredJson(TASKS_STORAGE_KEY, null);
+  return Array.isArray(storedTasks) ? storedTasks.map(normalizeTask) : initialTasks;
+};
+
 const schedule = [
   { time: "09:00 AM", title: "Daily Standup", duration: "30m", durationMinutes: 30, color: "purple" },
   { time: "10:00 AM", title: "Architecture Review", duration: "1h", durationMinutes: 60, color: "orange" },
@@ -450,7 +457,81 @@ const StatCard = ({ label, value, detail, icon, tone, trend, down, progress, tes
   </section>
 );
 
-const MissionCard = ({ task, index }) => {
+const questPriorityRank = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+const questStatusRank = { "In Progress": 4, "To Do": 3, Blocked: 2, Upcoming: 1, Done: 0 };
+
+const compareQuestTasks = (a, b) => {
+  const statusDiff = (questStatusRank[b.status] ?? 1) - (questStatusRank[a.status] ?? 1);
+  if (statusDiff) return statusDiff;
+  const scoreDiff = (b.priorityScore || 0) - (a.priorityScore || 0);
+  if (scoreDiff) return scoreDiff;
+  const priorityDiff = (questPriorityRank[b.priority] || 0) - (questPriorityRank[a.priority] || 0);
+  if (priorityDiff) return priorityDiff;
+  const impactDiff = parseNumber(b.impact, 0) - parseNumber(a.impact, 0);
+  if (impactDiff) return impactDiff;
+  return parseNumber(a.time, 0) - parseNumber(b.time, 0);
+};
+
+const workingTodayTasks = (tasks) => tasks.filter((task) => task.workingToday);
+
+const defaultQuestOrder = (tasks) => [...workingTodayTasks(tasks)].sort(compareQuestTasks);
+
+const sortedTaskIds = (tasks) => tasks.map((task) => task.id).sort();
+
+const sameTaskIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
+
+const generateQuestPlan = (tasks) => {
+  const orderedTasks = defaultQuestOrder(tasks);
+  return {
+    workDate: todayKey(),
+    generatedAt: nowIso(),
+    sourceTaskIds: sortedTaskIds(workingTodayTasks(tasks)),
+    orderedTaskIds: orderedTasks.map((task) => task.id),
+  };
+};
+
+const isCurrentQuestPlan = (questPlan) => Boolean(questPlan && questPlan.workDate === todayKey());
+
+const isQuestPlanSynced = (tasks, questPlan) => {
+  if (!isCurrentQuestPlan(questPlan)) return false;
+  const sourceIds = questPlan.sourceTaskIds || sortedTaskIds((questPlan.orderedTaskIds || []).map((id) => ({ id })));
+  return sameTaskIds(sourceIds, sortedTaskIds(workingTodayTasks(tasks)));
+};
+
+const isUsableQuestPlan = (tasks, questPlan) => isCurrentQuestPlan(questPlan) && isQuestPlanSynced(tasks, questPlan);
+
+const getQuestOrderedTasks = (tasks, questPlan) => {
+  const todayTasks = workingTodayTasks(tasks);
+  if (!isUsableQuestPlan(tasks, questPlan)) return defaultQuestOrder(tasks);
+  const taskById = new Map(todayTasks.map((task) => [task.id, task]));
+  const ordered = (questPlan.orderedTaskIds || []).map((id) => taskById.get(id)).filter(Boolean);
+  const orderedIds = new Set(ordered.map((task) => task.id));
+  const appended = todayTasks.filter((task) => !orderedIds.has(task.id)).sort(compareQuestTasks);
+  return [...ordered, ...appended];
+};
+
+const questActionLabel = (task) => {
+  if (task.status === "Done") return "Completed";
+  if (task.status === "Blocked") return "Resolve blocker";
+  if (task.status === "In Progress") return "Continue this";
+  if (task.status === "Upcoming") return "Prepare";
+  return "Start with this";
+};
+
+const questRationale = (task, index) => {
+  if (task.status === "Done") return "Already completed today; keep it visible for daily progress and XP context.";
+  if (task.status === "Blocked") return "Marked blocked, so the best next move is to clear the dependency before more focus time.";
+  const rankCopy = index === 0 ? "Highest leverage item in today's selected work." : "Selected for today and ordered by priority, impact, and effort.";
+  return `${rankCopy} ${task.priority} priority ${task.type.toLowerCase()} from ${task.source}, estimated at ${formatMinutes(task.time)}.`;
+};
+
+const questGeneratedLabel = (tasks, questPlan, taskCount) => {
+  if (!isCurrentQuestPlan(questPlan)) return `${taskCount} Working Today task${taskCount === 1 ? "" : "s"} ready`;
+  if (!isQuestPlanSynced(tasks, questPlan)) return `Working Today changed since ${formatDateTime(questPlan.generatedAt)}. Update quests to refresh the order.`;
+  return `Generated ${formatDateTime(questPlan.generatedAt)} from ${taskCount} task${taskCount === 1 ? "" : "s"}`;
+};
+
+const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
   return (
     <article className={`mission-card mission-${task.accent}`} data-testid={`mission-card-${slug(task.id)}`}>
@@ -459,8 +540,10 @@ const MissionCard = ({ task, index }) => {
         <div className="mission-title-row"><h3 data-testid={`mission-title-${slug(task.id)}`}>{task.title}</h3><Pill tone={task.type.toLowerCase()} testId={`mission-type-${slug(task.id)}`}>{task.type}</Pill></div>
         <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {task.id}</p>
         <p data-testid={`mission-description-${slug(task.id)}`}>{task.aiInsight || task.description}</p>
+        {questMeta && <p className="quest-rationale" data-testid={`quest-rationale-${slug(task.id)}`}>{questMeta.rationale}</p>}
       </div>
       <div className="mission-score">
+        {questMeta && <span className={`quest-action quest-action-${slug(task.status)}`} data-testid={`quest-action-${slug(task.id)}`}>{questMeta.action}</span>}
         <Pill tone={task.priority.toLowerCase()} testId={`mission-priority-${slug(task.id)}`}>{task.priority}</Pill>
         <span data-testid={`mission-time-${slug(task.id)}`}><Clock size={16} weight="duotone" aria-hidden="true" /> {task.time} mins</span>
         <strong data-testid={`mission-xp-${slug(task.id)}`}>{task.xp} XP</strong>
@@ -784,14 +867,13 @@ const generateStandupNote = (tasks) => {
   };
 };
 
-const Dashboard = ({ tasks, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const Dashboard = ({ tasks, questPlan, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const completedCount = completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
   const totalXp = tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
   const focusedToday = focusMinutesForSessions(sessionsForDay(focusSessions));
-  const topMissions = [...(todayTasks.length ? todayTasks : tasks.filter((task) => task.status !== "Done"))]
-    .sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))
-    .slice(0, 3);
+  const orderedQuestTasks = getQuestOrderedTasks(tasks, questPlan);
+  const topMissions = (orderedQuestTasks.length ? orderedQuestTasks : tasks.filter((task) => task.status !== "Done").sort(compareQuestTasks)).slice(0, 3);
 
   return (
     <main className="dashboard-page" data-testid="dashboard-page">
@@ -803,7 +885,7 @@ const Dashboard = ({ tasks, focusSessions, activeSession, onStartFocus, onPauseF
         <StatCard label="Meetings" value="3h 10m" detail="Tracked in overview" icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
-        <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">View quests</NavLink></div><div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} />)}</div></section>
+        <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">View quests</NavLink></div><div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestPlan(tasks, questPlan) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
         <SchedulePanel />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{["All", "Working Today", "Done", "Blocked"].map((tab, index) => <button key={tab} className={index === 0 ? "tab active" : "tab"} role="tab" data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={tasks} onComplete={onComplete} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} /></section>
         <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} planned</span><span data-testid="ai-impact-value">{Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
@@ -882,13 +964,26 @@ const FocusPage = ({ tasks, focusSessions, activeSession, onStartFocus, onPauseF
   );
 };
 
-const QuestsPage = ({ tasks }) => {
-  const todayTasks = tasks.filter((task) => task.workingToday).sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
+const QuestsPage = ({ tasks, questPlan, onGenerateQuests, onClearQuests }) => {
+  const todayTasks = getQuestOrderedTasks(tasks, questPlan);
+  const hasCurrentPlan = isCurrentQuestPlan(questPlan);
+  const isGenerated = isUsableQuestPlan(tasks, questPlan);
+  const isOutOfSync = hasCurrentPlan && !isGenerated;
+  const generateLabel = isOutOfSync ? "Update Quests" : isGenerated ? "Regenerate Quests" : "Generate Quests";
   return (
     <main className="page-stack" data-testid="quests-page">
       <section className="surface missions-panel" data-testid="all-quests-panel">
-        <div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Daily Quest Board</h2><button className="primary-action" data-testid="generate-quests-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> Generate Quests</button></div>
-        <div className="mission-list">{todayTasks.length ? todayTasks.map((task, index) => <MissionCard key={task.id} task={task} index={index} />) : <p className="empty-state">No tasks are marked as working today yet.</p>}</div>
+        <div className="section-heading quest-board-heading">
+          <div>
+            <h2><Flag size={26} weight="duotone" aria-hidden="true" /> Daily Quest Board</h2>
+            <p className={`quest-board-summary ${isOutOfSync ? "quest-board-warning" : ""}`} data-testid="quest-board-summary" aria-live="polite">{questGeneratedLabel(tasks, questPlan, todayTasks.length)}</p>
+          </div>
+          <div className="quest-board-actions">
+            {hasCurrentPlan && <button className="ghost-button" onClick={onClearQuests} data-testid="clear-quests-button">Reset</button>}
+            <button className="primary-action" onClick={onGenerateQuests} disabled={!todayTasks.length} data-testid="generate-quests-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generateLabel}</button>
+          </div>
+        </div>
+        <div className="mission-list">{todayTasks.length ? todayTasks.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isGenerated ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />) : <p className="empty-state">No tasks are marked as Working Today yet. Open My Tasks and use the Today column to add work here.</p>}</div>
       </section>
       <section className="surface" data-testid="daily-work-source-card">
         <div className="section-heading"><h2><Database size={26} weight="duotone" aria-hidden="true" /> Daily Work Source</h2><span>{todayKey()}</span></div>
@@ -896,10 +991,11 @@ const QuestsPage = ({ tasks }) => {
           {todayTasks.map((task, index) => (
             <article className="source-row" key={task.id}>
               <strong>{index + 1}. {task.title}</strong>
-              <span>{task.id} - {task.priority} - {task.time} mins planned - {task.xp} XP</span>
-              <p>{task.notes || task.aiInsight}</p>
+              <span>{task.id} - {task.priority} - {task.status} - {task.time} mins planned - {task.xp} XP</span>
+              <p>{isGenerated ? questRationale(task, index) : task.notes || task.aiInsight}</p>
             </article>
           ))}
+          {!todayTasks.length && <p className="empty-state">Working Today selection is the source for generated quests.</p>}
         </div>
       </section>
     </main>
@@ -1006,10 +1102,11 @@ const SyncPage = () => <main className="page-stack" data-testid="sync-page"><sec
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value="1.5x" readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
 const AppShell = () => {
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState(readStoredTasks);
   const [overview, setOverview] = useState(defaultOverview);
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
+  const [questPlan, setQuestPlan] = useState(() => readStoredJson(QUEST_PLAN_STORAGE_KEY, null));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const statusCycle = useMemo(() => ["To Do", "In Progress", "Blocked", "Done"], []);
 
@@ -1022,6 +1119,15 @@ const AppShell = () => {
     else removeStoredJson(ACTIVE_FOCUS_STORAGE_KEY);
   }, [activeSession]);
 
+  useEffect(() => {
+    if (isCurrentQuestPlan(questPlan)) writeStoredJson(QUEST_PLAN_STORAGE_KEY, questPlan);
+    else removeStoredJson(QUEST_PLAN_STORAGE_KEY);
+  }, [questPlan]);
+
+  useEffect(() => {
+    writeStoredJson(TASKS_STORAGE_KEY, tasks);
+  }, [tasks]);
+
   const handleComplete = (id) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, status: "Done", completedAt: task.completedAt || nowIso() }) : task)));
   const handleStatusChange = (id) => setTasks((items) => items.map((task) => {
     if (task.id !== id) return task;
@@ -1033,6 +1139,8 @@ const AppShell = () => {
   const handleUpdateNotes = (id, notes) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, notes, aiInsight: "" }) : task)));
   const handleEditTask = (updatedTask) => setTasks((items) => items.map((task) => (task.id === updatedTask.id ? normalizeTask(updatedTask) : task)));
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleGenerateQuests = () => setQuestPlan(generateQuestPlan(tasks));
+  const handleClearQuests = () => setQuestPlan(null);
   const handleStartFocus = (task) => {
     const startedAt = nowIso();
     setActiveSession({
@@ -1085,11 +1193,11 @@ const AppShell = () => {
       <div className="workspace" data-testid="workspace">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <Routes>
-          <Route path="/" element={<Dashboard tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questPlan={questPlan} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
-          <Route path="/quests" element={<QuestsPage tasks={tasks} />} />
+          <Route path="/quests" element={<QuestsPage tasks={tasks} questPlan={questPlan} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage />} />
