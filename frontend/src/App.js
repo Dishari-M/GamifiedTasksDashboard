@@ -113,10 +113,75 @@ const formatDateTime = (isoValue) => {
   }).format(new Date(isoValue));
 };
 
+const FOCUS_SESSIONS_STORAGE_KEY = "devquest.focusSessions.v1";
+const ACTIVE_FOCUS_STORAGE_KEY = "devquest.activeFocusSession.v1";
+const focusOutcomes = ["Progress made", "Blocked", "Ready for review", "Need follow-up"];
+
+const readStoredJson = (key, fallback) => {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeStoredJson = (key, value) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+};
+
+const removeStoredJson = (key) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(key);
+};
+
+const createFocusId = () => {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `focus-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+};
+
+const secondsBetween = (start, end = new Date()) => Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+
+const activeFocusSeconds = (session) => {
+  if (!session) return 0;
+  return Math.max(0, Math.floor((session.accumulatedSeconds || 0) + (session.isRunning && session.lastStartedAt ? secondsBetween(session.lastStartedAt) : 0)));
+};
+
+const isSessionOnDay = (session, day = todayKey()) => session?.work_date === day || isSameDay(session?.started_at, day);
+
+const sessionsForDay = (sessions, day = todayKey()) => sessions.filter((session) => isSessionOnDay(session, day));
+
+const sessionMinutes = (session) => parseNumber(session.duration_minutes, Math.ceil(parseNumber(session.duration_seconds, 0) / 60));
+
+const focusMinutesForSessions = (sessions) => sessions.reduce((sum, session) => sum + sessionMinutes(session), 0);
+
+const topFocusedTask = (sessions) => {
+  const totals = sessions.reduce((acc, session) => {
+    const key = session.task_id || "unassigned";
+    acc[key] = acc[key] || { taskId: key, title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
+    acc[key].minutes += sessionMinutes(session);
+    acc[key].count += 1;
+    return acc;
+  }, {});
+  return Object.values(totals).sort((a, b) => b.minutes - a.minutes)[0];
+};
+
+const orderedFocusTasks = (tasks) => [
+  ...tasks.filter((task) => task.workingToday && task.status !== "Done"),
+  ...tasks.filter((task) => !task.workingToday && task.status !== "Done"),
+];
+
 const formatTimer = (seconds) => {
   const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
   const secs = (seconds % 60).toString().padStart(2, "0");
   return `${mins}:${secs}`;
+};
+
+const truncateText = (value, maxLength = 46) => {
+  const text = String(value || "");
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 };
 
 const iconForType = (type) => {
@@ -343,13 +408,14 @@ const Sidebar = ({ open, onClose }) => (
 const Topbar = ({ onMenuClick }) => {
   const location = useLocation();
   const title = location.pathname === "/" ? "Good morning, Dishari" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const subtitle = location.pathname === "/focus" ? "Capture focused work by task." : "Plan the work, capture the learning, and keep momentum visible.";
 
   return (
     <header className="topbar" data-testid="topbar">
       <button className="icon-button mobile-menu" onClick={onMenuClick} aria-label="Open navigation" data-testid="mobile-menu-button"><SidebarSimple size={24} weight="duotone" /></button>
       <div className="topbar-title">
         <h1 data-testid="page-title">{title}</h1>
-        <p data-testid="page-subtitle">Plan the work, capture the learning, and keep momentum visible.</p>
+        <p data-testid="page-subtitle">{subtitle}</p>
       </div>
       <label className="search-box" data-testid="search-label">
         <MagnifyingGlass size={22} weight="duotone" aria-hidden="true" />
@@ -423,26 +489,96 @@ const SchedulePanel = () => (
   </section>
 );
 
-const FocusWidget = ({ compact = false }) => {
-  const [isRunning, setIsRunning] = useState(false);
-  const [seconds, setSeconds] = useState(25 * 60);
+const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
+  const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
+  const [selectedTaskId, setSelectedTaskId] = useState(() => activeSession?.task_id || taskOptions[0]?.id || "");
+  const [outcomeType, setOutcomeType] = useState("Progress made");
+  const [outcomeNote, setOutcomeNote] = useState("");
+  const [, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!isRunning || seconds <= 0) return undefined;
-    const id = window.setInterval(() => setSeconds((value) => value - 1), 1000);
-    return () => window.clearInterval(id);
-  }, [isRunning, seconds]);
+    if (!selectedTaskId && taskOptions[0]?.id) setSelectedTaskId(taskOptions[0].id);
+  }, [selectedTaskId, taskOptions]);
 
-  const progress = ((25 * 60 - seconds) / (25 * 60)) * 360;
+  useEffect(() => {
+    if (activeSession?.task_id) setSelectedTaskId(activeSession.task_id);
+  }, [activeSession?.task_id]);
+
+  useEffect(() => {
+    if (!activeSession?.isRunning) return undefined;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeSession?.isRunning]);
+
+  const elapsedSeconds = activeFocusSeconds(activeSession);
+  const todaySessions = sessionsForDay(focusSessions);
+  const focusedToday = focusMinutesForSessions(todaySessions);
+  const topTask = topFocusedTask(todaySessions);
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
+  const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready";
+  const plannedMinutes = selectedTask ? formatMinutes(selectedTask.time) : "No task";
+  const hasTasks = taskOptions.length > 0;
+
+  const startFocus = () => {
+    if (!selectedTask) return;
+    onStartFocus(selectedTask);
+  };
+
+  const stopFocus = () => {
+    onStopFocus({ outcomeType, outcomeNote });
+    setOutcomeNote("");
+    setOutcomeType("Progress made");
+  };
 
   return (
     <section className={`surface focus-widget ${compact ? "focus-compact" : ""}`} data-testid="focus-widget">
-      <div className="section-heading"><h2><Timer size={26} weight="duotone" aria-hidden="true" /> Focus Mode</h2><NavLink to="/focus" data-testid="focus-sessions-link">Sessions</NavLink></div>
-      <div className="timer-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Pomodoro timer progress"><div><strong data-testid="focus-timer-value">{formatTimer(seconds)}</strong><span data-testid="focus-timer-label">Pomodoro</span></div></div>
-      <div className="focus-actions">
-        <button className="primary-action" onClick={() => setIsRunning((value) => !value)} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> {isRunning ? "Pause" : "Start"}</button>
-        <button className="icon-button reset-button" onClick={() => { setIsRunning(false); setSeconds(25 * 60); }} aria-label="Reset timer" data-testid="focus-reset-button"><ArrowClockwise size={22} weight="duotone" /></button>
+      <div className="section-heading focus-heading">
+        <h2><Timer size={26} weight="duotone" aria-hidden="true" /> Focus Session</h2>
+        <span data-testid="focus-today-pill">{formatMinutes(focusedToday)} today</span>
       </div>
+      <div className="focus-hero-grid">
+        <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
+          <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+        </div>
+      </div>
+      {!compact && topTask && <p className="focus-context-line" data-testid="focus-top-task-line">Most focus today: <strong>{topTask.title}</strong></p>}
+      <label className="focus-task-picker">
+        Focus task
+        <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
+          {taskOptions.map((task) => <option key={task.id} value={task.id}>{task.workingToday ? "Today - " : ""}{truncateText(task.title, 24)}</option>)}
+          {!taskOptions.length && <option value="">No open tasks</option>}
+        </select>
+      </label>
+      {!compact && selectedTask && (
+        <article className="focus-selected-task" data-testid="focus-selected-task">
+          <div>
+            <span>{selectedTask.source}</span>
+            <strong>{selectedTask.title}</strong>
+            <p>{selectedTask.description}</p>
+          </div>
+          <div className="focus-selected-meta" aria-label="Selected task details">
+            <Pill tone={selectedTask.priority.toLowerCase()}>{selectedTask.priority}</Pill>
+            <span>{plannedMinutes}</span>
+          </div>
+        </article>
+      )}
+      {!compact && activeSession && (
+        <div className="focus-outcome-panel" data-testid="focus-outcome-panel">
+          <span>Wrap up session</span>
+          <div className="focus-chip-row">
+            {focusOutcomes.map((outcome) => <button key={outcome} className={`focus-chip ${outcomeType === outcome ? "active" : ""}`} onClick={() => setOutcomeType(outcome)} type="button">{outcome}</button>)}
+          </div>
+          <textarea value={outcomeNote} onChange={(event) => setOutcomeNote(event.target.value)} placeholder="What changed, shipped, or blocked you?" data-testid="focus-outcome-note" />
+        </div>
+      )}
+      <div className="focus-actions">
+        {!activeSession && <button className="primary-action" onClick={startFocus} disabled={!selectedTask} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> Start focus</button>}
+        {activeSession?.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
+        {activeSession && !activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
+        {activeSession && <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>}
+      </div>
+      {activeSession && <p className="focus-active-copy" data-testid="focus-active-copy">Focusing on <strong>{activeSession.task_title}</strong>.</p>}
     </section>
   );
 };
@@ -645,10 +781,11 @@ const generateStandupNote = (tasks) => {
   };
 };
 
-const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const Dashboard = ({ tasks, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const completedCount = completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
   const totalXp = tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
+  const focusedToday = focusMinutesForSessions(sessionsForDay(focusSessions));
   const topMissions = [...(todayTasks.length ? todayTasks : tasks.filter((task) => task.status !== "Done"))]
     .sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))
     .slice(0, 3);
@@ -659,14 +796,14 @@ const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
         <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value="2h 35m" detail="22% vs yesterday" icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail="Captured from sessions" icon={Clock} tone="green" trend testId="stat-focus-time" />
         <StatCard label="Meetings" value="3h 10m" detail="Tracked in overview" icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">View quests</NavLink></div><div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} />)}</div></section>
         <SchedulePanel />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{["All", "Working Today", "Done", "Blocked"].map((tab, index) => <button key={tab} className={index === 0 ? "tab active" : "tab"} role="tab" data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={tasks} onComplete={onComplete} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} /></section>
-        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} planned</span><span data-testid="ai-impact-value">{Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
+        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} planned</span><span data-testid="ai-impact-value">{Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
     </main>
@@ -698,7 +835,49 @@ const TasksPage = ({ tasks, onAddTask, onComplete, onStatusChange, onEdit, onTog
 
 const CalendarPage = ({ overview }) => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /><section className="surface weekly-panel" data-testid="weekly-overview-card"><div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><NavLink to="/overview">Open overview</NavLink></div><div className="weekly-grid"><StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" /><StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" /><StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" /></div></section></main>;
 
-const FocusPage = () => <main className="focus-page" data-testid="focus-page"><FocusWidget /><section className="surface focus-guidance" data-testid="focus-guidance-card"><h2><Lightning size={26} weight="duotone" aria-hidden="true" /> Deep Work Protocol</h2><ul><li data-testid="focus-guidance-item-1">Start with the highest-impact mission.</li><li data-testid="focus-guidance-item-2">Mute distractions until the timer ends.</li><li data-testid="focus-guidance-item-3">Complete one status update after each session.</li></ul></section></main>;
+const FocusPage = ({ tasks, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus }) => {
+  const todaySessions = sessionsForDay(focusSessions);
+  const weekStart = startOfWeekKey();
+  const weekSessions = focusSessions.filter((session) => {
+    const day = session.work_date || new Date(session.started_at).toLocaleDateString("en-CA");
+    return day >= weekStart && day <= addDaysKey(weekStart, 6);
+  });
+  const focusedToday = focusMinutesForSessions(todaySessions);
+  const focusedWeek = focusMinutesForSessions(weekSessions);
+  const topTask = topFocusedTask(todaySessions);
+  const taskBreakdown = Object.values(todaySessions.reduce((acc, session) => {
+    const key = session.task_id || "unassigned";
+    acc[key] = acc[key] || { title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
+    acc[key].minutes += sessionMinutes(session);
+    acc[key].count += 1;
+    return acc;
+  }, {})).sort((a, b) => b.minutes - a.minutes);
+
+  return (
+    <main className="focus-page" data-testid="focus-page">
+      <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
+      <section className="surface focus-log-panel" data-testid="focus-guidance-card">
+        <div className="section-heading focus-log-heading"><h2><Lightning size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Focus</h2><span>{todayKey()}</span></div>
+        <div className="focus-calm-summary" data-testid="focus-calm-summary">
+          <span><strong>{formatMinutes(focusedToday)}</strong>today</span>
+          <span><strong>{todaySessions.length}</strong>session{todaySessions.length === 1 ? "" : "s"}</span>
+          <span><strong>{formatMinutes(focusedWeek)}</strong>this week</span>
+        </div>
+        <p className="focus-log-copy" data-testid="focus-log-copy">{topTask ? `Most of your deep work is going into ${topTask.title}.` : "No focus evidence captured yet today."}</p>
+        {taskBreakdown.length > 0 && (
+          <div className="focus-breakdown" data-testid="focus-task-breakdown">
+            {taskBreakdown.slice(0, 3).map((item) => <article className="focus-breakdown-item" key={item.title}><strong>{item.title}</strong><span>{formatMinutes(item.minutes)}</span></article>)}
+          </div>
+        )}
+        <div className="focus-session-list compact-session-list" data-testid="focus-session-list">
+          <h3>Recent sessions</h3>
+          {todaySessions.slice(0, 4).map((session) => <article className="focus-session-row" key={session.focus_session_id}><div><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {session.outcome_type}</span></div><em>{formatMinutes(sessionMinutes(session))}</em>{session.outcome_note && <p>{session.outcome_note}</p>}</article>)}
+          {!todaySessions.length && <p className="empty-state">No focus sessions captured today.</p>}
+        </div>
+      </section>
+    </main>
+  );
+};
 
 const QuestsPage = ({ tasks }) => {
   const todayTasks = tasks.filter((task) => task.workingToday).sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
@@ -761,13 +940,21 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
   );
 };
 
-const OverviewPage = ({ tasks, overview, onOverviewChange }) => {
+const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const completedToday = completedTodayTasks(tasks);
   const weekStart = startOfWeekKey();
   const completedWeek = tasks.filter((task) => task.status === "Done" && isWithinWeek(task.completedAt, weekStart));
+  const todayFocusSessions = sessionsForDay(focusSessions);
+  const weekFocusSessions = focusSessions.filter((session) => {
+    const day = session.work_date || new Date(session.started_at).toLocaleDateString("en-CA");
+    return day >= weekStart && day <= addDaysKey(weekStart, 6);
+  });
+  const focusedToday = focusMinutesForSessions(todayFocusSessions);
+  const focusedWeek = focusMinutesForSessions(weekFocusSessions);
+  const topFocus = topFocusedTask(todayFocusSessions);
   const dailyXp = completedToday.reduce((sum, task) => sum + task.xp, 0);
   const weeklyXp = completedWeek.reduce((sum, task) => sum + task.xp, 0);
-  const notes = completedToday.map((task) => task.notes).filter(Boolean);
+  const notes = [...completedToday.map((task) => task.notes), ...todayFocusSessions.map((session) => session.outcome_note)].filter(Boolean);
   const update = (field, value) => onOverviewChange({ ...overview, [field]: value });
 
   return (
@@ -777,26 +964,30 @@ const OverviewPage = ({ tasks, overview, onOverviewChange }) => {
         <div className="overview-stats">
           <StatCard label="Tasks Accomplished" value={completedToday.length} detail={`${dailyXp} XP earned`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
           <StatCard label="Meetings" value={formatMinutes(overview.meetingMinutes)} detail="Editable daily tracker" icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(overview.focusMinutes)} detail="Deep-work estimate" icon={Timer} tone="blue" testId="daily-focus-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={topFocus ? `Top: ${topFocus.title}` : "Captured from sessions"} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
           <label>Meeting minutes<input type="number" min="0" value={overview.meetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
-          <label>Focus minutes<input type="number" min="0" value={overview.focusMinutes} onChange={(event) => update("focusMinutes", parseNumber(event.target.value, 0))} /></label>
+          <label>Focus minutes<input type="number" min="0" value={focusedToday} readOnly /></label>
           <label>New learnings<textarea value={overview.newLearnings} onChange={(event) => update("newLearnings", event.target.value)} /></label>
           <label>Went well<textarea value={overview.wentWell} onChange={(event) => update("wentWell", event.target.value)} /></label>
           <label>Went wrong<textarea value={overview.wentWrong} onChange={(event) => update("wentWrong", event.target.value)} /></label>
         </div>
+        <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
+          {todayFocusSessions.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(sessionMinutes(session))} - {session.outcome_type}</span><p>{session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
+          {!todayFocusSessions.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
+        </div>
         <div className="accomplished-list">
           {completedToday.map((task) => <article key={task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completedAt)} - {task.actualMinutes || task.time} mins - {task.xp} XP</span><p>{task.notes}</p></article>)}
         </div>
-        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {completedToday.length ? `Completed ${completedToday.length} task(s), earned ${dailyXp} XP, and captured ${notes.length} task note(s) for AI review.` : "No completions logged for today yet."}</p>
+        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {completedToday.length || todayFocusSessions.length ? `Completed ${completedToday.length} task(s), focused ${formatMinutes(focusedToday)}, earned ${dailyXp} XP, and captured ${notes.length} note(s) for AI review.` : "No completions or focus sessions logged for today yet."}</p>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
         <div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><span>{weekStart} to {addDaysKey(weekStart, 6)}</span></div>
         <div className="weekly-grid">
           <StatCard label="Completed" value={`${completedWeek.length} tasks`} detail={`${weeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
           <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes * 5)} detail="Projected from daily tracker" icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(overview.focusMinutes * 5)} detail="Projected from daily tracker" icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(focusedWeek)} detail={`${weekFocusSessions.length} real sessions`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
         </div>
         <div className="theme-list">
           {[...new Set(completedWeek.flatMap((task) => task.labels || []))].slice(0, 5).map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}
@@ -814,8 +1005,19 @@ const SettingsPage = () => <main className="page-stack" data-testid="settings-pa
 const AppShell = () => {
   const [tasks, setTasks] = useState(initialTasks);
   const [overview, setOverview] = useState(defaultOverview);
+  const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
+  const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const statusCycle = useMemo(() => ["To Do", "In Progress", "Blocked", "Done"], []);
+
+  useEffect(() => {
+    writeStoredJson(FOCUS_SESSIONS_STORAGE_KEY, focusSessions);
+  }, [focusSessions]);
+
+  useEffect(() => {
+    if (activeSession) writeStoredJson(ACTIVE_FOCUS_STORAGE_KEY, activeSession);
+    else removeStoredJson(ACTIVE_FOCUS_STORAGE_KEY);
+  }, [activeSession]);
 
   const handleComplete = (id) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, status: "Done", completedAt: task.completedAt || nowIso() }) : task)));
   const handleStatusChange = (id) => setTasks((items) => items.map((task) => {
@@ -828,6 +1030,50 @@ const AppShell = () => {
   const handleUpdateNotes = (id, notes) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, notes, aiInsight: "" }) : task)));
   const handleEditTask = (updatedTask) => setTasks((items) => items.map((task) => (task.id === updatedTask.id ? normalizeTask(updatedTask) : task)));
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleStartFocus = (task) => {
+    const startedAt = nowIso();
+    setActiveSession({
+      focus_session_id: createFocusId(),
+      task_id: task.id,
+      task_title: task.title,
+      task_source: task.source,
+      work_date: todayKey(),
+      started_at: startedAt,
+      lastStartedAt: startedAt,
+      accumulatedSeconds: 0,
+      isRunning: true,
+      created_at: startedAt,
+    });
+  };
+  const handlePauseFocus = () => setActiveSession((session) => {
+    if (!session || !session.isRunning) return session;
+    return { ...session, accumulatedSeconds: activeFocusSeconds(session), isRunning: false, lastStartedAt: null };
+  });
+  const handleResumeFocus = () => setActiveSession((session) => {
+    if (!session || session.isRunning) return session;
+    return { ...session, isRunning: true, lastStartedAt: nowIso() };
+  });
+  const handleStopFocus = ({ outcomeType, outcomeNote }) => setActiveSession((session) => {
+    if (!session) return null;
+    const endedAt = nowIso();
+    const durationSeconds = activeFocusSeconds(session);
+    const savedSession = {
+      focus_session_id: session.focus_session_id,
+      task_id: session.task_id,
+      task_title: session.task_title,
+      task_source: session.task_source,
+      work_date: session.work_date || todayKey(),
+      started_at: session.started_at,
+      ended_at: endedAt,
+      duration_seconds: durationSeconds,
+      duration_minutes: Math.max(1, Math.ceil(durationSeconds / 60)),
+      outcome_type: outcomeType || "Progress made",
+      outcome_note: outcomeNote?.trim() || "",
+      created_at: session.created_at || endedAt,
+    };
+    setFocusSessions((items) => [savedSession, ...items]);
+    return null;
+  });
 
   return (
     <div className="app-shell" data-testid="app-shell">
@@ -836,13 +1082,13 @@ const AppShell = () => {
       <div className="workspace" data-testid="workspace">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <Routes>
-          <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
-          <Route path="/focus" element={<FocusPage />} />
+          <Route path="/focus" element={<FocusPage tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} onRefreshInsights={handleRefreshInsights} />} />
-          <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} onOverviewChange={setOverview} />} />
+          <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

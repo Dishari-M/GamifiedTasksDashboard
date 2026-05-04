@@ -19,3 +19,11 @@ def get_tasks():
     cur.execute("SELECT ID,TITLE,DESCRIPTION,PRIORITY,AI_ESTIMATED_MINUTES,XP_VALUE,STATUS FROM DEVQUEST_WORK_ITEMS")
     rows=cur.fetchall();conn.close()
     return [{"id":r[0],"title":r[1],"desc":r[2],"priority":r[3],"time":r[4],"xp":r[5],"status":r[6]} for r in rows]
+
+def complete_task(task_id):
+    conn=get_connection();cur=conn.cursor()
+    cur.execute("UPDATE DEVQUEST_WORK_ITEMS SET STATUS='done' WHERE ID=:1", (task_id,))
+    conn.commit()
+    updated=cur.rowcount
+    conn.close()
+    return {"id":task_id,"status":"done","updated":updated}
