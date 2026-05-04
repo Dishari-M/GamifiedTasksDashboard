@@ -435,7 +435,8 @@ body {
 
 .focus-actions .primary-action,
 .focus-actions .ghost-button {
-  min-width: 154px;
+  width: 100%;
+  min-width: 0;
 }
 
 .focus-save-action {
@@ -460,6 +461,12 @@ body {
   color: var(--text-soft);
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.focus-helper-text {
+  margin: 12px 0 0;
+  color: var(--text-soft);
+  line-height: 1.5;
 }
 
 .focus-active-copy strong {

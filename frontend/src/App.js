@@ -115,7 +115,7 @@ const formatDateTime = (isoValue) => {
 
 const FOCUS_SESSIONS_STORAGE_KEY = "devquest.focusSessions.v1";
 const ACTIVE_FOCUS_STORAGE_KEY = "devquest.activeFocusSession.v1";
-const focusOutcomes = ["Progress made", "Blocked", "Ready for review", "Need follow-up"];
+const focusOutcomes = ["Progress made", "Blocked", "Ready for review", "Completed"];
 
 const readStoredJson = (key, fallback) => {
   if (typeof window === "undefined") return fallback;
@@ -408,7 +408,7 @@ const Sidebar = ({ open, onClose }) => (
 const Topbar = ({ onMenuClick }) => {
   const location = useLocation();
   const title = location.pathname === "/" ? "Good morning, Dishari" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
-  const subtitle = location.pathname === "/focus" ? "Capture focused work by task." : "Plan the work, capture the learning, and keep momentum visible.";
+  const subtitle = location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -513,10 +513,11 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFoc
   const elapsedSeconds = activeFocusSeconds(activeSession);
   const todaySessions = sessionsForDay(focusSessions);
   const focusedToday = focusMinutesForSessions(todaySessions);
-  const topTask = topFocusedTask(todaySessions);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
+  const selectedTaskFocusedToday = focusMinutesForSessions(selectedTaskSessions);
   const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
-  const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready";
+  const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
   const plannedMinutes = selectedTask ? formatMinutes(selectedTask.time) : "No task";
   const hasTasks = taskOptions.length > 0;
 
@@ -526,6 +527,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFoc
   };
 
   const stopFocus = () => {
+    if (elapsedSeconds > 0 && elapsedSeconds < 120 && !window.confirm("This session was under 2 minutes. Save it anyway?")) return;
     onStopFocus({ outcomeType, outcomeNote });
     setOutcomeNote("");
     setOutcomeType("Progress made");
@@ -534,7 +536,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFoc
   return (
     <section className={`surface focus-widget ${compact ? "focus-compact" : ""}`} data-testid="focus-widget">
       <div className="section-heading focus-heading">
-        <h2><Timer size={26} weight="duotone" aria-hidden="true" /> Focus Session</h2>
+        <h2><Timer size={26} weight="duotone" aria-hidden="true" /> Current session</h2>
         <span data-testid="focus-today-pill">{formatMinutes(focusedToday)} today</span>
       </div>
       <div className="focus-hero-grid">
@@ -542,7 +544,6 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFoc
           <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
         </div>
       </div>
-      {!compact && topTask && <p className="focus-context-line" data-testid="focus-top-task-line">Most focus today: <strong>{topTask.title}</strong></p>}
       <label className="focus-task-picker">
         Focus task
         <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
@@ -560,20 +561,22 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, onStartFoc
           <div className="focus-selected-meta" aria-label="Selected task details">
             <Pill tone={selectedTask.priority.toLowerCase()}>{selectedTask.priority}</Pill>
             <span>{plannedMinutes}</span>
+            <span>{formatMinutes(selectedTaskFocusedToday)} today</span>
           </div>
         </article>
       )}
+      {!compact && !selectedTask && <p className="focus-helper-text" data-testid="focus-helper-text">Choose a task to start a session.</p>}
       {!compact && activeSession && (
         <div className="focus-outcome-panel" data-testid="focus-outcome-panel">
           <span>Wrap up session</span>
           <div className="focus-chip-row">
             {focusOutcomes.map((outcome) => <button key={outcome} className={`focus-chip ${outcomeType === outcome ? "active" : ""}`} onClick={() => setOutcomeType(outcome)} type="button">{outcome}</button>)}
           </div>
-          <textarea value={outcomeNote} onChange={(event) => setOutcomeNote(event.target.value)} placeholder="What changed, shipped, or blocked you?" data-testid="focus-outcome-note" />
+          <textarea value={outcomeNote} onChange={(event) => setOutcomeNote(event.target.value)} placeholder="What changed during this session?" data-testid="focus-outcome-note" />
         </div>
       )}
       <div className="focus-actions">
-        {!activeSession && <button className="primary-action" onClick={startFocus} disabled={!selectedTask} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> Start focus</button>}
+        {!activeSession && <button className="primary-action" onClick={startFocus} disabled={!selectedTask} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> Start session</button>}
         {activeSession?.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
         {activeSession && !activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
         {activeSession && <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>}
