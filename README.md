@@ -22,3 +22,53 @@ The frontend currently implements the DevQuest dashboard experience with in-memo
 - `docs/backend-todo-list.md`
 
 Leaderboard can be ignored for the current backend scope.
+
+## Local Setup And Run
+
+### Backend Setup
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+```
+
+### Backend Run
+
+```powershell
+python -m uvicorn main:app --reload
+```
+
+### Frontend Install
+
+From the project root:
+
+```powershell
+cd frontend
+npm i
+```
+
+### Frontend Run
+
+```powershell
+npm start
+```
+
+## Local API Docs
+
+The FastAPI backend exposes local Swagger/OpenAPI documentation.
+
+From the backend folder:
+
+```powershell
+cd backend
+uvicorn main:app --reload
+```
+
+Then open:
+
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- Swagger shortcut: `http://127.0.0.1:8000/swagger`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`

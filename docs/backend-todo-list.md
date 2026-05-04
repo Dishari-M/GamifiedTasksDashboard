@@ -55,7 +55,6 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `APP_USERS_SEQ`
   - [ ] `WORK_ITEMS_SEQ`
   - [ ] `WORK_ITEM_EVENTS_SEQ`
-  - [ ] `DAILY_WORK_ITEMS_SEQ`
   - [ ] `CALENDAR_EVENTS_SEQ`
   - [ ] `AI_RUNS_SEQ`
   - [ ] `QUEST_PLANS_SEQ`
@@ -70,7 +69,6 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `APP_USERS`
   - [ ] `WORK_ITEMS`
   - [ ] `WORK_ITEM_EVENTS`
-  - [ ] `DAILY_WORK_ITEMS`
   - [ ] `CALENDAR_EVENTS`
   - [ ] `AI_RUNS`
   - [ ] `QUEST_PLANS`
@@ -87,7 +85,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `WORK_ITEMS(USER_ID, STATUS)`
   - [ ] `WORK_ITEMS(USER_ID, COMPLETED_AT)`
   - [ ] `WORK_ITEMS(USER_ID, UPDATED_AT)`
-  - [ ] `DAILY_WORK_ITEMS(USER_ID, WORK_DATE, IS_WORKING_TODAY)`
+  - [ ] Optional function/text index strategy for `WORK_ITEMS.WORKED_DATES` date membership lookups.
   - [ ] `CALENDAR_EVENTS(USER_ID, START_AT)`
   - [ ] `AI_RUNS(USER_ID, RUN_TYPE, CREATED_AT)`
   - [ ] `WORK_ITEM_EVENTS(TASK_ID, CREATED_AT)`
@@ -95,9 +93,16 @@ Use this as the execution checklist for building the production backend. The det
 - [ ] Add constraints:
   - [ ] Work item status enum.
   - [ ] Work item priority enum.
-  - [ ] Daily work boolean flag.
   - [ ] Unique external source keys for synced items.
   - [ ] Unique daily/weekly overview rows per user/date.
+
+- [ ] Add worked-date tracking directly to `WORK_ITEMS`:
+  - [ ] Add `WORKED_DATES VARCHAR2(4000)` to store comma-separated ISO local dates, for example `2026-05-04,2026-05-07`.
+  - [ ] Keep dates sorted ascending and deduplicated in application code.
+  - [ ] Store dates only as `YYYY-MM-DD`.
+  - [ ] Treat `working_today` as a derived API field based on whether the requested local date exists in `WORKED_DATES`.
+  - [ ] Use delimiter-safe membership checks, for example `INSTR(',' || WORKED_DATES || ',', ',' || :work_date || ',') > 0`, so `2026-05-04` does not partially match another value.
+  - [ ] If a task can exceed the `VARCHAR2(4000)` limit, plan a later migration to normalized history; for this scope, do not create `DAILY_WORK_ITEMS`.
 
 ## Phase 3: Repository Layer
 
@@ -142,6 +147,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `notes`
   - [ ] `labels`
   - [ ] `working_today`
+  - [ ] `worked_dates`
   - [ ] `run_ai_enrichment`
 
 - [ ] Insert steps:
@@ -149,7 +155,8 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert into `WORK_ITEMS` without passing `TASK_ID`.
   - [ ] Fetch generated `TASK_ID` via `RETURNING TASK_ID INTO`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'TASK_CREATED'`.
-  - [ ] If `working_today = true`, insert/upsert `DAILY_WORK_ITEMS`.
+  - [ ] If `working_today = true`, add today's local date to `WORK_ITEMS.WORKED_DATES`.
+  - [ ] If `worked_dates` is supplied, validate, deduplicate, sort, and store as a comma-separated string in `WORK_ITEMS.WORKED_DATES`.
   - [ ] If `run_ai_enrichment = true`, create an `AI_RUNS` row and trigger enrichment.
   - [ ] Commit transaction.
   - [ ] Return created task.
@@ -167,7 +174,8 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Filter by status.
   - [ ] Filter by source.
   - [ ] Filter by priority.
-  - [ ] Filter by `working_today`.
+  - [ ] Filter by `working_today`, derived from whether requested date exists in `WORK_ITEMS.WORKED_DATES`.
+  - [ ] Filter by `worked_date`, using delimiter-safe membership lookup on `WORKED_DATES`.
   - [ ] Filter by completion date.
   - [ ] Search title, description, and notes.
   - [ ] Add pagination.
@@ -176,7 +184,8 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Return full task.
   - [ ] Return notes.
   - [ ] Return AI fields.
-  - [ ] Return working-today state.
+  - [ ] Return `worked_dates` as an array even though DB storage is comma-separated.
+  - [ ] Return working-today state derived from `WORKED_DATES`.
   - [ ] Return audit events.
 
 ## Phase 6: Task Update APIs
@@ -197,12 +206,14 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `xp_value`
   - [ ] `notes`
   - [ ] `labels`
+  - [ ] `worked_dates`
 
 - [ ] Update steps:
   - [ ] Lock or update task by `TASK_ID`, `USER_ID`, and `ROW_VERSION`.
   - [ ] Validate ownership.
   - [ ] Apply only provided fields.
   - [ ] If status changes to `Done`, set `COMPLETED_AT`.
+  - [ ] If `worked_dates` changes, validate, deduplicate, sort, and store comma-separated dates.
   - [ ] Increment `ROW_VERSION`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'TASK_UPDATED'`.
   - [ ] Optionally trigger AI enrichment.
@@ -233,37 +244,139 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'TASK_COMPLETED'`.
   - [ ] Mark daily/weekly generated summaries stale or regenerate on demand.
 
-## Phase 7: Working Today And Quests Source Of Truth
+## Phase 7: Worked Dates And Quests Source Of Truth
 
 - [ ] Implement `PUT /api/v1/tasks/{task_id}/today`.
   - [ ] Validate task belongs to current user.
   - [ ] Resolve local `work_date`.
-  - [ ] Upsert `DAILY_WORK_ITEMS`.
-  - [ ] Set `IS_WORKING_TODAY`.
-  - [ ] Set `PLANNED_MINUTES`.
-  - [ ] Set `RANK_ORDER`.
-  - [ ] Set daily-work notes.
+  - [ ] Accept `is_working_today`.
+  - [ ] If `is_working_today = true`, append `work_date` to `WORK_ITEMS.WORKED_DATES`.
+  - [ ] If `is_working_today = false`, remove `work_date` from `WORK_ITEMS.WORKED_DATES`.
+  - [ ] Always deduplicate and sort `WORKED_DATES` before saving.
+  - [ ] Store `WORKED_DATES` as a comma-separated string with no spaces.
+  - [ ] Increment `WORK_ITEMS.ROW_VERSION`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'WORKING_TODAY_UPDATED'`.
 
 - [ ] Implement `GET /api/v1/daily-work`.
-  - [ ] Return all daily work items for a date.
-  - [ ] Join task details.
+  - [ ] Return all `WORK_ITEMS` where requested date exists in `WORKED_DATES`.
+  - [ ] Use delimiter-safe date membership lookup.
   - [ ] Include completion state.
   - [ ] Include notes and actual minutes.
+  - [ ] Return `worked_dates` as an array.
+  - [ ] Return `working_today` derived from requested date membership.
 
 - [ ] Implement `GET /api/v1/quests/today`.
-  - [ ] Read from `DAILY_WORK_ITEMS`.
-  - [ ] Include only `IS_WORKING_TODAY = 1`.
-  - [ ] Join `WORK_ITEMS`.
+  - [ ] Read directly from `WORK_ITEMS`.
+  - [ ] Include only tasks where today's local date exists in `WORKED_DATES`.
   - [ ] Join latest quest plan if present.
   - [ ] Return ranked quest cards.
+  - [ ] Order by quest plan rank when present, otherwise by AI priority score, priority, XP, and due date.
+
+## Phase 7A: Missions Versus Quests
+
+- [ ] Define product semantics in backend docs and API names:
+  - [ ] Mission means AI/system-recommended task.
+  - [ ] Quest means user-selected committed work for a specific date.
+  - [ ] A task can appear as a mission without being a quest.
+  - [ ] A task becomes a quest when the date is added to `WORK_ITEMS.WORKED_DATES`.
+
+- [ ] Tables used for generating Missions:
+  - [ ] `WORK_ITEMS` for open tasks, priority, status, due dates, notes, XP, AI fields, and worked dates.
+  - [ ] `CALENDAR_EVENTS` for meeting load and available focus windows.
+  - [ ] `APP_USERS` for timezone and workday settings.
+  - [ ] `AI_RUNS` for cached mission-generation input/output and auditability.
+  - [ ] Optional `WORK_ITEM_EVENTS` for recent activity signals.
+  - [ ] Optional `QUEST_PLANS` and `QUEST_ITEMS` to avoid recommending tasks already committed as quests for the same date.
+
+- [ ] Tables used for generating Quests:
+  - [ ] `WORK_ITEMS` as the source of committed quest membership through `WORKED_DATES`.
+  - [ ] `QUEST_PLANS` for generated quest plan metadata, capacity summary, and AI summary.
+  - [ ] `QUEST_ITEMS` for generated quest rank, reason, suggested start/end, and XP snapshot.
+  - [ ] `CALENDAR_EVENTS` for scheduling quest suggestions around meetings.
+  - [ ] `AI_RUNS` for quest-generation request/response tracking.
+
+- [ ] Implement Mission ranking data query:
+  - [ ] Read candidate tasks from `WORK_ITEMS`.
+  - [ ] Exclude `STATUS IN ('Done','Cancelled')`.
+  - [ ] Include task fields: `TASK_ID`, `TITLE`, `DESCRIPTION`, `PRIORITY`, `STATUS`, `TASK_TYPE`, `DUE_AT`, `ESTIMATED_MINUTES`, `XP_VALUE`, `NOTES`, `WORKED_DATES`.
+  - [ ] Include AI fields: `AI_DIFFICULTY`, `AI_IMPACT_SCORE`, `AI_PRIORITY_SCORE`, `AI_EFFORT_MINUTES`, `AI_CATEGORY`, `AI_INSIGHT`.
+  - [ ] Include whether the mission date is already present in `WORKED_DATES`.
+  - [ ] Include available capacity from `CALENDAR_EVENTS` and `APP_USERS`.
+
+- [ ] Implement `GET /api/v1/missions/today`.
+  - [ ] Accept `date`.
+  - [ ] Accept `limit`, default 3 or 5.
+  - [ ] Read open candidate tasks from `WORK_ITEMS`.
+  - [ ] Read capacity from `CALENDAR_EVENTS` and `APP_USERS`.
+  - [ ] Rank using cached AI output when available.
+  - [ ] Fall back to deterministic ranking if AI output is unavailable.
+  - [ ] Return mission cards with `task_id`, title, priority, effort, XP, impact, rank, reason, and `is_quest_for_date`.
+  - [ ] Do not mutate `WORKED_DATES`.
+
+- [ ] Implement deterministic Mission fallback ranking:
+  - [ ] Prefer higher `AI_PRIORITY_SCORE`.
+  - [ ] Prefer higher `AI_IMPACT_SCORE`.
+  - [ ] Prefer higher explicit priority.
+  - [ ] Prefer due soon tasks.
+  - [ ] Prefer tasks that fit available focus minutes.
+  - [ ] Prefer not-done, not-cancelled tasks.
+  - [ ] Deprioritize tasks already selected as quests for the same date unless the UI wants to show them with `is_quest_for_date = true`.
+
+- [ ] Implement `POST /api/v1/missions/generate`.
+  - [ ] Accept `date`, `limit`, `include_already_selected`, and optional candidate task IDs.
+  - [ ] Insert `AI_RUNS` with `RUN_TYPE = 'MISSION_GENERATION'`.
+  - [ ] Send compact task, notes, AI score, due-date, and capacity context to OCI GenAI.
+  - [ ] Validate returned task IDs exist in the candidate set.
+  - [ ] Store AI response in `AI_RUNS`.
+  - [ ] Return mission recommendations.
+  - [ ] Do not add dates to `WORKED_DATES`.
+
+- [ ] Mission response fields:
+  - [ ] `date`
+  - [ ] `missions[].task_id`
+  - [ ] `missions[].rank_order`
+  - [ ] `missions[].title`
+  - [ ] `missions[].priority`
+  - [ ] `missions[].status`
+  - [ ] `missions[].estimated_minutes`
+  - [ ] `missions[].xp_value`
+  - [ ] `missions[].ai_impact_score`
+  - [ ] `missions[].reason`
+  - [ ] `missions[].suggested_action`
+  - [ ] `missions[].is_quest_for_date`
+
+- [ ] Implement Mission to Quest conversion endpoint behavior:
+  - [ ] Use existing `PUT /api/v1/tasks/{task_id}/today`.
+  - [ ] Frontend button label should be `Add to Today's Quests` or `Work Today`.
+  - [ ] Backend appends date to `WORK_ITEMS.WORKED_DATES`.
+  - [ ] Backend inserts `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'WORKING_TODAY_UPDATED'`.
+  - [ ] Response returns updated `worked_dates` and `working_today`.
+
+- [ ] Implement Quest retrieval rules:
+  - [ ] `GET /api/v1/quests/today` reads tasks where requested date exists in `WORK_ITEMS.WORKED_DATES`.
+  - [ ] Join `QUEST_ITEMS` when a generated plan exists.
+  - [ ] If no generated plan exists, rank quests by priority, AI priority score, XP, and due date.
+  - [ ] Return `source = 'WORK_ITEMS.WORKED_DATES'` in metadata.
+
+- [ ] Implement Quest generation rules:
+  - [ ] `POST /api/v1/quests/generate` can read from mission recommendations or open tasks.
+  - [ ] When AI selects tasks as quests, append quest date to each selected task's `WORKED_DATES`.
+  - [ ] Persist generated ranking in `QUEST_PLANS` and `QUEST_ITEMS`.
+  - [ ] Keep `WORK_ITEMS.WORKED_DATES` as the source of truth for quest membership.
+
+- [ ] UI flow expected by backend:
+  - [ ] Dashboard calls `GET /api/v1/missions/today`.
+  - [ ] Dashboard mission card shows `Add to Today's Quests` if `is_quest_for_date = false`.
+  - [ ] Dashboard mission card shows `Added to Quests` if `is_quest_for_date = true`.
+  - [ ] Clicking add calls `PUT /api/v1/tasks/{task_id}/today`.
+  - [ ] Quests page calls `GET /api/v1/quests/today`.
+  - [ ] Quests page date picker calls the same endpoint with selected date.
 
 ## Phase 8: Dashboard And Capacity APIs
 
 - [ ] Implement `GET /api/v1/dashboard/today`.
   - [ ] Return stats.
   - [ ] Return top missions.
-  - [ ] Return tasks.
   - [ ] Return schedule.
   - [ ] Return AI insight.
   - [ ] Avoid frontend request waterfalls.
@@ -341,18 +454,38 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `insight`
   - [ ] `suggested_next_action`
 
-## Phase 12: AI Quest Generation Endpoint
+## Phase 12: AI Mission And Quest Generation Endpoints
+
+- [ ] Implement `POST /api/v1/missions/generate`.
+  - [ ] Read candidate tasks from `WORK_ITEMS`.
+  - [ ] Exclude completed and cancelled tasks.
+  - [ ] Read calendar capacity from `CALENDAR_EVENTS`.
+  - [ ] Use `APP_USERS` timezone and workday settings.
+  - [ ] Call OCI GenAI for recommended mission ranking.
+  - [ ] Validate returned task IDs exist in the candidate set.
+  - [ ] Store request and response in `AI_RUNS`.
+  - [ ] Return recommendations only; do not mutate `WORKED_DATES`.
 
 - [ ] Implement `POST /api/v1/quests/generate`.
   - [ ] Read candidate tasks.
-  - [ ] If `respect_working_today = true`, use `DAILY_WORK_ITEMS`.
+  - [ ] If `respect_working_today = true`, use tasks where the quest date exists in `WORK_ITEMS.WORKED_DATES`.
+  - [ ] If `from_missions = true`, use mission recommendations as candidate tasks.
   - [ ] Read calendar capacity.
   - [ ] Call OCI GenAI for ranked quest plan.
   - [ ] Validate returned task IDs exist in candidate set.
   - [ ] Upsert `QUEST_PLANS`.
   - [ ] Delete/reinsert `QUEST_ITEMS`.
-  - [ ] Upsert `DAILY_WORK_ITEMS` for selected quests.
+  - [ ] Append the quest date to each selected task's `WORK_ITEMS.WORKED_DATES`.
+  - [ ] Deduplicate and sort `WORKED_DATES` for each selected task.
   - [ ] Return quest plan and AI run ID.
+
+- [ ] Mission prompt output fields:
+  - [ ] `summary`
+  - [ ] `missions[].task_id`
+  - [ ] `missions[].rank_order`
+  - [ ] `missions[].reason`
+  - [ ] `missions[].suggested_action`
+  - [ ] `missions[].is_quest_candidate`
 
 - [ ] Quest prompt output fields:
   - [ ] `summary`
@@ -372,7 +505,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Return latest standup summary if available.
 
 - [ ] Implement `POST /api/v1/insights/today/generate`.
-  - [ ] Read daily work items.
+  - [ ] Read tasks where the selected date exists in `WORK_ITEMS.WORKED_DATES`.
   - [ ] Read task notes.
   - [ ] Read completed tasks.
   - [ ] Read meeting schedule.
@@ -390,7 +523,7 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Implement `POST /api/v1/standup-notes/generate`.
   - [ ] Read completed tasks for selected date.
-  - [ ] Read in-progress daily work.
+  - [ ] Read in-progress tasks where selected date exists in `WORK_ITEMS.WORKED_DATES`.
   - [ ] Read blocked tasks.
   - [ ] Include task notes and learnings.
   - [ ] Insert `AI_RUNS`.
@@ -424,7 +557,7 @@ Use this as the execution checklist for building the production backend. The det
 - [ ] Implement `POST /api/v1/overviews/daily/generate`.
   - [ ] Read completed tasks.
   - [ ] Read task notes.
-  - [ ] Read daily work rows.
+  - [ ] Read tasks where selected date exists in `WORK_ITEMS.WORKED_DATES`.
   - [ ] Read calendar events.
   - [ ] Calculate totals without AI.
   - [ ] Call OCI GenAI for narrative summary and themes.
@@ -482,7 +615,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert new Jira issues into `WORK_ITEMS`.
   - [ ] Update external fields on existing issues.
   - [ ] Preserve user-entered `NOTES`.
-  - [ ] Preserve local `working_today`.
+  - [ ] Preserve local `WORKED_DATES`.
   - [ ] Insert `WORK_ITEM_EVENTS` for created/updated synced issues.
   - [ ] Optionally trigger AI enrichment for new or materially changed issues.
 
@@ -639,8 +772,11 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Notes update.
   - [ ] Status transition.
   - [ ] Task completion date.
-  - [ ] Working-today upsert.
-  - [ ] Quest read from daily work.
+  - [ ] Worked-date append, remove, dedupe, and sort.
+  - [ ] Working-today derivation from `WORKED_DATES`.
+  - [ ] Mission generation does not mutate `WORKED_DATES`.
+  - [ ] Mission to Quest conversion appends selected date to `WORKED_DATES`.
+  - [ ] Quest read from `WORK_ITEMS.WORKED_DATES`.
   - [ ] Capacity calculation.
   - [ ] AI response validation.
   - [ ] Idempotency.
@@ -660,6 +796,9 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `PATCH /tasks/{task_id}`.
   - [ ] `POST /tasks/{task_id}/complete`.
   - [ ] `PUT /tasks/{task_id}/today`.
+  - [ ] `GET /missions/today`.
+  - [ ] `POST /missions/generate`.
+  - [ ] `GET /quests/today`.
   - [ ] `POST /quests/generate`.
   - [ ] `POST /standup-notes/generate`.
   - [ ] `POST /overviews/daily/generate`.
@@ -671,6 +810,7 @@ Use this as the execution checklist for building the production backend. The det
 - [ ] Return all IDs as numbers.
 - [ ] Return `row_version` for editable records.
 - [ ] Return `working_today` on task list rows.
+- [ ] Return `worked_dates` as an array even though DB storage is comma-separated.
 - [ ] Return `completed_at` after done action.
 - [ ] Return task `notes`.
 - [ ] Return AI insight fields expected by task table and insights page.
@@ -681,17 +821,20 @@ Use this as the execution checklist for building the production backend. The det
 1. Backend project structure and Oracle DB pool.
 2. Schema migrations and sequences.
 3. Task create/read/update/complete APIs.
-4. Working-today and daily work APIs.
-5. Dashboard and capacity APIs.
-6. Calendar event APIs.
-7. OCI GenAI client and task enrichment.
-8. Quest generation.
-9. Standup generator.
-10. Daily and weekly overview generation.
-11. Jira connector.
-12. Outlook Calendar connector.
-13. Microsoft To Do connector.
-14. Sync orchestration APIs.
-15. OCI Agent historical insights.
-16. Security, rate limits, observability, and full tests.
-17. A login screen for username, Email and jira access details.
+4. Worked-date and working-today APIs.
+5. Missions read API and deterministic ranking.
+6. Dashboard and capacity APIs.
+7. Calendar event APIs.
+8. OCI GenAI client and task enrichment.
+9. AI mission generation.
+10. Mission to Quest conversion and quest read API.
+11. AI quest generation.
+12. Standup generator.
+13. Daily and weekly overview generation.
+14. Jira connector.
+15. Outlook Calendar connector.
+16. Microsoft To Do connector.
+17. Sync orchestration APIs.
+18. OCI Agent historical insights.
+19. Security, rate limits, observability, and full tests.
+20. A login screen for username, Email and jira access details.
