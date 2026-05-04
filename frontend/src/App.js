@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
   ArrowClockwise,
@@ -42,6 +42,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
+import { tasksApi } from "./api/client";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -57,7 +58,8 @@ const navItems = [
 
 const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
 const priorities = ["Critical", "High", "Medium", "Low"];
-const statuses = ["To Do", "In Progress", "Blocked", "Done", "Upcoming"];
+const statuses = ["To Do", "In Progress", "Blocked", "Done"];
+const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
 const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
 
 const todayKey = () => new Date().toLocaleDateString("en-CA");
@@ -450,8 +452,8 @@ const FocusWidget = ({ compact = false }) => {
 const TaskTable = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [openActionId, setOpenActionId] = useState(null);
 
-  const runAction = (action) => {
-    action();
+  const runAction = async (action) => {
+    await action();
     setOpenActionId(null);
   };
 
@@ -480,12 +482,23 @@ const TaskTable = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
                 <td data-testid={`task-time-${slug(task.id)}`}>{task.time} mins</td>
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
                 <td data-testid={`task-completed-${slug(task.id)}`}>{formatDateTime(task.completedAt)}</td>
-                <td><Pill tone={slug(task.status)} testId={`task-status-${slug(task.id)}`}>{task.status}</Pill></td>
+                <td>
+                  <select
+                    className={`status-select status-select-${slug(task.status)}`}
+                    value={task.status}
+                    onChange={(event) => onStatusChange(task.id, event.target.value)}
+                    data-testid={`task-status-${slug(task.id)}`}
+                    aria-label={`Status for ${task.title}`}
+                  >
+                    {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </td>
                 <td className="notes-cell">
                   <textarea
                     className="inline-notes"
                     value={task.notes || ""}
-                    onChange={(event) => onUpdateNotes(task.id, event.target.value)}
+                    onChange={(event) => onUpdateNotes(task.id, event.target.value, false)}
+                    onBlur={(event) => onUpdateNotes(task.id, event.target.value, true)}
                     aria-label={`Notes for ${task.title}`}
                     data-testid={`task-notes-${slug(task.id)}`}
                   />
@@ -503,7 +516,6 @@ const TaskTable = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
                   {isMenuOpen && (
                     <div className="task-action-menu" role="menu" data-testid={`task-action-menu-${slug(task.id)}`}>
                       <button role="menuitem" onClick={() => runAction(() => onEdit(task))} data-testid={`task-edit-button-${slug(task.id)}`}>Edit</button>
-                      <button role="menuitem" onClick={() => runAction(() => onStatusChange(task.id))} data-testid={`task-status-button-${slug(task.id)}`}>Advance</button>
                       <button role="menuitem" onClick={() => runAction(() => onComplete(task.id))} data-testid={`task-complete-button-${slug(task.id)}`}>Done</button>
                     </div>
                   )}
@@ -528,9 +540,6 @@ const emptyTaskForm = {
   status: "To Do",
   dueDate: "",
   startDate: "",
-  estimatedMinutes: 60,
-  actualMinutes: 0,
-  xp: 60,
   labels: "",
   notes: "",
   workingToday: true,
@@ -548,9 +557,6 @@ const formFromTask = (task) => ({
   status: task.status || "To Do",
   dueDate: task.dueDate || "",
   startDate: task.startDate || "",
-  estimatedMinutes: task.time || 60,
-  actualMinutes: task.actualMinutes || 0,
-  xp: task.xp || 60,
   labels: (task.labels || []).join(", "),
   notes: task.notes || "",
   workingToday: Boolean(task.workingToday),
@@ -559,6 +565,8 @@ const formFromTask = (task) => ({
 
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
@@ -566,11 +574,19 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     if (!form.title.trim()) return;
-    onSubmit(form);
-    if (mode === "create") setForm(emptyTaskForm);
+    setIsSubmitting(true);
+    setSubmitError("");
+    try {
+      await onSubmit(form);
+      if (mode === "create") setForm(emptyTaskForm);
+    } catch (error) {
+      setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -585,16 +601,14 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       <label>Status<select value={form.status} onChange={(event) => update("status", event.target.value)}>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
       <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
-      <label>Estimated minutes<input type="number" min="0" value={form.estimatedMinutes} onChange={(event) => update("estimatedMinutes", event.target.value)} /></label>
-      <label>Actual minutes<input type="number" min="0" value={form.actualMinutes} onChange={(event) => update("actualMinutes", event.target.value)} /></label>
-      <label>XP<input type="number" min="0" value={form.xp} onChange={(event) => update("xp", event.target.value)} /></label>
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
       <label className="checkbox-field"><input type="checkbox" checked={form.workingToday} onChange={(event) => update("workingToday", event.target.checked)} /> Working on this today</label>
       <label className="checkbox-field"><input type="checkbox" checked={form.runAiEnrichment} onChange={(event) => update("runAiEnrichment", event.target.checked)} /> Run AI enrichment</label>
+      {submitError && <p className="form-error" role="alert">{submitError}</p>}
       <div className="editor-actions">
-        {onCancel && <button type="button" className="ghost-button" onClick={onCancel} data-testid={`${mode}-task-cancel-button`}>Cancel</button>}
-        <button className="primary-action" type="submit" data-testid={`${mode}-task-submit-button`}><Plus size={19} weight="bold" aria-hidden="true" /> {mode === "edit" ? "Save Task" : "Add Task"}</button>
+        {onCancel && <button type="button" className="ghost-button" onClick={onCancel} disabled={isSubmitting} data-testid={`${mode}-task-cancel-button`}>Cancel</button>}
+        <button className="primary-action" type="submit" disabled={isSubmitting} data-testid={`${mode}-task-submit-button`}><Plus size={19} weight="bold" aria-hidden="true" /> {isSubmitting ? "Saving..." : mode === "edit" ? "Save Task" : "Add Task"}</button>
       </div>
     </form>
   );
@@ -616,9 +630,9 @@ const taskFromForm = (form, existingTask) => {
     status,
     dueDate: form.dueDate,
     startDate: form.startDate,
-    time: parseNumber(form.estimatedMinutes, 60),
-    actualMinutes: parseNumber(form.actualMinutes, 0),
-    xp: parseNumber(form.xp, 60),
+    time: existingTask?.time,
+    actualMinutes: existingTask?.actualMinutes,
+    xp: existingTask?.xp,
     labels: form.labels,
     notes: form.notes,
     workingToday: form.workingToday,
@@ -680,12 +694,12 @@ const TasksPage = ({ tasks, onAddTask, onComplete, onStatusChange, onEdit, onTog
     <main className="page-stack" data-testid="tasks-page">
       <section className="surface form-card" data-testid="add-task-card">
         <div className="section-heading"><h2><Plus size={26} weight="duotone" aria-hidden="true" /> Add Task With Full Details</h2><span data-testid="task-count-label">{tasks.length} tasks loaded</span></div>
-        <TaskEditor mode="create" onSubmit={(form) => onAddTask(taskFromForm(form))} />
+        <TaskEditor mode="create" onSubmit={onAddTask} />
       </section>
       {editingTask && (
         <section className="surface form-card" data-testid="edit-task-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Edit Task</h2><span>{editingTask.id}</span></div>
-          <TaskEditor mode="edit" task={editingTask} onSubmit={(form) => { onEdit(taskFromForm(form, editingTask)); setEditingTask(null); }} onCancel={() => setEditingTask(null)} />
+          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} />
         </section>
       )}
       <section className="surface" data-testid="unified-task-list-card">
@@ -812,22 +826,86 @@ const SyncPage = () => <main className="page-stack" data-testid="sync-page"><sec
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value="1.5x" readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
 const AppShell = () => {
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState([]);
+  const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const statusCycle = useMemo(() => ["To Do", "In Progress", "Blocked", "Done"], []);
 
-  const handleComplete = (id) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, status: "Done", completedAt: task.completedAt || nowIso() }) : task)));
-  const handleStatusChange = (id) => setTasks((items) => items.map((task) => {
-    if (task.id !== id) return task;
-    const currentIndex = statusCycle.indexOf(task.status);
-    const nextStatus = statusCycle[(currentIndex + 1) % statusCycle.length] || "To Do";
-    return normalizeTask({ ...task, status: nextStatus, completedAt: nextStatus === "Done" ? task.completedAt || nowIso() : task.completedAt });
-  }));
-  const handleToggleToday = (id) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, workingToday: !task.workingToday }) : task)));
-  const handleUpdateNotes = (id, notes) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, notes, aiInsight: "" }) : task)));
-  const handleEditTask = (updatedTask) => setTasks((items) => items.map((task) => (task.id === updatedTask.id ? normalizeTask(updatedTask) : task)));
+  useEffect(() => {
+    let isActive = true;
+    tasksApi.list()
+      .then((loadedTasks) => {
+        if (!isActive) return;
+        const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
+        setTasks(taskItems.map(normalizeTask));
+        setTaskLoadError("");
+      })
+      .catch((error) => {
+        if (!isActive) return;
+        setTaskLoadError(error?.message || "Unable to load saved tasks.");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleComplete = async (id) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    try {
+      const updatedTask = await tasksApi.complete(id, { row_version: task.row_version, completedAt: task.completedAt || nowIso() });
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete task.");
+    }
+  };
+  const handleStatusChange = async (id, nextStatus) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task || !nextStatus || task.status === nextStatus) return;
+    try {
+      const updatedTask = await tasksApi.updateStatus(id, { status: nextStatus, row_version: task.row_version });
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update task status.");
+    }
+  };
+  const handleToggleToday = async (id) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    try {
+      const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update working-today state.");
+    }
+  };
+  const handleUpdateNotes = async (id, notes, persist = true) => {
+    const task = tasks.find((item) => item.id === id);
+    setTasks((items) => items.map((item) => (item.id === id ? normalizeTask({ ...item, notes, aiInsight: "" }) : item)));
+    if (!persist || !task) return;
+    try {
+      const updatedTask = await tasksApi.updateNotes(id, { notes, row_version: task.row_version });
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update notes.");
+    }
+  };
+  const handleEditTask = async (id, form) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task || !form) return;
+    const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
+    setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+  };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleAddTask = async (form) => {
+    const createdTask = await tasksApi.create(form);
+    setTasks((items) => [normalizeTask(createdTask), ...items]);
+  };
 
   return (
     <div className="app-shell" data-testid="app-shell">
@@ -835,9 +913,10 @@ const AppShell = () => {
       <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />
       <div className="workspace" data-testid="workspace">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        {taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} />} />

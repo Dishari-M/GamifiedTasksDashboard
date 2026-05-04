@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "/api/v1";
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,6 +16,7 @@ export const tasksApi = {
   create: (payload) => api.post("/tasks", payload).then(unwrap),
   update: (taskId, payload) => api.patch(`/tasks/${taskId}`, payload).then(unwrap),
   updateNotes: (taskId, payload) => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap),
+  updateStatus: (taskId, payload) => api.patch(`/tasks/${taskId}/status`, payload).then(unwrap),
   updateToday: (taskId, payload) => api.put(`/tasks/${taskId}/today`, payload).then(unwrap),
   complete: (taskId, payload = {}) => api.post(`/tasks/${taskId}/complete`, payload).then(unwrap),
   enrich: (taskId, payload = {}) => api.post(`/tasks/${taskId}/ai/enrich`, payload).then(unwrap),
