@@ -122,6 +122,17 @@ Oracle Autonomous Database will be integrated later. For now, implementation sho
 - Added `backend/services/phase8_dashboard_service.py`.
 - Added `GET /api/v1/capacity` in `backend/main.py`.
 - Added `GET /api/v1/dashboard/today` in `backend/main.py`.
+- Updated the OCI GenAI real-mode boundary to support env-selected request formats:
+  - `OCI_GENAI_REQUEST_FORMAT=generic` for OpenAI/Gemini/xAI-style chat models.
+  - `OCI_GENAI_REQUEST_FORMAT=cohere` for Cohere chat payloads.
+  - `OCI_GENAI_REQUEST_FORMAT=auto` to choose Cohere only for `cohere.*` model IDs.
+- Added temporary local `OCI_AUTH_TYPE=api_key` support so Phase 8 can test real AI without requiring every teammate to create an OCI CLI profile. Mock mode remains the default.
+- Added minimal frontend integration for Phase 8 dashboard data:
+  - Added `dashboardApi.today()` and `capacityApi.get()` in `frontend/src/api/client.js`.
+  - `frontend/src/App.js` now fetches `GET /api/v1/dashboard/today` on app shell mount.
+  - Existing Dashboard sections consume Phase 8 stats, tasks, schedule, and AI insight when available.
+  - Existing local demo data remains as fallback if the backend is down or AI is not configured.
+  - No broad UI refactor was done; task mutations remain local for now.
 - Restarted local backend and verified live responses for:
   - `http://127.0.0.1:8000/api/v1/capacity?date=2026-05-01`
   - `http://127.0.0.1:8000/api/v1/dashboard/today?date=2026-05-01`

@@ -97,7 +97,7 @@ def get_mock_work_items():
             "ai_impact_score": 4.0,
             "ai_priority_score": 0.34,
             "ai_insight": "Review completed; include outcome in daily summary.",
-            "completed_at": None,
+            "completed_at": iso_at(resolve_work_date(), "16:40"),
         },
         {
             "task_id": 1005,

@@ -1,4 +1,5 @@
 import json
+import os
 
 from config import (
     get_oci_auth_type,
@@ -7,7 +8,14 @@ from config import (
     get_oci_config_profile,
     get_oci_genai_endpoint,
     get_oci_genai_model_id,
+    get_oci_genai_request_format,
     get_oci_genai_serving_mode,
+    get_oci_key_file,
+    get_oci_key_fingerprint,
+    get_oci_key_passphrase,
+    get_oci_region,
+    get_oci_tenancy_ocid,
+    get_oci_user_ocid,
 )
 
 
@@ -20,7 +28,10 @@ def _load_oci_sdk():
             ChatDetails,
             CohereChatRequest,
             DedicatedServingMode,
+            GenericChatRequest,
             OnDemandServingMode,
+            TextContent,
+            UserMessage,
         )
     except ImportError as exc:
         raise NotImplementedError(
@@ -31,9 +42,12 @@ def _load_oci_sdk():
         "oci": oci,
         "client": GenerativeAiInferenceClient,
         "chat_details": ChatDetails,
-        "chat_request": CohereChatRequest,
+        "cohere_chat_request": CohereChatRequest,
+        "generic_chat_request": GenericChatRequest,
         "dedicated_mode": DedicatedServingMode,
         "on_demand_mode": OnDemandServingMode,
+        "text_content": TextContent,
+        "user_message": UserMessage,
     }
 
 
@@ -55,6 +69,36 @@ def _build_client(sdk):
         kwargs = {"service_endpoint": endpoint} if endpoint else {}
         return sdk["client"](config, **kwargs)
 
+    if auth_type == "api_key":
+        config = {
+            "user": get_oci_user_ocid(),
+            "tenancy": get_oci_tenancy_ocid(),
+            "fingerprint": get_oci_key_fingerprint(),
+            "key_file": os.path.expanduser(get_oci_key_file()),
+            "region": get_oci_region(),
+        }
+        passphrase = get_oci_key_passphrase()
+        if passphrase:
+            config["pass_phrase"] = passphrase
+
+        missing = [key for key, value in config.items() if key != "pass_phrase" and not value]
+        if missing:
+            raise NotImplementedError(
+                "OCI_AUTH_TYPE=api_key requires OCI_USER_OCID, OCI_TENANCY_OCID, "
+                "OCI_KEY_FINGERPRINT, OCI_KEY_FILE, and OCI_REGION."
+            )
+
+        try:
+            oci.config.validate_config(config)
+        except Exception as exc:
+            raise NotImplementedError(
+                "OCI API-key authentication config is invalid. Check OCI_USER_OCID, OCI_TENANCY_OCID, "
+                "OCI_KEY_FILE, OCI_KEY_FINGERPRINT, OCI_KEY_PASSPHRASE, and OCI_REGION."
+            ) from exc
+
+        kwargs = {"service_endpoint": endpoint} if endpoint else {}
+        return sdk["client"](config, **kwargs)
+
     if auth_type == "instance_principal":
         signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
         kwargs = {"service_endpoint": endpoint} if endpoint else {}
@@ -66,7 +110,7 @@ def _build_client(sdk):
         return sdk["client"]({}, signer=signer, **kwargs)
 
     raise NotImplementedError(
-        f"Unsupported OCI_AUTH_TYPE '{auth_type}'. Use 'config_file', 'instance_principal', or 'resource_principal'."
+        f"Unsupported OCI_AUTH_TYPE '{auth_type}'. Use 'config_file', 'api_key', 'instance_principal', or 'resource_principal'."
     )
 
 
@@ -89,11 +133,7 @@ def _build_chat_details(sdk, prompt_payload):
     if not compartment_id:
         raise NotImplementedError("OCI_COMPARTMENT_ID is required for OCI Generative AI calls.")
 
-    chat_request = sdk["chat_request"]()
-    chat_request.message = _build_prompt(prompt_payload)
-    chat_request.max_tokens = 300
-    chat_request.temperature = 0.2
-    chat_request.is_stream = False
+    chat_request = _build_chat_request(sdk, model_id, prompt_payload)
 
     serving_mode = get_oci_genai_serving_mode()
     if serving_mode == "on_demand":
@@ -110,6 +150,42 @@ def _build_chat_details(sdk, prompt_payload):
     chat_details.serving_mode = mode
     chat_details.chat_request = chat_request
     return chat_details
+
+
+def _build_chat_request(sdk, model_id, prompt_payload):
+    """Build either generic or Cohere-specific chat request details."""
+    request_format = get_oci_genai_request_format()
+    if request_format == "auto":
+        request_format = "cohere" if model_id.startswith("cohere.") else "generic"
+
+    if request_format == "cohere":
+        chat_request = sdk["cohere_chat_request"]()
+        chat_request.message = _build_prompt(prompt_payload)
+        chat_request.max_tokens = 300
+        chat_request.temperature = 0.2
+        chat_request.is_stream = False
+        return chat_request
+
+    if request_format == "generic":
+        text_content = sdk["text_content"](
+            type=sdk["text_content"].TYPE_TEXT,
+            text=_build_prompt(prompt_payload),
+        )
+        user_message = sdk["user_message"](
+            role=sdk["user_message"].ROLE_USER,
+            content=[text_content],
+        )
+        return sdk["generic_chat_request"](
+            api_format=sdk["generic_chat_request"].API_FORMAT_GENERIC,
+            messages=[user_message],
+            max_completion_tokens=300,
+            temperature=0.2,
+            is_stream=False,
+        )
+
+    raise NotImplementedError(
+        f"Unsupported OCI_GENAI_REQUEST_FORMAT '{request_format}'. Use 'generic', 'cohere', or 'auto'."
+    )
 
 
 def _read_attr(value, name):

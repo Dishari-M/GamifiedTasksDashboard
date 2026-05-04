@@ -144,6 +144,7 @@ OCI_GENAI_MODEL_ID=
 OCI_COMPARTMENT_ID=
 OCI_AUTH_TYPE=config_file
 OCI_CONFIG_PROFILE=DEFAULT
+OCI_GENAI_REQUEST_FORMAT=generic
 ```
 
 Supported values:
@@ -158,6 +159,18 @@ Supported values:
 - `OCI_CONFIG_FILE`: optional local OCI config path override.
 - `OCI_GENAI_ENDPOINT`: optional service endpoint override if Oracle provides a specific endpoint.
 - `OCI_GENAI_SERVING_MODE`: `on_demand` by default, or `dedicated` for dedicated endpoint usage.
+- `OCI_GENAI_REQUEST_FORMAT`: `generic` by default for OpenAI/Gemini/xAI-style models, `cohere` for Cohere request payloads, or `auto`.
+
+Temporary local testing also supports `OCI_AUTH_TYPE=api_key` for explicit API-key environment variables. This should be used only for local testing and never with committed secrets:
+
+```text
+OCI_REGION=us-ashburn-1
+OCI_USER_OCID=
+OCI_TENANCY_OCID=
+OCI_KEY_FILE=
+OCI_KEY_FINGERPRINT=
+OCI_KEY_PASSPHRASE=
+```
 
 Current shared config file:
 
@@ -192,6 +205,46 @@ In real mode, the service sends compact dashboard context to OCI GenAI and asks 
 - `impact_score`
 
 The integration normalizes model output back to the same dashboard API contract used in mock mode.
+
+For OpenAI-style OCI GenAI models, the integration uses `GenericChatRequest` with `max_completion_tokens`. Cohere models can use `OCI_GENAI_REQUEST_FORMAT=cohere`.
+
+### AI And Data Switch Matrix
+
+Use these switches consistently. Defaults must keep the app usable for teammates who do not have Oracle DB or OCI GenAI configured.
+
+| Switch | Default | Allowed values | Used by | Behavior | Fallback / failure behavior |
+| --- | --- | --- | --- | --- | --- |
+| `DEVQUEST_DATA_MODE` | `mock` | `mock`, `oracle` | Phase 8 data provider | Chooses mock Python data or Oracle repository data. | `mock` always works locally. `oracle` currently returns `501` until repository methods are implemented. |
+| `DEVQUEST_AI_MODE` | `mock` | `mock`, `real` | Phase 8 AI insight service | Chooses deterministic local AI insight or real OCI GenAI call. | `mock` avoids external calls. `real` returns HTTP error if OCI config/model/compartment is missing or invalid. |
+| `DEVQUEST_AI_PROVIDER` | `oci_genai` | `oci_genai` | Phase 8 AI insight service | Selects approved AI provider. | Unsupported values return `500`. |
+| `OCI_AUTH_TYPE` | `config_file` | `config_file`, `api_key`, `instance_principal`, `resource_principal` | OCI client | Chooses OCI SDK authentication style. | Missing/invalid config returns `501` through the Phase 8 service. |
+| `OCI_CONFIG_FILE` | empty | file path | OCI client with `config_file` | Optional config path override. | Empty value uses OCI SDK default config path. |
+| `OCI_CONFIG_PROFILE` | `DEFAULT` | profile name | OCI client with `config_file` | Selects profile from OCI config file. | Missing profile returns `501`. |
+| `OCI_REGION` | empty | OCI region | OCI client with `api_key` | Required only for direct temporary API-key auth. | Missing value returns `501` for `api_key`. |
+| `OCI_USER_OCID` | empty | user OCID | OCI client with `api_key` | Required only for direct temporary API-key auth. | Missing value returns `501` for `api_key`. |
+| `OCI_TENANCY_OCID` | empty | tenancy OCID | OCI client with `api_key` | Required only for direct temporary API-key auth. | Missing value returns `501` for `api_key`. |
+| `OCI_KEY_FILE` | empty | local private key path | OCI client with `api_key` | Required only for direct temporary API-key auth. Supports `~` expansion. | Missing/invalid key returns `501` for `api_key`. |
+| `OCI_KEY_FINGERPRINT` | empty | key fingerprint | OCI client with `api_key` | Required only for direct temporary API-key auth. | Missing/malformed fingerprint returns `501` for `api_key`. |
+| `OCI_KEY_PASSPHRASE` | empty | passphrase | OCI client with `api_key` | Optional unless private key is encrypted. | Wrong passphrase returns `501` for `api_key`. |
+| `OCI_COMPARTMENT_ID` | empty | compartment OCID | OCI GenAI request | Required for `DEVQUEST_AI_MODE=real`. | Missing value returns `501`. Unauthorized/not found returns `502` from provider failure mapping. |
+| `OCI_GENAI_ENDPOINT` | empty | endpoint URL | OCI client | Optional endpoint override. Needed for temporary GenAI endpoint testing. | Empty value lets OCI SDK choose service endpoint from configured region. |
+| `OCI_GENAI_SERVING_MODE` | `on_demand` | `on_demand`, `dedicated` | OCI chat details | Chooses hosted model ID or dedicated endpoint ID semantics. | Unsupported values return `501`. |
+| `OCI_GENAI_MODEL_ID` | empty | model ID or endpoint OCID | OCI chat details | Required for `DEVQUEST_AI_MODE=real`. | Missing value returns `501`. Provider errors return `502`. |
+| `OCI_GENAI_REQUEST_FORMAT` | `generic` | `generic`, `cohere`, `auto` | OCI chat request builder | Chooses request payload shape. `generic` supports OpenAI/Gemini/xAI-style models with `max_completion_tokens`; `cohere` uses Cohere chat payload with `max_tokens`; `auto` chooses Cohere only for `cohere.*` IDs. | Wrong request format may produce provider `400`, surfaced as `502`. |
+| `REACT_APP_API_BASE_URL` | empty | API base URL | Frontend API client | Overrides frontend API base URL. | If empty, Phase 8 helpers call `http://127.0.0.1:8000/api/v1`; existing non-Phase-8 helpers keep `/api/v1`. |
+
+### AI Assistant Guidance
+
+When an AI coding assistant works on this repo:
+
+- Keep `DEVQUEST_AI_MODE=mock` as the default in code and docs.
+- Do not require real OCI config for local build, frontend build, or normal smoke tests.
+- Do not commit OCI user OCIDs, private keys, passphrases, or personal config files.
+- Use `DEVQUEST_AI_MODE=real` only when the user explicitly wants a real OCI GenAI test.
+- Prefer `OCI_GENAI_REQUEST_FORMAT=generic` for OpenAI/Gemini/xAI-style model IDs.
+- Prefer `OCI_GENAI_REQUEST_FORMAT=cohere` only for Cohere-specific models.
+- If real AI fails, preserve the public response contract and report the provider/config failure clearly; do not silently mutate stored task data.
+- Keep Phase 8 frontend wiring small: Dashboard may consume `/api/v1/dashboard/today`, but task mutations should remain local until the task APIs are implemented.
 
 ### Mock User
 
@@ -331,6 +384,25 @@ Current backend is flat. For Phase 8, either:
 - create a small router/service structure without doing a full backend refactor.
 
 Prefer keeping the change scoped to Phase 8.
+
+## Frontend Integration Scope
+
+Minor UI integration is allowed for Phase 8 as long as it does not restructure shared frontend work.
+
+Current frontend wiring:
+
+- `frontend/src/api/client.js` exposes `dashboardApi.today()` for `GET /api/v1/dashboard/today`.
+- `frontend/src/api/client.js` exposes `capacityApi.get()` for `GET /api/v1/capacity`.
+- `frontend/src/App.js` fetches `dashboardApi.today({ date: todayKey() })` when `AppShell` mounts.
+- The Dashboard page uses the response for stat cards, mission/task rows, schedule rows, and the AI insight card.
+- If the backend request fails, the UI keeps the existing local demo state and does not block the rest of the app.
+
+Intentional non-goals:
+
+- Do not broadly refactor frontend state management.
+- Do not redesign the Dashboard layout.
+- Do not wire every task mutation to backend APIs as part of Phase 8.
+- Do not remove local fallback data until the rest of the team agrees.
 
 ## Testing Checklist
 

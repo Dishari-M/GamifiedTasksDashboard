@@ -45,6 +45,7 @@ import {
   Trophy,
   UsersThree,
 } from "@phosphor-icons/react";
+import { dashboardApi } from "./api/client";
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
@@ -123,6 +124,14 @@ const formatDateTime = (isoValue) => {
   }).format(new Date(isoValue));
 };
 
+const formatTime = (isoValue) => {
+  if (!isoValue) return "";
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoValue));
+};
+
 const formatTimer = (seconds) => {
   const mins = Math.floor(seconds / 60)
     .toString()
@@ -158,7 +167,7 @@ const buildAiFields = (task) => {
     10,
     Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)),
   );
-  const priorityScore = Math.min(
+  const calculatedPriorityScore = Math.min(
     0.99,
     Math.round(
       ((priorityWeight * 0.58 +
@@ -182,9 +191,11 @@ const buildAiFields = (task) => {
         ? "Easy"
         : "Medium";
   return {
-    difficulty,
+    difficulty: task.difficulty || difficulty,
     impact,
-    priorityScore,
+    priorityScore: Number.isFinite(Number(task.priorityScore))
+      ? Number(task.priorityScore)
+      : calculatedPriorityScore,
     effort,
     xp,
     aiInsight:
@@ -368,6 +379,42 @@ const defaultOverview = {
   wentWrong: "Timeout details were split across a few systems.",
 };
 
+const normalizeApiTask = (task) =>
+  normalizeTask({
+    id: String(task.external_id || task.task_id),
+    taskId: task.task_id,
+    externalId: task.external_id || "",
+    title: task.title,
+    description: task.description,
+    source: task.external_source || "Custom",
+    type: task.task_type || "Task",
+    priority: task.priority || "Medium",
+    status: task.status || "To Do",
+    time: task.estimated_minutes || task.ai?.effort_minutes || 60,
+    actualMinutes: task.actual_minutes || 0,
+    xp: task.xp_value || 0,
+    workingToday: Boolean(task.working_today),
+    completedAt: task.completed_at,
+    impact: task.ai?.impact_score || 5,
+    priorityScore: task.ai?.priority_score,
+    difficulty: task.ai?.difficulty,
+    aiInsight: task.ai?.insight,
+    notes: task.notes || "",
+    labels: [],
+  });
+
+const normalizeApiSchedule = (events = []) =>
+  events.map((event) => ({
+    time: formatTime(event.start_at),
+    title: event.title,
+    duration: event.is_focus_block
+      ? `${formatMinutes(event.duration_minutes)} available`
+      : formatMinutes(event.duration_minutes),
+    durationMinutes: event.duration_minutes,
+    color: event.is_focus_block ? "green" : "blue",
+    focus: Boolean(event.is_focus_block),
+  }));
+
 const Pill = ({ children, tone = "neutral", testId }) => (
   <span className={`pill pill-${tone}`} data-testid={testId}>
     {children}
@@ -446,7 +493,7 @@ const Topbar = ({ onMenuClick }) => {
   const location = useLocation();
   const title =
     location.pathname === "/"
-      ? "Good morning, Rahul"
+      ? "Good morning, Admin"
       : navItems.find((item) => item.path === location.pathname)?.label ||
         "DevQuest";
 
@@ -498,9 +545,9 @@ const Topbar = ({ onMenuClick }) => {
         data-testid="profile-menu-button"
       >
         <span className="avatar" data-testid="profile-avatar">
-          RK
+          A
         </span>
-        <span data-testid="profile-name">Rahul Kulkarni</span>
+        <span data-testid="profile-name">Admin</span>
         <CaretDown size={16} weight="bold" aria-hidden="true" />
       </button>
     </header>
@@ -611,7 +658,7 @@ const MissionCard = ({ task, index }) => {
   );
 };
 
-const SchedulePanel = () => (
+const SchedulePanel = ({ events = schedule }) => (
   <section className="surface schedule-panel" data-testid="schedule-panel">
     <div className="section-heading">
       <h2>
@@ -623,10 +670,10 @@ const SchedulePanel = () => (
       </NavLink>
     </div>
     <div className="timeline" data-testid="schedule-timeline">
-      {schedule.map((event) => (
+      {events.map((event) => (
         <div
           className="timeline-row"
-          key={event.time}
+          key={`${event.time}-${event.title}`}
           data-testid={`schedule-row-${slug(event.time)}`}
         >
           <time data-testid={`schedule-time-${slug(event.time)}`}>
@@ -1183,17 +1230,27 @@ const generateStandupNote = (tasks) => {
 
 const Dashboard = ({
   tasks,
+  dashboardStats,
+  dashboardSchedule,
+  dashboardInsight,
+  dashboardStatus,
   onComplete,
   onStatusChange,
   onEdit,
   onToggleToday,
   onUpdateNotes,
 }) => {
-  const completedCount = completedTodayTasks(tasks).length;
+  const completedCount =
+    dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
-  const totalXp = tasks
-    .filter((task) => task.status === "Done")
-    .reduce((sum, task) => sum + task.xp, 2450);
+  const totalXp =
+    dashboardStats?.total_xp ??
+    tasks
+      .filter((task) => task.status === "Done")
+      .reduce((sum, task) => sum + task.xp, 2450);
+  const focusMinutes =
+    dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes;
+  const meetingMinutes = dashboardStats?.meeting_minutes;
   const topMissions = [
     ...(todayTasks.length
       ? todayTasks
@@ -1228,7 +1285,7 @@ const Dashboard = ({
         />
         <StatCard
           label="Working Today"
-          value={`${todayTasks.length} tasks`}
+          value={`${dashboardStats?.tasks_planned_today ?? todayTasks.length} tasks`}
           detail="Feeds the Quests page"
           icon={Flag}
           tone="gold"
@@ -1236,8 +1293,12 @@ const Dashboard = ({
         />
         <StatCard
           label="Focus Time"
-          value="2h 35m"
-          detail="22% vs yesterday"
+          value={focusMinutes ? formatMinutes(focusMinutes) : "2h 35m"}
+          detail={
+            dashboardStatus === "live"
+              ? "From Phase 8 capacity API"
+              : "22% vs yesterday"
+          }
           icon={Clock}
           tone="green"
           trend
@@ -1245,8 +1306,12 @@ const Dashboard = ({
         />
         <StatCard
           label="Meetings"
-          value="3h 10m"
-          detail="Tracked in overview"
+          value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"}
+          detail={
+            dashboardStatus === "live"
+              ? "From Phase 8 calendar data"
+              : "Tracked in overview"
+          }
           icon={CalendarBlank}
           tone="orange"
           trend
@@ -1274,7 +1339,7 @@ const Dashboard = ({
             ))}
           </div>
         </section>
-        <SchedulePanel />
+        <SchedulePanel events={dashboardSchedule} />
         <section
           className="surface my-tasks-panel"
           data-testid="my-tasks-panel"
@@ -1327,19 +1392,22 @@ const Dashboard = ({
               Insight
             </h2>
             <p data-testid="ai-insight-text">
-              {topMissions[0]?.aiInsight ||
+              {dashboardInsight?.text ||
+                topMissions[0]?.aiInsight ||
                 "Select work for today to generate focused insights."}
             </p>
             <div className="insight-grid">
               <span data-testid="ai-capacity-value">
                 {formatMinutes(
-                  todayTasks.reduce((sum, task) => sum + task.time, 0),
+                  dashboardInsight?.capacity_minutes ??
+                    todayTasks.reduce((sum, task) => sum + task.time, 0),
                 )}{" "}
-                planned
+                {dashboardInsight ? "capacity" : "planned"}
               </span>
               <span data-testid="ai-impact-value">
-                {Math.round((topMissions[0]?.priorityScore || 0) * 100)}{" "}
-                priority score
+                {dashboardInsight?.impact_score
+                  ? `${dashboardInsight.impact_score}/10 impact`
+                  : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}
               </span>
             </div>
           </section>
@@ -1920,11 +1988,49 @@ const SettingsPage = () => (
 const AppShell = () => {
   const [tasks, setTasks] = useState(initialTasks);
   const [overview, setOverview] = useState(defaultOverview);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [dashboardInsight, setDashboardInsight] = useState(null);
+  const [dashboardStatus, setDashboardStatus] = useState("fallback");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const statusCycle = useMemo(
     () => ["To Do", "In Progress", "Blocked", "Done"],
     [],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    dashboardApi
+      .today({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setTasks((data.tasks || []).map(normalizeApiTask));
+        setDashboardStats(data.stats || null);
+        setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
+        setDashboardInsight(data.ai_insight || null);
+        setDashboardStatus("live");
+        if (data.stats) {
+          setOverview((current) => ({
+            ...current,
+            meetingMinutes:
+              data.stats.meeting_minutes ?? current.meetingMinutes,
+            focusMinutes:
+              data.stats.focus_minutes ??
+              data.stats.available_focus_minutes ??
+              current.focusMinutes,
+          }));
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDashboardStatus("fallback");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleComplete = (id) =>
     setTasks((items) =>
@@ -2001,6 +2107,10 @@ const AppShell = () => {
             element={
               <Dashboard
                 tasks={tasks}
+                dashboardStats={dashboardStats}
+                dashboardSchedule={dashboardSchedule}
+                dashboardInsight={dashboardInsight}
+                dashboardStatus={dashboardStatus}
                 onComplete={handleComplete}
                 onStatusChange={handleStatusChange}
                 onEdit={handleEditTask}

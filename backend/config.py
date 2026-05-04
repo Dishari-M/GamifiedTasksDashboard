@@ -75,6 +75,11 @@ def get_oci_genai_endpoint():
     return os.getenv("OCI_GENAI_ENDPOINT", "").strip()
 
 
+def get_oci_region():
+    """Return an optional OCI region for direct API-key auth."""
+    return os.getenv("OCI_REGION", "").strip()
+
+
 def get_oci_genai_serving_mode():
     """Return whether OCI GenAI should use on-demand model or dedicated endpoint.
 
@@ -83,3 +88,39 @@ def get_oci_genai_serving_mode():
     - dedicated: dedicated endpoint selected by OCI_GENAI_MODEL_ID.
     """
     return os.getenv("OCI_GENAI_SERVING_MODE", "on_demand").strip().lower()
+
+
+def get_oci_genai_request_format():
+    """Return the OCI GenAI chat request format.
+
+    Supported values:
+    - generic: OpenAI/Gemini/xAI style OCI chat request. This is default.
+    - cohere: Cohere-specific OCI chat request.
+    - auto: choose cohere only when the model ID starts with cohere.
+    """
+    return os.getenv("OCI_GENAI_REQUEST_FORMAT", "generic").strip().lower()
+
+
+def get_oci_user_ocid():
+    """Return optional API-key auth user OCID for local temporary testing."""
+    return os.getenv("OCI_USER_OCID", "").strip()
+
+
+def get_oci_tenancy_ocid():
+    """Return optional API-key auth tenancy OCID for local temporary testing."""
+    return os.getenv("OCI_TENANCY_OCID", "").strip()
+
+
+def get_oci_key_file():
+    """Return optional API-key auth private key file path for local testing."""
+    return os.getenv("OCI_KEY_FILE", "").strip()
+
+
+def get_oci_key_fingerprint():
+    """Return optional API-key auth public key fingerprint for local testing."""
+    return os.getenv("OCI_KEY_FINGERPRINT", "").strip()
+
+
+def get_oci_key_passphrase():
+    """Return optional API-key auth private key passphrase for local testing."""
+    return os.getenv("OCI_KEY_PASSPHRASE", "").strip()
