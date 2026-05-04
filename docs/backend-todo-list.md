@@ -53,9 +53,12 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Create sequences:
   - [ ] `APP_USERS_SEQ`
+  - [ ] `USER_STATS_SEQ`
+  - [ ] `USER_INTEGRATIONS_SEQ`
   - [ ] `WORK_ITEMS_SEQ`
   - [ ] `WORK_ITEM_EVENTS_SEQ`
   - [ ] `CALENDAR_EVENTS_SEQ`
+  - [ ] `FOCUS_SESSIONS_SEQ`
   - [ ] `AI_RUNS_SEQ`
   - [ ] `QUEST_PLANS_SEQ`
   - [ ] `QUEST_ITEMS_SEQ`
@@ -67,9 +70,12 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Create core tables:
   - [ ] `APP_USERS`
+  - [ ] `USER_STATS`
+  - [ ] `USER_INTEGRATIONS`
   - [ ] `WORK_ITEMS`
   - [ ] `WORK_ITEM_EVENTS`
   - [ ] `CALENDAR_EVENTS`
+  - [ ] `FOCUS_SESSIONS`
   - [ ] `AI_RUNS`
   - [ ] `QUEST_PLANS`
   - [ ] `QUEST_ITEMS`
@@ -81,18 +87,361 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `SYNC_RUN_ITEMS`
   - [ ] Optional: `EXTERNAL_OBJECTS` for raw Jira/Outlook payload snapshots.
 
+- [ ] Map UI surfaces to DB tables:
+
+| UI surface | Primary tables |
+| --- | --- |
+| Sidebar profile, XP, streak, level | `APP_USERS`, `USER_STATS` |
+| Dashboard stats and top missions | `WORK_ITEMS`, `CALENDAR_EVENTS`, `FOCUS_SESSIONS`, `USER_STATS`, `AI_RUNS` |
+| My Tasks add/edit/table | `WORK_ITEMS`, `WORK_ITEM_EVENTS` |
+| Working Today button | `WORK_ITEMS.WORKED_DATES`, `WORK_ITEM_EVENTS` |
+| Missions | `WORK_ITEMS`, `CALENDAR_EVENTS`, `APP_USERS`, `AI_RUNS` |
+| Quests | `WORK_ITEMS.WORKED_DATES`, `QUEST_PLANS`, `QUEST_ITEMS`, `AI_RUNS` |
+| Calendar schedule | `CALENDAR_EVENTS` |
+| Focus Mode | `FOCUS_SESSIONS`, optional `WORK_ITEMS` |
+| AI Insights | `WORK_ITEMS`, `CALENDAR_EVENTS`, `AI_RUNS`, `STANDUP_NOTES` |
+| Standup Note Generator | `WORK_ITEMS`, `STANDUP_NOTES`, `AI_RUNS` |
+| Daily Overview | `DAILY_OVERVIEWS`, `WORK_ITEMS`, `CALENDAR_EVENTS`, `FOCUS_SESSIONS`, `AI_RUNS` |
+| Weekly Overview | `WEEKLY_OVERVIEWS`, `DAILY_OVERVIEWS`, `WORK_ITEMS`, `CALENDAR_EVENTS`, `FOCUS_SESSIONS`, `AI_RUNS` |
+| Sync Center | `USER_INTEGRATIONS`, `SYNC_RUNS`, `SYNC_RUN_ITEMS`, optional `EXTERNAL_OBJECTS` |
+| Settings | `APP_USERS`, `USER_INTEGRATIONS` |
+
+- [ ] Create `APP_USERS` for profile, login, settings, ownership, and timezone:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `USER_ID` | `NUMBER(19)` | PK, `APP_USERS_SEQ.NEXTVAL` |
+| `DISPLAY_NAME` | `VARCHAR2(200)` | UI profile name |
+| `EMAIL` | `VARCHAR2(320)` | unique login/email |
+| `USERNAME` | `VARCHAR2(120)` | optional login username |
+| `ROLE_NAME` | `VARCHAR2(80)` | developer, QA, DevOps, manager |
+| `TIMEZONE` | `VARCHAR2(80)` | default `Asia/Calcutta` |
+| `WORKDAY_START_LOCAL` | `VARCHAR2(5)` | settings page, example `09:00` |
+| `WORKDAY_END_LOCAL` | `VARCHAR2(5)` | settings page, example `17:00` |
+| `FOCUS_XP_MULTIPLIER` | `NUMBER(5,2)` | settings page |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `USER_STATS` for sidebar XP, level, streak, and fast dashboard stats:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `USER_STATS_ID` | `NUMBER(19)` | PK, `USER_STATS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS`, unique |
+| `TOTAL_XP` | `NUMBER(10)` | sidebar/dashboard total XP |
+| `CURRENT_LEVEL` | `NUMBER(5)` | sidebar level |
+| `CURRENT_STREAK_DAYS` | `NUMBER(6)` | sidebar streak |
+| `LAST_ACTIVITY_DATE` | `DATE` | streak calculation |
+| `CURRENT_LEVEL_XP` | `NUMBER(10)` | XP earned in current level |
+| `NEXT_LEVEL_XP` | `NUMBER(10)` | XP required for next level |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `USER_INTEGRATIONS` for Jira, Outlook Calendar, and Microsoft To Do connector setup:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `USER_INTEGRATION_ID` | `NUMBER(19)` | PK, `USER_INTEGRATIONS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `PROVIDER` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar`, `Microsoft To Do` |
+| `ACCOUNT_IDENTIFIER` | `VARCHAR2(320)` | Jira email, Microsoft account, tenant user |
+| `BASE_URL` | `VARCHAR2(500)` | Jira base URL when provider is Jira |
+| `PROJECT_KEYS` | `VARCHAR2(1000)` | comma-separated Jira project keys |
+| `SCOPES` | `VARCHAR2(1000)` | OAuth scopes if applicable |
+| `SECRET_REF` | `VARCHAR2(500)` | OCI Vault ref or secret alias, never raw token |
+| `REFRESH_SECRET_REF` | `VARCHAR2(500)` | refresh-token secret ref if delegated OAuth |
+| `STATUS` | `VARCHAR2(30)` | `Connected`, `Disconnected`, `Error` |
+| `LAST_SYNC_AT` | `TIMESTAMP WITH TIME ZONE` | sync center |
+| `LAST_ERROR_MESSAGE` | `VARCHAR2(1000)` | safe error text |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `WORK_ITEMS` for My Tasks, Missions, Quests, AI insights, standup, and overviews:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `TASK_ID` | `NUMBER(19)` | PK, `WORK_ITEMS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `EXTERNAL_SOURCE` | `VARCHAR2(60)` | `Custom`, `Jira`, `Outlook`, `Microsoft To Do` |
+| `EXTERNAL_ID` | `VARCHAR2(200)` | Jira key, Outlook event ID, To Do ID |
+| `PROJECT_KEY` | `VARCHAR2(80)` | Jira/project code |
+| `TITLE` | `VARCHAR2(300)` | task table/card title |
+| `DESCRIPTION` | `CLOB` | task details |
+| `TASK_TYPE` | `VARCHAR2(40)` | `Task`, `Bug`, `Epic`, `Review`, `Meeting` |
+| `PRIORITY` | `VARCHAR2(20)` | `Critical`, `High`, `Medium`, `Low` |
+| `STATUS` | `VARCHAR2(30)` | `To Do`, `In Progress`, `Blocked`, `Done`, `Upcoming`, `Cancelled` |
+| `DUE_DATE` | `DATE` | task form due date |
+| `START_DATE` | `DATE` | task form start date |
+| `ESTIMATED_MINUTES` | `NUMBER(8)` | effort column |
+| `ACTUAL_MINUTES` | `NUMBER(8)` | completion/overview |
+| `XP_VALUE` | `NUMBER(8)` | task table, XP cards |
+| `LABELS_JSON` | `CLOB` | JSON array for labels/themes |
+| `NOTES` | `CLOB` | inline notes, AI context, standup, overview |
+| `WORKED_DATES` | `VARCHAR2(4000)` | comma-separated `YYYY-MM-DD` dates; source of quest membership |
+| `AI_DIFFICULTY` | `VARCHAR2(20)` | AI cell |
+| `AI_IMPACT_SCORE` | `NUMBER(4,2)` | AI cell, mission ranking |
+| `AI_PRIORITY_SCORE` | `NUMBER(8,4)` | mission/quest ranking |
+| `AI_EFFORT_MINUTES` | `NUMBER(8)` | AI effort estimate |
+| `AI_CATEGORY` | `VARCHAR2(60)` | task category |
+| `AI_INSIGHT` | `CLOB` | AI insight text |
+| `AI_SUGGESTED_ACTION` | `CLOB` | suggested next action |
+| `AI_MODEL_VERSION` | `VARCHAR2(200)` | traceability |
+| `AI_ENRICHED_AT` | `TIMESTAMP WITH TIME ZONE` | cache freshness |
+| `COMPLETED_AT` | `TIMESTAMP WITH TIME ZONE` | completion date inserted on Done |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `WORK_ITEM_EVENTS` for task audit history:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `EVENT_ID` | `NUMBER(19)` | PK, `WORK_ITEM_EVENTS_SEQ.NEXTVAL` |
+| `TASK_ID` | `NUMBER(19)` | FK to `WORK_ITEMS` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `EVENT_TYPE` | `VARCHAR2(60)` | `TASK_CREATED`, `TASK_UPDATED`, `TASK_COMPLETED`, `NOTES_UPDATED`, `WORKING_TODAY_UPDATED`, `AI_ENRICHED`, `SYNC_CREATED`, `SYNC_UPDATED` |
+| `OLD_VALUE_JSON` | `CLOB` | JSON snapshot/diff before change |
+| `NEW_VALUE_JSON` | `CLOB` | JSON snapshot/diff after change |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
+- [ ] Create `CALENDAR_EVENTS` for schedule, meetings, capacity, and overview meeting time:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `EVENT_ID` | `NUMBER(19)` | PK, `CALENDAR_EVENTS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `EXTERNAL_SOURCE` | `VARCHAR2(60)` | usually `Outlook Calendar` |
+| `EXTERNAL_ID` | `VARCHAR2(200)` | Outlook event ID |
+| `TITLE` | `VARCHAR2(300)` | schedule card title |
+| `DESCRIPTION` | `CLOB` | event body/preview |
+| `START_AT` | `TIMESTAMP WITH TIME ZONE` | timeline |
+| `END_AT` | `TIMESTAMP WITH TIME ZONE` | timeline |
+| `DURATION_MINUTES` | `NUMBER(8)` | meeting/capacity metrics |
+| `IS_MEETING` | `NUMBER(1)` | 1 for meetings |
+| `IS_FOCUS_BLOCK` | `NUMBER(1)` | 1 for focus blocks |
+| `ATTENDEE_COUNT` | `NUMBER(6)` | optional meeting signal |
+| `COLOR_KEY` | `VARCHAR2(40)` | optional UI timeline color |
+| `IS_CANCELLED` | `NUMBER(1)` | recurring/cancelled sync handling |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `FOCUS_SESSIONS` for Focus Mode and overview focus time:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `FOCUS_SESSION_ID` | `NUMBER(19)` | PK, `FOCUS_SESSIONS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `TASK_ID` | `NUMBER(19)` | optional FK to `WORK_ITEMS` |
+| `SESSION_DATE` | `DATE` | local date |
+| `STARTED_AT` | `TIMESTAMP WITH TIME ZONE` | focus timer start |
+| `ENDED_AT` | `TIMESTAMP WITH TIME ZONE` | focus timer end |
+| `PLANNED_MINUTES` | `NUMBER(8)` | timer target |
+| `ACTUAL_MINUTES` | `NUMBER(8)` | overview focus minutes |
+| `STATUS` | `VARCHAR2(30)` | `Running`, `Paused`, `Completed`, `Cancelled` |
+| `XP_MULTIPLIER` | `NUMBER(5,2)` | from settings |
+| `XP_AWARDED` | `NUMBER(8)` | optional focus XP |
+| `NOTES` | `CLOB` | optional session notes |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `AI_RUNS` for AI task enrichment, missions, quests, insights, standup, and overviews:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `AI_RUN_ID` | `NUMBER(19)` | PK, `AI_RUNS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `RUN_TYPE` | `VARCHAR2(60)` | `TASK_ENRICHMENT`, `MISSION_GENERATION`, `QUEST_GENERATION`, `INSIGHT_GENERATION`, `STANDUP_GENERATION`, `DAILY_OVERVIEW`, `WEEKLY_OVERVIEW` |
+| `STATUS` | `VARCHAR2(30)` | `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `VALIDATION_FAILED` |
+| `PROVIDER` | `VARCHAR2(40)` | `OCI` |
+| `MODEL_ID` | `VARCHAR2(200)` | OCI model ID |
+| `AGENT_ENDPOINT_ID` | `VARCHAR2(255)` | when OCI Agent is used |
+| `INPUT_HASH` | `VARCHAR2(128)` | cache key |
+| `REQUEST_JSON` | `CLOB` | prompt/request JSON |
+| `RESPONSE_JSON` | `CLOB` | model response JSON |
+| `ERROR_CODE` | `VARCHAR2(100)` | safe error code |
+| `ERROR_MESSAGE` | `VARCHAR2(1000)` | safe error message |
+| `STARTED_AT` | `TIMESTAMP WITH TIME ZONE` | run timing |
+| `COMPLETED_AT` | `TIMESTAMP WITH TIME ZONE` | run timing |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
+- [ ] Create `QUEST_PLANS` for generated quest board metadata:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `QUEST_PLAN_ID` | `NUMBER(19)` | PK, `QUEST_PLANS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `QUEST_DATE` | `DATE` | date selected in Quests page |
+| `SOURCE_AI_RUN_ID` | `NUMBER(19)` | FK to `AI_RUNS` |
+| `CAPACITY_MINUTES` | `NUMBER(8)` | total work capacity |
+| `MEETING_MINUTES` | `NUMBER(8)` | calendar meeting time |
+| `FOCUS_MINUTES` | `NUMBER(8)` | available focus minutes |
+| `SUMMARY` | `CLOB` | AI quest plan summary |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `QUEST_ITEMS` for generated quest ranks and reasons:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `QUEST_ITEM_ID` | `NUMBER(19)` | PK, `QUEST_ITEMS_SEQ.NEXTVAL` |
+| `QUEST_PLAN_ID` | `NUMBER(19)` | FK to `QUEST_PLANS` |
+| `TASK_ID` | `NUMBER(19)` | FK to `WORK_ITEMS` |
+| `RANK_ORDER` | `NUMBER(5)` | quest order |
+| `REASON` | `CLOB` | AI reason |
+| `SUGGESTED_ACTION` | `CLOB` | AI action |
+| `SUGGESTED_START_AT` | `TIMESTAMP WITH TIME ZONE` | schedule suggestion |
+| `SUGGESTED_END_AT` | `TIMESTAMP WITH TIME ZONE` | schedule suggestion |
+| `XP_VALUE` | `NUMBER(8)` | XP snapshot |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
+- [ ] Create `STANDUP_NOTES` for generated standup copy:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `STANDUP_NOTE_ID` | `NUMBER(19)` | PK, `STANDUP_NOTES_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `NOTE_DATE` | `DATE` | standup date |
+| `SOURCE_AI_RUN_ID` | `NUMBER(19)` | FK to `AI_RUNS` |
+| `ACCOMPLISHED` | `CLOB` | structured JSON or text |
+| `IN_PROGRESS` | `CLOB` | structured JSON or text |
+| `BLOCKERS` | `CLOB` | structured JSON or text |
+| `NEXT_STEPS` | `CLOB` | structured JSON or text |
+| `FULL_NOTE` | `CLOB` | UI preformatted note |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `DAILY_OVERVIEWS` for Daily Overview page:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `DAILY_OVERVIEW_ID` | `NUMBER(19)` | PK, `DAILY_OVERVIEWS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `OVERVIEW_DATE` | `DATE` | selected local date |
+| `SOURCE_AI_RUN_ID` | `NUMBER(19)` | FK to `AI_RUNS` |
+| `TASKS_COMPLETED` | `NUMBER(8)` | daily stat |
+| `XP_EARNED` | `NUMBER(8)` | daily stat |
+| `MEETING_MINUTES` | `NUMBER(8)` | editable/tracked daily stat |
+| `FOCUS_MINUTES` | `NUMBER(8)` | editable/tracked daily stat |
+| `NEW_LEARNINGS` | `CLOB` | overview form and AI summary |
+| `WENT_WELL` | `CLOB` | overview form and AI summary |
+| `WENT_WRONG` | `CLOB` | overview form and AI summary |
+| `SUMMARY` | `CLOB` | AI daily summary |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `WEEKLY_OVERVIEWS` for Weekly Overview page:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `WEEKLY_OVERVIEW_ID` | `NUMBER(19)` | PK, `WEEKLY_OVERVIEWS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `WEEK_START_DATE` | `DATE` | Monday/local start |
+| `WEEK_END_DATE` | `DATE` | Sunday/local end |
+| `SOURCE_AI_RUN_ID` | `NUMBER(19)` | FK to `AI_RUNS` |
+| `TASKS_COMPLETED` | `NUMBER(8)` | weekly stat |
+| `XP_EARNED` | `NUMBER(8)` | weekly stat |
+| `MEETING_MINUTES` | `NUMBER(8)` | weekly stat |
+| `FOCUS_MINUTES` | `NUMBER(8)` | weekly stat |
+| `TOP_ACCOMPLISHMENTS` | `CLOB` | structured JSON or text |
+| `NEW_LEARNINGS` | `CLOB` | weekly learnings |
+| `THEMES` | `CLOB` | JSON array or text |
+| `SUMMARY` | `CLOB` | AI weekly summary |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+| `ROW_VERSION` | `NUMBER` | optimistic locking |
+
+- [ ] Create `SYNC_RUNS` for Sync Center:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `SYNC_RUN_ID` | `NUMBER(19)` | PK, `SYNC_RUNS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `STATUS` | `VARCHAR2(30)` | `QUEUED`, `RUNNING`, `SUCCEEDED`, `PARTIAL`, `FAILED` |
+| `REQUEST_JSON` | `CLOB` | sources/date range requested |
+| `STARTED_AT` | `TIMESTAMP WITH TIME ZONE` | timing |
+| `COMPLETED_AT` | `TIMESTAMP WITH TIME ZONE` | timing |
+| `ERROR_MESSAGE` | `VARCHAR2(1000)` | safe error |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
+- [ ] Create `SYNC_RUN_ITEMS` for per-source sync status:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `SYNC_RUN_ITEM_ID` | `NUMBER(19)` | PK, `SYNC_RUN_ITEMS_SEQ.NEXTVAL` |
+| `SYNC_RUN_ID` | `NUMBER(19)` | FK to `SYNC_RUNS` |
+| `SOURCE` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar`, `Microsoft To Do` |
+| `STATUS` | `VARCHAR2(30)` | `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED` |
+| `CREATED_COUNT` | `NUMBER(8)` | sync summary |
+| `UPDATED_COUNT` | `NUMBER(8)` | sync summary |
+| `FAILED_COUNT` | `NUMBER(8)` | sync summary |
+| `ERROR_MESSAGE` | `VARCHAR2(1000)` | safe error |
+| `STARTED_AT` | `TIMESTAMP WITH TIME ZONE` | timing |
+| `COMPLETED_AT` | `TIMESTAMP WITH TIME ZONE` | timing |
+
+- [ ] Create `IDEMPOTENCY_KEYS` for safe retries on create/generate/sync endpoints:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `IDEMPOTENCY_KEY` | `VARCHAR2(120)` | PK, client retry token |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `METHOD` | `VARCHAR2(10)` | request method |
+| `PATH` | `VARCHAR2(500)` | request path |
+| `REQUEST_HASH` | `VARCHAR2(128)` | body hash |
+| `RESPONSE_JSON` | `CLOB` | cached response |
+| `STATUS_CODE` | `NUMBER(3)` | cached status |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
+- [ ] Optional `EXTERNAL_OBJECTS` for raw connector payload snapshots:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `EXTERNAL_OBJECT_ID` | `NUMBER(19)` | PK, add sequence if implemented |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
+| `SOURCE` | `VARCHAR2(60)` | external system |
+| `EXTERNAL_ID` | `VARCHAR2(200)` | source object ID |
+| `OBJECT_TYPE` | `VARCHAR2(60)` | issue, event, todo |
+| `PAYLOAD_JSON` | `CLOB` | raw payload, redact secrets |
+| `SYNC_RUN_ID` | `NUMBER(19)` | FK to `SYNC_RUNS` |
+| `CREATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
+
 - [ ] Add indexes:
+  - [ ] `APP_USERS(EMAIL)` unique.
+  - [ ] `USER_STATS(USER_ID)` unique.
+  - [ ] `USER_INTEGRATIONS(USER_ID, PROVIDER)` unique.
   - [ ] `WORK_ITEMS(USER_ID, STATUS)`
   - [ ] `WORK_ITEMS(USER_ID, COMPLETED_AT)`
   - [ ] `WORK_ITEMS(USER_ID, UPDATED_AT)`
+  - [ ] `WORK_ITEMS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for non-null external IDs.
   - [ ] Optional function/text index strategy for `WORK_ITEMS.WORKED_DATES` date membership lookups.
   - [ ] `CALENDAR_EVENTS(USER_ID, START_AT)`
+  - [ ] `CALENDAR_EVENTS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for synced events.
+  - [ ] `FOCUS_SESSIONS(USER_ID, SESSION_DATE)`
   - [ ] `AI_RUNS(USER_ID, RUN_TYPE, CREATED_AT)`
+  - [ ] `QUEST_PLANS(USER_ID, QUEST_DATE)` unique.
+  - [ ] `QUEST_ITEMS(QUEST_PLAN_ID, TASK_ID)` unique.
+  - [ ] `STANDUP_NOTES(USER_ID, NOTE_DATE)` unique.
+  - [ ] `DAILY_OVERVIEWS(USER_ID, OVERVIEW_DATE)` unique.
+  - [ ] `WEEKLY_OVERVIEWS(USER_ID, WEEK_START_DATE)` unique.
   - [ ] `WORK_ITEM_EVENTS(TASK_ID, CREATED_AT)`
+  - [ ] `SYNC_RUNS(USER_ID, CREATED_AT)`
+  - [ ] `SYNC_RUN_ITEMS(SYNC_RUN_ID, SOURCE)`
 
 - [ ] Add constraints:
   - [ ] Work item status enum.
   - [ ] Work item priority enum.
+  - [ ] Work item source enum.
+  - [ ] Work item task type enum.
+  - [ ] AI run status enum.
+  - [ ] Sync run status enum.
+  - [ ] Connector provider enum.
   - [ ] Unique external source keys for synced items.
   - [ ] Unique daily/weekly overview rows per user/date.
 
@@ -691,23 +1040,11 @@ Use this as the execution checklist for building the production backend. The det
 
 ## Phase 19: Sync APIs
 
-- [ ] Create `SYNC_RUNS` table.
-  - [ ] `SYNC_RUN_ID`
-  - [ ] `USER_ID`
-  - [ ] `STATUS`
-  - [ ] `STARTED_AT`
-  - [ ] `COMPLETED_AT`
-  - [ ] `ERROR_MESSAGE`
-
-- [ ] Create `SYNC_RUN_ITEMS` table.
-  - [ ] `SYNC_RUN_ITEM_ID`
-  - [ ] `SYNC_RUN_ID`
-  - [ ] `SOURCE`
-  - [ ] `STATUS`
-  - [ ] `CREATED_COUNT`
-  - [ ] `UPDATED_COUNT`
-  - [ ] `FAILED_COUNT`
-  - [ ] `ERROR_MESSAGE`
+- [ ] Use the `SYNC_RUNS` and `SYNC_RUN_ITEMS` schemas defined in Phase 2.
+  - [ ] Persist one `SYNC_RUNS` row per user-triggered sync.
+  - [ ] Persist one `SYNC_RUN_ITEMS` row per source inside that sync.
+  - [ ] Update created, updated, and failed counts per source.
+  - [ ] Store safe error messages only.
 
 - [ ] Implement `POST /api/v1/sync/run`.
   - [ ] Accept sources.
