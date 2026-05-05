@@ -113,6 +113,12 @@
   font-weight: 800;
 }
 
+.task-editor-form input[aria-invalid="true"],
+.task-editor-form select[aria-invalid="true"],
+.task-editor-form textarea[aria-invalid="true"] {
+  border-color: rgba(255, 59, 48, 0.72);
+}
+
 .auth-error {
   margin: 2px 0;
 }
@@ -221,18 +227,18 @@ html[data-theme="light"] {
   --bg: #f4efe7;
   --surface: #fffaf1;
   --surface-hover: #f1eadf;
-  --border: #d8cdbc;
-  --text: #25312d;
-  --text-soft: #53635d;
-  --muted: #7b867f;
-  --blue: #6d9bb3;
-  --blue-soft: #4f819a;
-  --violet: #9f8ab8;
-  --green: #82aa88;
-  --orange: #d49d68;
-  --red: #c97975;
-  --gold: #c8a957;
-  --cyan: #76b4ad;
+  --border: #bdaa91;
+  --text: #18231f;
+  --text-soft: #33443d;
+  --muted: #5f6b62;
+  --blue: #467f9c;
+  --blue-soft: #246985;
+  --violet: #7c649a;
+  --green: #4f8559;
+  --orange: #a9642e;
+  --red: #a84845;
+  --gold: #896f18;
+  --cyan: #438d87;
 }
 
 html[data-theme="light"],
@@ -252,20 +258,20 @@ html[data-theme="light"] .app-shell {
 
 html[data-theme="light"] .sidebar {
   background: #fbf6ed;
-  border-right-color: rgba(177, 162, 139, 0.46);
+  border-right-color: rgba(147, 128, 98, 0.58);
   box-shadow: 16px 0 48px rgba(86, 76, 61, 0.11);
 }
 
 html[data-theme="light"] .topbar {
   background: rgba(251, 246, 237, 0.9);
-  border-bottom-color: rgba(177, 162, 139, 0.32);
+  border-bottom-color: rgba(147, 128, 98, 0.46);
 }
 
 html[data-theme="light"] .sidebar-card,
 html[data-theme="light"] .surface,
 html[data-theme="light"] .stat-card {
   background: #fffaf1;
-  border-color: rgba(177, 162, 139, 0.42);
+  border-color: rgba(147, 128, 98, 0.5);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 18px 44px rgba(86, 76, 61, 0.09);
 }
 
@@ -286,7 +292,7 @@ html[data-theme="light"] .tab,
 html[data-theme="light"] .today-toggle {
   color: var(--text);
   background: rgba(255, 250, 241, 0.86);
-  border-color: rgba(177, 162, 139, 0.38);
+  border-color: rgba(147, 128, 98, 0.46);
 }
 
 html[data-theme="light"] .nav-link:hover,
@@ -305,9 +311,9 @@ html[data-theme="light"] .nav-link.active,
 html[data-theme="light"] .tab.active,
 html[data-theme="light"] .primary-action,
 html[data-theme="light"] .add-task-link {
-  color: #24302c;
+  color: #16221e;
   background: linear-gradient(135deg, #dfe9d9, #cce1df 54%, #dcd3ea);
-  border-color: rgba(132, 158, 145, 0.38);
+  border-color: rgba(99, 128, 113, 0.5);
   box-shadow: 0 14px 28px rgba(106, 132, 119, 0.18);
 }
 
@@ -326,6 +332,28 @@ html[data-theme="light"] .avatar {
 html[data-theme="light"] .brand-mark {
   color: var(--green);
   filter: none;
+}
+
+html[data-theme="light"] .brand-name,
+html[data-theme="light"] .topbar h1,
+html[data-theme="light"] .section-heading h2,
+html[data-theme="light"] .mission-card h3,
+html[data-theme="light"] .event-card strong,
+html[data-theme="light"] .focus-session-row em {
+  color: var(--text);
+}
+
+html[data-theme="light"] .topbar p,
+html[data-theme="light"] .sidebar-card p,
+html[data-theme="light"] .sidebar-card span,
+html[data-theme="light"] .stat-detail,
+html[data-theme="light"] .mission-card p,
+html[data-theme="light"] .insight-card p,
+html[data-theme="light"] .quote-card p,
+html[data-theme="light"] .focus-guidance li,
+html[data-theme="light"] .insight-copy,
+html[data-theme="light"] .footer-note {
+  color: var(--text-soft);
 }
 
 html[data-theme="light"] .level-row,
@@ -365,14 +393,27 @@ html[data-theme="light"] .settings-row input,
 html[data-theme="light"] .inline-notes {
   color: var(--text);
   background: #fffdf7;
-  border-color: rgba(177, 162, 139, 0.42);
+  border-color: rgba(147, 128, 98, 0.5);
 }
 
 html[data-theme="light"] .search-box input,
 html[data-theme="light"] .add-task-form input,
 html[data-theme="light"] .add-task-form select,
-html[data-theme="light"] .settings-row input {
+html[data-theme="light"] .settings-row input,
+html[data-theme="light"] .task-filter-panel input,
+html[data-theme="light"] .task-filter-panel select {
   color: var(--text);
+}
+
+html[data-theme="light"] .search-box input::placeholder,
+html[data-theme="light"] .add-task-form input::placeholder,
+html[data-theme="light"] .task-editor-form input::placeholder,
+html[data-theme="light"] .task-editor-form textarea::placeholder,
+html[data-theme="light"] .overview-editor input::placeholder,
+html[data-theme="light"] .overview-editor textarea::placeholder,
+html[data-theme="light"] .task-filter-panel input::placeholder,
+html[data-theme="light"] .auth-form input::placeholder {
+  color: #766b5d;
 }
 
 html[data-theme="light"] .checkbox-field,
@@ -381,7 +422,7 @@ html[data-theme="light"] .sync-source,
 html[data-theme="light"] .leader-row,
 html[data-theme="light"] .standup-note {
   background: rgba(242, 234, 223, 0.72);
-  border-color: rgba(177, 162, 139, 0.28);
+  border-color: rgba(147, 128, 98, 0.4);
 }
 
 html[data-theme="light"] .mission-card,
@@ -391,7 +432,7 @@ html[data-theme="light"] .accomplished-list article,
 html[data-theme="light"] .quest-item,
 html[data-theme="light"] .next-quest-card {
   background: #fffdf7;
-  border-color: rgba(177, 162, 139, 0.32);
+  border-color: rgba(147, 128, 98, 0.42);
 }
 
 html[data-theme="light"] .timeline:before {
@@ -430,44 +471,164 @@ html[data-theme="light"] .quote-mark {
 }
 
 html[data-theme="light"] .pill {
-  border-color: rgba(177, 162, 139, 0.22);
+  border-color: rgba(147, 128, 98, 0.34);
 }
 
 html[data-theme="light"] .pill-high,
 html[data-theme="light"] .pill-bug {
-  color: #8d4240;
+  color: #7f302e;
   background: #f1d9d6;
 }
 
 html[data-theme="light"] .pill-medium,
 html[data-theme="light"] .pill-epic {
-  color: #765126;
+  color: #684415;
   background: #f2dfc4;
 }
 
 html[data-theme="light"] .pill-low,
 html[data-theme="light"] .pill-review,
 html[data-theme="light"] .pill-done {
-  color: #365f41;
+  color: #24542f;
   background: #dfe9d9;
 }
 
 html[data-theme="light"] .pill-task,
 html[data-theme="light"] .pill-in-progress {
-  color: #315a6f;
+  color: #244f64;
   background: #dcebf1;
 }
 
 html[data-theme="light"] .pill-meeting,
 html[data-theme="light"] .pill-upcoming {
-  color: #5e4b73;
+  color: #503a68;
   background: #e8e1ef;
+}
+
+html[data-theme="light"] .pill-to-do,
+html[data-theme="light"] .status-select-to-do {
+  color: #1d5572;
+  border-color: rgba(45, 111, 145, 0.5);
+  background-color: #dcebf1;
+}
+
+html[data-theme="light"] .pill-in-progress,
+html[data-theme="light"] .status-select-in-progress {
+  color: #765710;
+  border-color: rgba(162, 120, 27, 0.5);
+  background-color: #f5e6bd;
+}
+
+html[data-theme="light"] .pill-blocked,
+html[data-theme="light"] .status-select-blocked {
+  color: #87302e;
+  border-color: rgba(168, 72, 69, 0.5);
+  background-color: #f1d9d6;
+}
+
+html[data-theme="light"] .status-select-done {
+  color: #24542f;
+  border-color: rgba(79, 133, 89, 0.52);
+  background-color: #dfe9d9;
 }
 
 html[data-theme="light"] .today-toggle.active {
   color: #25312d;
   background: #dfe9d9;
   border-color: rgba(130, 170, 136, 0.58);
+}
+
+html[data-theme="light"] .task-table th {
+  color: #596457;
+  border-bottom-color: rgba(147, 128, 98, 0.42);
+}
+
+html[data-theme="light"] .task-table td {
+  color: var(--text-soft);
+  border-bottom-color: rgba(147, 128, 98, 0.28);
+}
+
+html[data-theme="light"] .task-title-stack small,
+html[data-theme="light"] .task-table td small,
+html[data-theme="light"] .mission-meta,
+html[data-theme="light"] .mission-rank,
+html[data-theme="light"] .leader-row p {
+  color: var(--muted) !important;
+}
+
+html[data-theme="light"] .task-filter-panel {
+  background: rgba(255, 250, 241, 0.78);
+  border-color: rgba(147, 128, 98, 0.44);
+}
+
+html[data-theme="light"] .task-filter-panel input,
+html[data-theme="light"] .task-filter-panel select {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.46);
+  color-scheme: light;
+}
+
+html[data-theme="light"] .task-filter-actions span {
+  color: var(--muted);
+}
+
+html[data-theme="light"] .active-filter-button {
+  color: #1d2b26;
+  border-color: rgba(99, 128, 113, 0.52);
+  background: #dfe9d9;
+}
+
+html[data-theme="light"] .status-select,
+html[data-theme="light"] .inline-notes-readonly {
+  color-scheme: light;
+}
+
+html[data-theme="light"] .profile-menu {
+  background: #fffaf1;
+  border-color: rgba(147, 128, 98, 0.5);
+  box-shadow: 0 18px 44px rgba(86, 76, 61, 0.18);
+}
+
+html[data-theme="light"] .profile-menu button {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .profile-menu button:hover:not(:disabled) {
+  color: #87302e;
+  background: #f1d9d6;
+}
+
+html[data-theme="light"] .auth-page {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(124, 100, 154, 0.18), transparent 28rem),
+    radial-gradient(circle at 82% 8%, rgba(70, 127, 156, 0.16), transparent 24rem),
+    linear-gradient(135deg, #f4efe7, #fffaf1 58%, #efe7da);
+}
+
+html[data-theme="light"] .auth-panel,
+html[data-theme="light"] .auth-tabs {
+  background: rgba(255, 250, 241, 0.92);
+  border-color: rgba(147, 128, 98, 0.5);
+  box-shadow: 0 26px 70px rgba(86, 76, 61, 0.16);
+}
+
+html[data-theme="light"] .auth-heading p,
+html[data-theme="light"] .auth-form label,
+html[data-theme="light"] .auth-tabs button {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .auth-tabs button.active {
+  color: #14231d;
+  background: linear-gradient(135deg, #dfe9d9, #cce1df 58%, #dcd3ea);
+  box-shadow: 0 10px 22px rgba(86, 76, 61, 0.12);
+}
+
+html[data-theme="light"] .auth-form input {
+  color: var(--text);
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.5);
+  color-scheme: light;
 }
 
 html[data-theme="light"] .bell-button span {
@@ -1745,6 +1906,125 @@ html[data-theme="light"] select:focus-visible {
   white-space: normal;
 }
 
+.theme-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px 30px;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+}
+
+.theme-toggle .toggle-knob {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  z-index: 0;
+  pointer-events: none;
+  transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.theme-toggle-icon {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  align-self: center;
+  transition: color 180ms ease, opacity 180ms ease;
+}
+
+.theme-toggle-icon-moon {
+  color: #f5f7ff;
+}
+
+.theme-toggle-icon-sun {
+  color: #ffdf75;
+}
+
+html[data-theme="light"] .theme-toggle {
+  color: #23302b;
+  background: #fffaf1;
+}
+
+html[data-theme="light"] .theme-toggle .toggle-knob {
+  transform: translateX(34px);
+  background: #dfe9d9;
+  box-shadow: 0 0 0 1px rgba(126, 142, 121, 0.34);
+}
+
+html[data-theme="light"] .theme-toggle-icon-moon {
+  color: #23302b;
+}
+
+html[data-theme="light"] .theme-toggle-icon-sun {
+  color: #17231f;
+}
+
+html[data-theme="light"] .task-editor-form select,
+html[data-theme="light"] .overview-editor select,
+html[data-theme="light"] .add-task-form select,
+html[data-theme="light"] .task-filter-panel select {
+  appearance: none;
+  color: var(--text);
+  background-color: #fffdf7;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #3f4c45 50%),
+    linear-gradient(135deg, #3f4c45 50%, transparent 50%),
+    linear-gradient(135deg, rgba(147, 128, 98, 0.42), rgba(147, 128, 98, 0.18));
+  background-position:
+    calc(100% - 21px) 50%,
+    calc(100% - 15px) 50%,
+    calc(100% - 38px) 50%;
+  background-size: 6px 6px, 6px 6px, 1px 24px;
+  background-repeat: no-repeat;
+  border-color: rgba(147, 128, 98, 0.5);
+  padding-right: 42px;
+  color-scheme: light;
+}
+
+html[data-theme="light"] .task-editor-form select option,
+html[data-theme="light"] .overview-editor select option,
+html[data-theme="light"] .add-task-form select option,
+html[data-theme="light"] .task-filter-panel select option,
+html[data-theme="light"] .status-select option {
+  color: var(--text);
+  background: #fffaf1;
+}
+
+html[data-theme="light"] .task-editor-form select:hover,
+html[data-theme="light"] .overview-editor select:hover,
+html[data-theme="light"] .add-task-form select:hover,
+html[data-theme="light"] .task-filter-panel select:hover {
+  background-color: #fbf6ed;
+  border-color: rgba(112, 96, 70, 0.62);
+}
+
+html[data-theme="light"] .status-select {
+  background-image: none;
+}
+
+html[data-theme="light"] .pill-critical {
+  color: #8b2d2b;
+  border-color: rgba(168, 72, 69, 0.52);
+  background: #ffd7d3;
+}
+
+html[data-theme="light"] .checkbox-field {
+  color: var(--text-soft);
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.48);
+}
+
+html[data-theme="light"] .checkbox-field:hover {
+  background: #f1eadf;
+  border-color: rgba(70, 127, 156, 0.5);
+}
+
+html[data-theme="light"] .checkbox-field input {
+  accent-color: var(--green);
+  color-scheme: light;
+}
+
 .notes-cell {
   min-width: 280px;
 }
@@ -1813,6 +2093,557 @@ html[data-theme="light"] select:focus-visible {
 .row-icon-cancel:hover:not(:disabled) {
   border-color: rgba(255, 59, 48, 0.54);
   background: rgba(255, 59, 48, 0.18);
+}
+
+html[data-theme="light"] .row-icon-action {
+  color: #246985;
+  border-color: rgba(70, 127, 156, 0.5);
+  background: #dcebf1;
+}
+
+html[data-theme="light"] .row-icon-action:hover:not(:disabled) {
+  color: #174b62;
+  border-color: rgba(70, 127, 156, 0.68);
+  background: #cfe4ed;
+}
+
+html[data-theme="light"] .row-icon-save {
+  color: #267143;
+  border-color: rgba(63, 150, 88, 0.55);
+  background: #d9f7df;
+}
+
+html[data-theme="light"] .row-icon-save:hover:not(:disabled) {
+  color: #18592f;
+  border-color: rgba(63, 150, 88, 0.72);
+  background: #c8efcf;
+}
+
+html[data-theme="light"] .row-icon-cancel {
+  color: #a84845;
+  border-color: rgba(168, 72, 69, 0.56);
+  background: #ffe0dc;
+}
+
+html[data-theme="light"] .row-icon-cancel:hover:not(:disabled) {
+  color: #87302e;
+  border-color: rgba(168, 72, 69, 0.72);
+  background: #f6d0cc;
+}
+
+html[data-theme="light"] .form-card .section-heading span {
+  color: #1f6485;
+  border-color: rgba(45, 111, 145, 0.58);
+  background: #dcebf1;
+}
+
+html[data-theme="light"] .focus-widget {
+  border-color: rgba(147, 128, 98, 0.56);
+}
+
+html[data-theme="light"] .focus-heading span,
+html[data-theme="light"] .focus-log-heading span {
+  color: #2f6b3d;
+  background: #dff2df;
+  border-color: rgba(79, 133, 89, 0.46);
+}
+
+html[data-theme="light"] .focus-session-ring {
+  background:
+    radial-gradient(circle at center, #fffaf1 58%, transparent 60%),
+    conic-gradient(from -90deg, #4f8559 var(--timer-progress), rgba(79, 133, 89, 0.18) 0);
+  filter: none;
+}
+
+html[data-theme="light"] .focus-session-ring strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .focus-session-ring span {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-task-picker {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-task-picker select {
+  appearance: none;
+  color: var(--text);
+  background-color: #fffdf7;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #3f4c45 50%),
+    linear-gradient(135deg, #3f4c45 50%, transparent 50%),
+    linear-gradient(135deg, rgba(147, 128, 98, 0.42), rgba(147, 128, 98, 0.18));
+  background-position:
+    calc(100% - 21px) 50%,
+    calc(100% - 15px) 50%,
+    calc(100% - 38px) 50%;
+  background-size: 6px 6px, 6px 6px, 1px 24px;
+  background-repeat: no-repeat;
+  border-color: rgba(147, 128, 98, 0.52);
+  padding-right: 42px;
+  color-scheme: light;
+}
+
+html[data-theme="light"] .focus-task-picker select:disabled {
+  color: #4f5f57;
+  background-color: #eee8de;
+  border-color: rgba(147, 128, 98, 0.54);
+  opacity: 1;
+}
+
+html[data-theme="light"] .focus-task-picker select option {
+  color: var(--text);
+  background: #fffaf1;
+}
+
+html[data-theme="light"] .focus-actions .primary-action {
+  color: #14231d;
+  background: linear-gradient(135deg, #d9ebd8, #cfe4ed 58%, #ddd5ee);
+  border: 1px solid rgba(99, 128, 113, 0.46);
+  box-shadow: 0 12px 24px rgba(86, 76, 61, 0.1);
+}
+
+html[data-theme="light"] .focus-actions .primary-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #cee4cc, #c2dce7 58%, #d3c9e8);
+}
+
+html[data-theme="light"] .focus-actions .ghost-button {
+  color: var(--text);
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.54);
+}
+
+html[data-theme="light"] .focus-actions .ghost-button:hover:not(:disabled) {
+  background: #f1eadf;
+  border-color: rgba(112, 96, 70, 0.62);
+}
+
+html[data-theme="light"] .focus-active-copy {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-active-copy strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .focus-selected-task {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.42);
+}
+
+html[data-theme="light"] .focus-selected-task span {
+  color: var(--muted);
+}
+
+html[data-theme="light"] .focus-selected-task strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .focus-selected-task p {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-selected-meta > span {
+  color: #596457;
+  background: #f1eadf;
+  border-color: rgba(147, 128, 98, 0.32);
+}
+
+html[data-theme="light"] .focus-outcome-panel {
+  color: var(--text);
+}
+
+html[data-theme="light"] .focus-chip {
+  color: var(--text-soft);
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.44);
+}
+
+html[data-theme="light"] .focus-chip:hover {
+  color: var(--text);
+  background: #f1eadf;
+  border-color: rgba(112, 96, 70, 0.56);
+}
+
+html[data-theme="light"] .focus-chip.active {
+  color: #173c25;
+  background: #bfe8ca;
+  border-color: rgba(63, 150, 88, 0.58);
+}
+
+html[data-theme="light"] .focus-outcome-panel textarea {
+  color: var(--text);
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.5);
+  color-scheme: light;
+}
+
+html[data-theme="light"] .focus-outcome-panel textarea::placeholder {
+  color: #766b5d;
+}
+
+html[data-theme="light"] .focus-outcome-panel textarea:hover {
+  background: #fbf6ed;
+  border-color: rgba(112, 96, 70, 0.58);
+}
+
+html[data-theme="light"] .focus-context-line strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .source-row,
+html[data-theme="light"] .insight-list article,
+html[data-theme="light"] .accomplished-list article {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.42);
+}
+
+html[data-theme="light"] .source-row strong,
+html[data-theme="light"] .insight-list strong,
+html[data-theme="light"] .accomplished-list strong,
+html[data-theme="light"] .quest-path-copy strong,
+html[data-theme="light"] .quest-summary strong,
+html[data-theme="light"] .completion-undo-notice strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .source-row span,
+html[data-theme="light"] .insight-list span,
+html[data-theme="light"] .accomplished-list span,
+html[data-theme="light"] .quest-path-copy span,
+html[data-theme="light"] .quest-path-copy p {
+  color: var(--muted);
+}
+
+html[data-theme="light"] .source-row p,
+html[data-theme="light"] .insight-list p,
+html[data-theme="light"] .accomplished-list p {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .quest-path-row,
+html[data-theme="light"] .quest-summary {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.42);
+}
+
+html[data-theme="light"] .sync-source {
+  color: #2f6b3d;
+  background: #f1eadf;
+  border-color: rgba(147, 128, 98, 0.42);
+}
+
+html[data-theme="light"] .sync-source svg {
+  color: #3f8a53;
+}
+
+html[data-theme="light"] .sync-source strong {
+  color: #2f6b3d;
+}
+
+html[data-theme="light"] .sync-source span {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .sync-card .primary-action {
+  color: #14231d;
+  background: linear-gradient(135deg, #d9ebd8, #cfe4ed 58%, #ddd5ee);
+  border: 1px solid rgba(99, 128, 113, 0.46);
+  box-shadow: 0 12px 24px rgba(86, 76, 61, 0.1);
+}
+
+html[data-theme="light"] .sync-card .primary-action:hover {
+  background: linear-gradient(135deg, #cee4cc, #c2dce7 58%, #d3c9e8);
+}
+
+html[data-theme="light"] {
+  --a11y-border: #7f6c52;
+  --a11y-border-soft: #8f7a5b;
+  --a11y-focus: #005a9c;
+  --a11y-danger: #87302e;
+  --a11y-success: #18592f;
+  --a11y-warning: #6a4d00;
+  --a11y-info: #1d5572;
+}
+
+html[data-theme="light"] .surface,
+html[data-theme="light"] .sidebar-card,
+html[data-theme="light"] .stat-card,
+html[data-theme="light"] .auth-panel,
+html[data-theme="light"] .form-card,
+html[data-theme="light"] .mission-card,
+html[data-theme="light"] .event-card,
+html[data-theme="light"] .source-row,
+html[data-theme="light"] .insight-list article,
+html[data-theme="light"] .accomplished-list article,
+html[data-theme="light"] .next-quest-card,
+html[data-theme="light"] .quest-path-row,
+html[data-theme="light"] .quest-summary,
+html[data-theme="light"] .focus-selected-task,
+html[data-theme="light"] .focus-breakdown-item,
+html[data-theme="light"] .focus-session-list article,
+html[data-theme="light"] .sync-source,
+html[data-theme="light"] .standup-note {
+  color: var(--text);
+  border-color: var(--a11y-border-soft);
+}
+
+html[data-theme="light"] .brand-name,
+html[data-theme="light"] .topbar h1,
+html[data-theme="light"] .section-heading h2,
+html[data-theme="light"] .stat-value,
+html[data-theme="light"] .task-table td:first-child,
+html[data-theme="light"] .mission-card h3,
+html[data-theme="light"] .event-card strong,
+html[data-theme="light"] .source-row strong,
+html[data-theme="light"] .insight-list strong,
+html[data-theme="light"] .accomplished-list strong,
+html[data-theme="light"] .next-quest-card h3,
+html[data-theme="light"] .quest-summary strong,
+html[data-theme="light"] .quest-path-copy strong,
+html[data-theme="light"] .completion-undo-notice strong,
+html[data-theme="light"] .focus-quest-saved strong,
+html[data-theme="light"] .focus-selected-task strong,
+html[data-theme="light"] .focus-context-line strong,
+html[data-theme="light"] .focus-active-copy strong,
+html[data-theme="light"] .focus-calm-summary strong,
+html[data-theme="light"] .focus-breakdown-item strong,
+html[data-theme="light"] .focus-session-list strong,
+html[data-theme="light"] .focus-session-row em,
+html[data-theme="light"] .sync-source strong {
+  color: var(--text);
+}
+
+html[data-theme="light"] .topbar p,
+html[data-theme="light"] .sidebar-card p,
+html[data-theme="light"] .sidebar-card span,
+html[data-theme="light"] .stat-head,
+html[data-theme="light"] .stat-detail,
+html[data-theme="light"] .mission-card p,
+html[data-theme="light"] .mission-score span:not(.pill),
+html[data-theme="light"] .source-row p,
+html[data-theme="light"] .insight-list p,
+html[data-theme="light"] .accomplished-list p,
+html[data-theme="light"] .next-quest-card p,
+html[data-theme="light"] .daily-summary,
+html[data-theme="light"] .completion-undo-notice span,
+html[data-theme="light"] .focus-selected-task p,
+html[data-theme="light"] .focus-helper-text,
+html[data-theme="light"] .focus-log-copy,
+html[data-theme="light"] .focus-session-list p,
+html[data-theme="light"] .focus-active-copy,
+html[data-theme="light"] .sync-source span,
+html[data-theme="light"] .empty-state,
+html[data-theme="light"] .footer-note,
+html[data-theme="light"] .insight-copy {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .mission-meta,
+html[data-theme="light"] .mission-rank,
+html[data-theme="light"] .task-title-stack small,
+html[data-theme="light"] .task-table td small,
+html[data-theme="light"] .source-row span,
+html[data-theme="light"] .insight-list span,
+html[data-theme="light"] .accomplished-list span,
+html[data-theme="light"] .quest-board-summary,
+html[data-theme="light"] .quest-path-copy span,
+html[data-theme="light"] .quest-path-copy p,
+html[data-theme="light"] .focus-selected-task span,
+html[data-theme="light"] .focus-breakdown-item span,
+html[data-theme="light"] .focus-session-list span,
+html[data-theme="light"] .overview-status {
+  color: var(--muted) !important;
+}
+
+html[data-theme="light"] button,
+html[data-theme="light"] a,
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea,
+html[data-theme="light"] [tabindex]:not([tabindex="-1"]) {
+  color-scheme: light;
+}
+
+html[data-theme="light"] button:focus-visible,
+html[data-theme="light"] a:focus-visible,
+html[data-theme="light"] input:focus-visible,
+html[data-theme="light"] select:focus-visible,
+html[data-theme="light"] textarea:focus-visible,
+html[data-theme="light"] [tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 3px solid var(--a11y-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 250, 241, 0.96);
+}
+
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea,
+html[data-theme="light"] .search-box,
+html[data-theme="light"] .auth-tabs,
+html[data-theme="light"] .checkbox-field,
+html[data-theme="light"] .profile-menu,
+html[data-theme="light"] .task-filter-panel,
+html[data-theme="light"] .inline-notes,
+html[data-theme="light"] .standup-note {
+  color: var(--text);
+  background-color: #fffdf7;
+  border-color: var(--a11y-border-soft);
+}
+
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+  color: #5f6b62;
+  opacity: 1;
+}
+
+html[data-theme="light"] input:hover,
+html[data-theme="light"] select:hover,
+html[data-theme="light"] textarea:hover,
+html[data-theme="light"] .checkbox-field:hover,
+html[data-theme="light"] .search-box:hover,
+html[data-theme="light"] .inline-notes:hover {
+  border-color: var(--a11y-border);
+}
+
+html[data-theme="light"] input:disabled,
+html[data-theme="light"] select:disabled,
+html[data-theme="light"] textarea:disabled,
+html[data-theme="light"] button:disabled {
+  color: #4a5a51;
+  border-color: #8f7a5b;
+  opacity: 1;
+}
+
+html[data-theme="light"] .primary-action,
+html[data-theme="light"] .add-task-link,
+html[data-theme="light"] .auth-tabs button.active,
+html[data-theme="light"] .nav-link.active,
+html[data-theme="light"] .tab.active {
+  color: #14231d;
+  border-color: #7f6c52;
+}
+
+html[data-theme="light"] .ghost-button,
+html[data-theme="light"] .icon-button,
+html[data-theme="light"] .bell-button,
+html[data-theme="light"] .profile-button,
+html[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .table-action,
+html[data-theme="light"] .menu-action,
+html[data-theme="light"] .tab,
+html[data-theme="light"] .today-toggle,
+html[data-theme="light"] .row-icon-action,
+html[data-theme="light"] .focus-chip {
+  color: var(--text);
+  border-color: var(--a11y-border-soft);
+}
+
+html[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .icon-button,
+html[data-theme="light"] .bell-button,
+html[data-theme="light"] .menu-action,
+html[data-theme="light"] .row-icon-action,
+html[data-theme="light"] .today-toggle,
+html[data-theme="light"] .table-action,
+html[data-theme="light"] .focus-chip {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+html[data-theme="light"] .field-error,
+html[data-theme="light"] .form-error,
+html[data-theme="light"] .auth-error,
+html[data-theme="light"] .quest-board-warning,
+html[data-theme="light"] .quest-focus-warning {
+  color: var(--a11y-danger);
+}
+
+html[data-theme="light"] .success-action,
+html[data-theme="light"] .today-toggle.active,
+html[data-theme="light"] .sync-source,
+html[data-theme="light"] .sync-source svg {
+  color: var(--a11y-success);
+}
+
+html[data-theme="light"] .pill-critical,
+html[data-theme="light"] .pill-high,
+html[data-theme="light"] .pill-bug,
+html[data-theme="light"] .pill-blocked,
+html[data-theme="light"] .status-select-blocked,
+html[data-theme="light"] .row-icon-cancel {
+  color: var(--a11y-danger);
+  border-color: #a84845;
+  background-color: #ffd7d3;
+}
+
+html[data-theme="light"] .pill-medium,
+html[data-theme="light"] .pill-epic,
+html[data-theme="light"] .pill-in-progress,
+html[data-theme="light"] .status-select-in-progress {
+  color: var(--a11y-warning);
+  border-color: #9a7818;
+  background-color: #f7e6ad;
+}
+
+html[data-theme="light"] .pill-low,
+html[data-theme="light"] .pill-review,
+html[data-theme="light"] .pill-done,
+html[data-theme="light"] .status-select-done,
+html[data-theme="light"] .row-icon-save {
+  color: var(--a11y-success);
+  border-color: #4f8559;
+  background-color: #dff2df;
+}
+
+html[data-theme="light"] .pill-task,
+html[data-theme="light"] .pill-to-do,
+html[data-theme="light"] .status-select-to-do,
+html[data-theme="light"] .row-icon-action {
+  color: var(--a11y-info);
+  border-color: #467f9c;
+  background-color: #dcebf1;
+}
+
+html[data-theme="light"] .pill-meeting,
+html[data-theme="light"] .pill-upcoming,
+html[data-theme="light"] .pill-active {
+  color: #614582;
+  border-color: #7c649a;
+  background-color: #e8e1ef;
+}
+
+html[data-theme="light"] .pill-queued,
+html[data-theme="light"] .pill-skipped,
+html[data-theme="light"] .focus-selected-meta > span,
+html[data-theme="light"] .quest-facts span,
+html[data-theme="light"] .quest-summary span {
+  color: var(--muted);
+  border-color: var(--a11y-border-soft);
+  background-color: #f1eadf;
+}
+
+html[data-theme="light"] .task-table th,
+html[data-theme="light"] .task-table td {
+  border-bottom-color: #bdaa91;
+}
+
+html[data-theme="light"] .progress-track {
+  background: #e2d8c8;
+}
+
+html[data-theme="light"] .progress-fill,
+html[data-theme="light"] .level-fill {
+  background: linear-gradient(90deg, #246985, #2f6b3d);
+}
+
+html[data-theme="light"] .timer-ring,
+html[data-theme="light"] .focus-session-ring {
+  background:
+    radial-gradient(circle at center, #fffaf1 58%, transparent 60%),
+    conic-gradient(from -90deg, #2f6b3d var(--timer-progress), #dbe6d3 0);
 }
 
 @media (max-width: 1100px) {

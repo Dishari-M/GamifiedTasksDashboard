@@ -344,8 +344,9 @@ const Topbar = ({currentUser, isLoggingOut, onLogout,onMenuClick, theme, onTheme
         <input data-testid="global-search-input" aria-label="Search tasks" placeholder="Search tasks..." />
       </label>
       <button className="theme-toggle" type="button" onClick={onThemeToggle} aria-label={`Switch to ${isLight ? "dark" : "light"} theme`} aria-pressed={isLight} data-testid="theme-toggle-button">
-        {isLight ? <Moon size={22} weight="duotone" aria-hidden="true" /> : <SunDim size={22} weight="duotone" aria-hidden="true" />}
-        <span className="toggle-knob">{isLight ? <SunDim size={18} weight="fill" aria-hidden="true" /> : <Moon size={18} weight="fill" aria-hidden="true" />}</span>
+        <span className="toggle-knob" aria-hidden="true" />
+        <Moon className="theme-toggle-icon theme-toggle-icon-moon" size={18} weight={isLight ? "duotone" : "fill"} aria-hidden="true" />
+        <SunDim className="theme-toggle-icon theme-toggle-icon-sun" size={18} weight={isLight ? "fill" : "duotone"} aria-hidden="true" />
       </button>
       <button className="bell-button" aria-label="View notifications" data-testid="notifications-button">
         <Bell size={28} weight="duotone" />
@@ -692,21 +693,42 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
+    setFieldErrors({});
+    setSubmitError("");
   }, [task]);
 
-  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const update = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+    setSubmitError("");
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!form.title.trim()) errors.title = "Title is required.";
+    if (!form.type) errors.type = "Type is required.";
+    if (!form.source) errors.source = "Source is required.";
+    if (!form.priority) errors.priority = "Priority is required.";
+    if (!form.status) errors.status = "Status is required.";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!form.title.trim()) return;
+    if (!validate()) return;
     setIsSubmitting(true);
     setSubmitError("");
     try {
       await onSubmit(form);
-      if (mode === "create") setForm(emptyTaskForm);
+      if (mode === "create") {
+        setForm(emptyTaskForm);
+        setFieldErrors({});
+      }
     } catch (error) {
       setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
     } finally {
@@ -715,15 +737,35 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   };
 
   return (
-    <form className="task-editor-form" onSubmit={submit} data-testid={`${mode}-task-form`}>
-      <label>Title<input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" data-testid={`${mode}-task-title-input`} /></label>
+    <form className="task-editor-form" onSubmit={submit} noValidate data-testid={`${mode}-task-form`}>
+      <label>
+        Title
+        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
+        {fieldErrors.title && <span className="field-error" id={`${mode}-task-title-error`}>{fieldErrors.title}</span>}
+      </label>
       <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
-      <label>Type<select value={form.type} onChange={(event) => update("type", event.target.value)}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>Source<select value={form.source} onChange={(event) => update("source", event.target.value)}>{sources.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>
+        Type
+        <select value={form.type} onChange={(event) => update("type", event.target.value)} aria-invalid={Boolean(fieldErrors.type)} aria-describedby={fieldErrors.type ? `${mode}-task-type-error` : undefined}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.type && <span className="field-error" id={`${mode}-task-type-error`}>{fieldErrors.type}</span>}
+      </label>
+      <label>
+        Source
+        <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
+      </label>
       <label>External ID<input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" /></label>
       <label>Project key<input value={form.projectKey} onChange={(event) => update("projectKey", event.target.value)} placeholder="PAY" /></label>
-      <label>Priority<select value={form.priority} onChange={(event) => update("priority", event.target.value)}>{priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>Status<select value={form.status} onChange={(event) => update("status", event.target.value)}>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>
+        Priority
+        <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.priority && <span className="field-error" id={`${mode}-task-priority-error`}>{fieldErrors.priority}</span>}
+      </label>
+      <label>
+        Status
+        <select value={form.status} onChange={(event) => update("status", event.target.value)} aria-invalid={Boolean(fieldErrors.status)} aria-describedby={fieldErrors.status ? `${mode}-task-status-error` : undefined}>{statuses.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.status && <span className="field-error" id={`${mode}-task-status-error`}>{fieldErrors.status}</span>}
+      </label>
       <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
       <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
