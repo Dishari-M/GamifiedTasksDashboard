@@ -1,5 +1,7 @@
 import json
 
+from repositories import overview_repository
+
 
 def fetch_standup_note(cur, user_id, note_date):
     cur.execute(
@@ -105,9 +107,9 @@ def build_context(cur, user_id, work_date):
             w.PRIORITY,
             w.STATUS,
             w.ESTIMATED_MINUTES,
-            w.ACTUAL_MINUTES,
+            NVL(d.ACTUAL_MINUTES, w.ACTUAL_MINUTES) AS ACTUAL_MINUTES,
             w.XP_VALUE,
-            w.NOTES,
+            NVL(d.NOTES, w.NOTES) AS NOTES,
             w.LABELS_JSON,
             w.AI_INSIGHT,
             w.AI_PRIORITY_SCORE,
@@ -192,6 +194,11 @@ def build_context(cur, user_id, work_date):
         """,
         {"user_id": user_id, "work_date": work_date},
     )
+    focus_sessions = overview_repository.fetch_focus_sessions(cur, user_id, work_date, work_date)
+    calendar_events = overview_repository.fetch_calendar_events(cur, user_id, work_date, work_date)
+    meetings = [event for event in calendar_events if event.get("is_meeting")]
+    daily_overviews = overview_repository.fetch_daily_overviews(cur, user_id, work_date, work_date)
+    today_notes = _notes_from_tasks(today_tasks + completed + blockers)
     return {
         "date": work_date,
         "metrics": {
@@ -199,10 +206,21 @@ def build_context(cur, user_id, work_date):
             "completed_count": len(completed),
             "blocker_count": len(blockers),
             "planned_minutes": sum(task["estimated_minutes"] for task in today_tasks),
+            "focus_session_count": len(focus_sessions),
+            "focus_minutes": sum(session.get("actual_minutes") or 0 for session in focus_sessions),
+            "meeting_count": len(meetings),
+            "meeting_minutes": sum(event.get("duration_minutes") or 0 for event in meetings),
+            "daily_overview_count": len(daily_overviews),
+            "note_count": len(today_notes),
         },
         "today_work_items": today_tasks,
         "completed_today": completed,
         "blockers": blockers,
+        "today_notes": today_notes,
+        "focus_sessions": focus_sessions,
+        "calendar_events": calendar_events,
+        "meetings": meetings,
+        "daily_overviews": daily_overviews,
     }
 
 
@@ -240,6 +258,15 @@ def _json_list(value):
         return parsed if isinstance(parsed, list) else []
     except (TypeError, ValueError):
         return []
+
+
+def _notes_from_tasks(tasks):
+    notes = []
+    for task in tasks:
+        note = _text(task.get("notes")).strip()
+        if note and note not in notes:
+            notes.append(note)
+    return notes
 
 
 def _string(value):

@@ -154,3 +154,29 @@ INFO:     127.0.0.1:49684 - "OPTIONS /api/v1/overviews/weekly/generate HTTP/1.1"
 INFO:     127.0.0.1:49684 - "POST /api/v1/overviews/weekly/generate HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51643 - "OPTIONS /api/v1/overviews/daily/generate HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51643 - "POST /api/v1/overviews/daily/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52379 - "OPTIONS /api/v1/insights/today?date=2026-05-05 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56361 - "OPTIONS /api/v1/standup-notes?date=2026-05-05 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58353 - "OPTIONS /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56945 - "OPTIONS /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58353 - "GET /api/v1/standup-notes?date=2026-05-05 HTTP/1.1" 503 Service Unavailable
+INFO:     127.0.0.1:52379 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56361 - "GET /api/v1/insights/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:50855 - "GET /api/v1/standup-notes?date=2026-05-05 HTTP/1.1" 503 Service Unavailable
+INFO:     127.0.0.1:56945 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50855 - "GET /api/v1/standup-notes?date=2026-05-05 HTTP/1.1" 503 Service Unavailable
+INFO:     127.0.0.1:58353 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54903 - "GET /api/v1/overviews/daily?date=2026-05-05 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54903 - "OPTIONS /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52379 - "GET /api/v1/insights/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:50490 - "GET /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59985 - "GET /api/v1/dashboard/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:65374 - "GET /api/v1/dashboard/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:56003 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58353 - "GET /api/v1/insights/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:50855 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56945 - "GET /api/v1/overviews/daily?date=2026-05-05 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64496 - "GET /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50855 - "GET /api/v1/standup-notes?date=2026-05-05 HTTP/1.1" 503 Service Unavailable
+INFO:     127.0.0.1:53244 - "GET /api/v1/dashboard/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:64767 - "GET /api/v1/dashboard/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:63616 - "GET /api/v1/dashboard/today?date=2026-05-05 HTTP/1.1" 500 Internal Server Error

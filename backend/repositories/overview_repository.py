@@ -240,6 +240,8 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
 
 
 def fetch_daily_overviews(cur, user_id, start_date, end_date):
+    if not table_exists(cur, "DAILY_OVERVIEWS"):
+        return []
     cur.execute(
         """
         SELECT

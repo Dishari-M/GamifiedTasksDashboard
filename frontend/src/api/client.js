@@ -35,6 +35,21 @@ const phase8Api = axios.create({
 });
 
 const unwrap = (response) => response.data?.data ?? response.data;
+const inFlightGetRequests = new Map();
+
+const dedupeGet = (key, requestFactory) => {
+  if (inFlightGetRequests.has(key)) {
+    return inFlightGetRequests.get(key);
+  }
+  let request;
+  request = requestFactory().finally(() => {
+    if (inFlightGetRequests.get(key) === request) {
+      inFlightGetRequests.delete(key);
+    }
+  });
+  inFlightGetRequests.set(key, request);
+  return request;
+};
 
 export const authApi = {
   register: (payload) => api.post("/auth/register", payload).then(unwrap),
@@ -70,11 +85,23 @@ export const standupApi = {
 };
 
 export const overviewApi = {
-  daily: (params = {}) => phase8Api.get("/overviews/daily", { params }).then(unwrap),
+  daily: (params = {}) => dedupeGet(
+    `overviews:daily:${params.date || ""}`,
+    () => phase8Api.get("/overviews/daily", { params }).then(unwrap),
+  ),
   saveDaily: (payload) => phase8Api.put("/overviews/daily", payload).then(unwrap),
-  generateDaily: (payload) => phase8Api.post("/overviews/daily/generate", payload).then(unwrap),
-  weekly: (params = {}) => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
-  generateWeekly: (payload) => phase8Api.post("/overviews/weekly/generate", payload).then(unwrap),
+  generateDaily: (payload) => {
+    inFlightGetRequests.delete(`overviews:daily:${payload.date || ""}`);
+    return phase8Api.post("/overviews/daily/generate", payload).then(unwrap);
+  },
+  weekly: (params = {}) => dedupeGet(
+    `overviews:weekly:${params.week_start || ""}`,
+    () => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
+  ),
+  generateWeekly: (payload) => {
+    inFlightGetRequests.delete(`overviews:weekly:${payload.week_start || ""}`);
+    return phase8Api.post("/overviews/weekly/generate", payload).then(unwrap);
+  },
 };
 
 export const calendarApi = {

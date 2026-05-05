@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
@@ -1238,6 +1238,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
   const [overviewStatus, setOverviewStatus] = useState("loading");
   const [generating, setGenerating] = useState(null);
+  const dailyRequestIdRef = useRef(0);
+  const weeklyRequestIdRef = useRef(0);
 
   const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
   const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
@@ -1256,10 +1258,12 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = dailyRequestIdRef.current + 1;
+    dailyRequestIdRef.current = requestId;
     setOverviewStatus("loading");
     overviewApi.daily({ date: selectedDate })
       .then((data) => {
-        if (cancelled) return;
+        if (cancelled || requestId !== dailyRequestIdRef.current) return;
         setDailyData(data);
         setDailyReflectionDraft(reflectionDraftFrom(data, overview));
         setOverviewStatus("live");
@@ -1273,7 +1277,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
         }));
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled || requestId !== dailyRequestIdRef.current) return;
         setDailyData(null);
         setDailyReflectionDraft(reflectionDraftFrom({}, overview));
         setOverviewStatus("fallback");
@@ -1285,12 +1289,14 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = weeklyRequestIdRef.current + 1;
+    weeklyRequestIdRef.current = requestId;
     overviewApi.weekly({ week_start: selectedWeek })
       .then((data) => {
-        if (!cancelled) setWeeklyData(data);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) setWeeklyData(data);
       })
       .catch(() => {
-        if (!cancelled) setWeeklyData(null);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) setWeeklyData(null);
       });
     return () => {
       cancelled = true;
@@ -1298,16 +1304,19 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   }, [selectedWeek]);
 
   const generateDaily = async () => {
+    const requestId = dailyRequestIdRef.current + 1;
+    dailyRequestIdRef.current = requestId;
     setGenerating("daily");
     try {
       const data = await overviewApi.generateDaily({ date: selectedDate, include_daily_overviews: true, include_task_notes: true, include_meetings: true, force: true });
+      if (requestId !== dailyRequestIdRef.current) return;
       setDailyData(data);
       setDailyReflectionDraft(reflectionDraftFrom(data, overview));
       setOverviewStatus("live");
     } catch {
-      setOverviewStatus("fallback");
+      if (requestId === dailyRequestIdRef.current) setOverviewStatus("fallback");
     } finally {
-      setGenerating(null);
+      if (requestId === dailyRequestIdRef.current) setGenerating(null);
     }
   };
 
@@ -1331,12 +1340,15 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   };
 
   const generateWeekly = async () => {
+    const requestId = weeklyRequestIdRef.current + 1;
+    weeklyRequestIdRef.current = requestId;
     setGenerating("weekly");
     try {
       const data = await overviewApi.generateWeekly({ week_start: selectedWeek, include_daily_overviews: true, include_task_notes: true, force: true });
+      if (requestId !== weeklyRequestIdRef.current) return;
       setWeeklyData(data);
     } finally {
-      setGenerating(null);
+      if (requestId === weeklyRequestIdRef.current) setGenerating(null);
     }
   };
 

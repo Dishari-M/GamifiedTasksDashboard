@@ -17,7 +17,7 @@ WORK_ITEMS_FILE = "work_items.json"
 
 STANDUP_SYSTEM_PROMPT = """
 You are DevQuest's scrum-call standup note writer for a developer.
-Use only the supplied today's work-item evidence.
+Use only the supplied current-date evidence: work items, task notes, focus sessions, daily overviews, meetings, and blockers.
 Write exactly five concise first-person sentences suitable to read aloud in a scrum call.
 Mention accomplishments, current focus, next steps, and blockers or risks if present.
 Do not invent task names, meetings, blockers, or completed work.
@@ -136,10 +136,21 @@ def _standup_context(work_date, user_id):
                 "completed_count": len(completed),
                 "blocker_count": len(blockers),
                 "planned_minutes": sum(task["estimated_minutes"] for task in today_tasks),
+                "focus_session_count": 0,
+                "focus_minutes": 0,
+                "meeting_count": 0,
+                "meeting_minutes": 0,
+                "daily_overview_count": 0,
+                "note_count": len(_notes_from_tasks(today_tasks + completed + blockers)),
             },
             "today_work_items": _sort_tasks(today_tasks),
             "completed_today": _sort_tasks(completed),
             "blockers": _sort_tasks(blockers),
+            "today_notes": _notes_from_tasks(today_tasks + completed + blockers),
+            "focus_sessions": [],
+            "calendar_events": [],
+            "meetings": [],
+            "daily_overviews": [],
         }
 
     return with_store_lock(action)
@@ -181,15 +192,18 @@ def _mock_note(context):
     completed_text = _task_titles(completed) or "No completed tasks are logged yet"
     progress_text = _task_titles(in_progress) or "No active in-progress tasks are selected"
     blocker_text = _blocker_text(blockers)
+    reflection_text = _daily_overview_text(context.get("daily_overviews", [])) or _notes_text(context.get("today_notes", []))
+    meeting_text = _meeting_text(context)
+    focus_text = _focus_text(context)
     next_task = in_progress[0]["title"] if in_progress else (context["today_work_items"][0]["title"] if context["today_work_items"] else "the next highest-priority item")
     planned_minutes = context["metrics"]["planned_minutes"]
 
     return {
         "sentences": [
-            f"Yesterday/today I completed {completed_text}.",
+            f"Today I completed {completed_text}.",
             f"Today I am focused on {progress_text}.",
-            f"My next step is to move {next_task} forward with the latest notes and acceptance criteria.",
-            f"I have {planned_minutes} planned minutes across today's selected work items.",
+            f"My next step is to move {next_task} forward using {reflection_text}.",
+            f"I have {planned_minutes} planned minutes, {focus_text}, and {meeting_text}.",
             f"Blockers or risks: {blocker_text}.",
         ],
         "accomplished": completed_text,
@@ -296,6 +310,15 @@ def _normalize_task(task):
     }
 
 
+def _notes_from_tasks(tasks):
+    notes = []
+    for task in tasks:
+        note = str(task.get("notes") or "").strip()
+        if note and note not in notes:
+            notes.append(note)
+    return notes
+
+
 def _sort_tasks(tasks):
     return sorted(
         tasks,
@@ -337,6 +360,42 @@ def _date_part(value):
 
 def _task_titles(tasks):
     return "; ".join(task["title"] for task in tasks if task.get("title"))
+
+
+def _daily_overview_text(daily_overviews):
+    if not daily_overviews:
+        return ""
+    overview = daily_overviews[0]
+    parts = []
+    if overview.get("summary"):
+        parts.append(overview["summary"])
+    for field in ("new_learnings", "went_well", "went_wrong"):
+        values = overview.get(field) or []
+        if values:
+            parts.append("; ".join(str(value) for value in values[:2]))
+    return "; ".join(parts)[:220]
+
+
+def _notes_text(notes):
+    if not notes:
+        return "the latest notes and acceptance criteria"
+    return "; ".join(str(note) for note in notes[:2])[:220]
+
+
+def _meeting_text(context):
+    count = context.get("metrics", {}).get("meeting_count", 0)
+    minutes = context.get("metrics", {}).get("meeting_minutes", 0)
+    if not count:
+        return "no meetings captured"
+    return f"{count} meeting(s) totaling {minutes} minutes"
+
+
+def _focus_text(context):
+    count = context.get("metrics", {}).get("focus_session_count", 0)
+    minutes = context.get("metrics", {}).get("focus_minutes", 0)
+    if not count:
+        return "no focus sessions captured"
+    return f"{minutes} focus minutes across {count} session(s)"
 
 
 def _blocker_text(blockers):
