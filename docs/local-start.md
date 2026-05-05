@@ -81,6 +81,18 @@ Backend URL:
 http://127.0.0.1:8000
 ```
 
+## API Documentation
+
+FastAPI exposes API documentation from the running backend:
+
+```text
+Swagger UI:  http://127.0.0.1:8000/docs
+ReDoc:       http://127.0.0.1:8000/redoc
+OpenAPI JSON: http://127.0.0.1:8000/openapi.json
+```
+
+Use Swagger UI when you want to try requests from the browser. Use ReDoc when you want a cleaner read-only API reference for reviewing endpoints, request fields, and response schemas. Both views are generated from the same OpenAPI JSON.
+
 Smoke test:
 
 ```powershell
