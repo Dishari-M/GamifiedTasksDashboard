@@ -390,45 +390,6 @@ const TaskTable = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
     </div>
   );
 };
-const emptyTaskForm = {
-  title: "",
-  description: "",
-  source: "Custom",
-  externalId: "",
-  projectKey: "",
-  type: "Task",
-  priority: "Medium",
-  status: "To Do",
-  dueDate: "",
-  startDate: "",
-  estimatedMinutes: 60,
-  actualMinutes: 0,
-  xp: 60,
-  labels: "",
-  notes: "",
-  workingToday: true,
-  runAiEnrichment: true,
-};
-
-const formFromTask = (task) => ({
-  title: task.title || "",
-  description: task.description || "",
-  source: task.source || "Custom",
-  externalId: task.externalId || task.id || "",
-  projectKey: task.projectKey || "",
-  type: task.type || "Task",
-  priority: task.priority || "Medium",
-  status: task.status || "To Do",
-  dueDate: task.dueDate || "",
-  startDate: task.startDate || "",
-  estimatedMinutes: task.time || 60,
-  actualMinutes: task.actualMinutes || 0,
-  xp: task.xp || 60,
-  labels: (task.labels || []).join(", "),
-  notes: task.notes || "",
-  workingToday: Boolean(task.workingToday),
-  runAiEnrichment: true,
-});
 
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
@@ -1164,33 +1125,6 @@ const AppShell = () => {
     return null;
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    dashboardApi.today({ date: todayKey() })
-      .then((data) => {
-        if (cancelled) return;
-        setTasks((data.tasks || []).map(normalizeApiTask));
-        setDashboardStats(data.stats || null);
-        setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
-        setDashboardInsight(data.ai_insight || null);
-        setDashboardStatus("live");
-        if (data.stats) {
-          setOverview((current) => ({
-            ...current,
-            meetingMinutes: data.stats.meeting_minutes ?? current.meetingMinutes,
-            focusMinutes: data.stats.focus_minutes ?? data.stats.available_focus_minutes ?? current.focusMinutes,
-          }));
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setDashboardStatus("fallback");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   return (
     <div className="app-shell" data-testid="app-shell">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -1199,7 +1133,6 @@ const AppShell = () => {
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <Routes>
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionUndo={completionUndo} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onCompleteQuest={handleCompleteQuest} onUndoQuestCompletion={handleUndoQuestCompletion} />} />
