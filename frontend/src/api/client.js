@@ -1,9 +1,17 @@
 import axios from "axios";
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "/api/v1";
+const PHASE8_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+const phase8Api = axios.create({
+  baseURL: PHASE8_API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
@@ -45,6 +53,14 @@ export const overviewApi = {
 
 export const calendarApi = {
   events: (params = {}) => api.get("/calendar/events", { params }).then(unwrap),
+};
+
+export const dashboardApi = {
+  today: (params = {}) => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+};
+
+export const capacityApi = {
+  get: (params = {}) => phase8Api.get("/capacity", { params }).then(unwrap),
 };
 
 export const syncApi = {

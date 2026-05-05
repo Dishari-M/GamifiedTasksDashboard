@@ -3,7 +3,6 @@ import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from 
 import {
   ArrowClockwise,
   Bell,
-  Bug,
   CalendarBlank,
   CaretDown,
   CheckCircle,
@@ -17,7 +16,6 @@ import {
   Flag,
   FunnelSimple,
   GearSix,
-  GitPullRequest,
   House,
   Hourglass,
   Lightning,
@@ -42,6 +40,13 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
+import { dashboardApi } from "./api/client";
+import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
+import { applyActiveQuest, clearQuestRun, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
+import { parseNumber } from "./utils/number";
+import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -55,309 +60,11 @@ const navItems = [
   { label: "Settings", path: "/settings", icon: GearSix },
 ];
 
-const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
-const priorities = ["Critical", "High", "Medium", "Low"];
-const statuses = ["To Do", "In Progress", "Blocked", "Done", "Upcoming"];
-const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
-
-const todayKey = () => new Date().toLocaleDateString("en-CA");
-const nowIso = () => new Date().toISOString();
-
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-
-const parseNumber = (value, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const isSameDay = (isoValue, day = todayKey()) => {
-  if (!isoValue) return false;
-  return new Date(isoValue).toLocaleDateString("en-CA") === day;
-};
-
-const startOfWeekKey = (date = new Date()) => {
-  const copy = new Date(date);
-  const day = copy.getDay() || 7;
-  copy.setDate(copy.getDate() - day + 1);
-  return copy.toLocaleDateString("en-CA");
-};
-
-const addDaysKey = (dateKey, days) => {
-  const date = new Date(`${dateKey}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toLocaleDateString("en-CA");
-};
-
-const isWithinWeek = (isoValue, weekStart = startOfWeekKey()) => {
-  if (!isoValue) return false;
-  const day = new Date(isoValue).toLocaleDateString("en-CA");
-  return day >= weekStart && day <= addDaysKey(weekStart, 6);
-};
-
-const formatMinutes = (minutes) => {
-  const value = Math.max(0, parseNumber(minutes, 0));
-  const hours = Math.floor(value / 60);
-  const mins = value % 60;
-  if (!hours) return `${mins}m`;
-  if (!mins) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-};
-
-const formatDateTime = (isoValue) => {
-  if (!isoValue) return "Not completed";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(isoValue));
-};
-
-const FOCUS_SESSIONS_STORAGE_KEY = "devquest.focusSessions.v1";
-const ACTIVE_FOCUS_STORAGE_KEY = "devquest.activeFocusSession.v1";
-const QUEST_PLAN_STORAGE_KEY = "devquest.questPlan.v1";
-const QUEST_RUN_STORAGE_KEY = "devquest.questRun.v1";
-const TASKS_STORAGE_KEY = "devquest.tasks.v1";
-const focusOutcomes = ["Progress made", "Blocked", "Ready for review", "Completed"];
-const skipReasons = ["Blocked", "Not today", "Too large"];
-
-const readStoredJson = (key, fallback) => {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const stored = window.localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const writeStoredJson = (key, value) => {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
-};
-
-const removeStoredJson = (key) => {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(key);
-};
-
-const createFocusId = () => {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return `focus-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-};
-
-const secondsBetween = (start, end = new Date()) => Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
-
-const activeFocusSeconds = (session) => {
-  if (!session) return 0;
-  return Math.max(0, Math.floor((session.accumulatedSeconds || 0) + (session.isRunning && session.lastStartedAt ? secondsBetween(session.lastStartedAt) : 0)));
-};
-
-const isSessionOnDay = (session, day = todayKey()) => session?.work_date === day || isSameDay(session?.started_at, day);
-
-const sessionsForDay = (sessions, day = todayKey()) => sessions.filter((session) => isSessionOnDay(session, day));
-
-const sessionMinutes = (session) => parseNumber(session.duration_minutes, Math.ceil(parseNumber(session.duration_seconds, 0) / 60));
-
-const focusMinutesForSessions = (sessions) => sessions.reduce((sum, session) => sum + sessionMinutes(session), 0);
-
-const topFocusedTask = (sessions) => {
-  const totals = sessions.reduce((acc, session) => {
-    const key = session.task_id || "unassigned";
-    acc[key] = acc[key] || { taskId: key, title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
-    acc[key].minutes += sessionMinutes(session);
-    acc[key].count += 1;
-    return acc;
-  }, {});
-  return Object.values(totals).sort((a, b) => b.minutes - a.minutes)[0];
-};
-
-const orderedFocusTasks = (tasks) => [
-  ...tasks.filter((task) => task.workingToday && task.status !== "Done"),
-  ...tasks.filter((task) => !task.workingToday && task.status !== "Done"),
-];
-
-const formatTimer = (seconds) => {
-  const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const secs = (seconds % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
-};
 
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
-};
-
-const iconForType = (type) => {
-  if (type === "Bug") return Bug;
-  if (type === "Epic") return RocketLaunch;
-  if (type === "Review") return GitPullRequest;
-  if (type === "Meeting") return UsersThree;
-  return FileText;
-};
-
-const accentForPriority = (priority) => {
-  if (priority === "Critical" || priority === "High") return "red";
-  if (priority === "Medium") return "gold";
-  if (priority === "Low") return "green";
-  return "blue";
-};
-
-const buildAiFields = (task) => {
-  const priorityWeight = { Critical: 10, High: 8, Medium: 5, Low: 3 }[task.priority] || 5;
-  const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
-  const notesBoost = task.notes ? 0.4 : 0;
-  const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
-  const priorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
-  const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
-  const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
-  return {
-    difficulty,
-    impact,
-    priorityScore,
-    effort,
-    xp,
-    aiInsight: task.aiInsight || `${task.priority} priority ${task.type || "Task"} with ${formatMinutes(effort)} expected effort. ${task.notes ? "Use the notes as context for standup and overview summaries." : "Add notes as you learn more to improve the summary."}`,
-  };
-};
-
-const normalizeTask = (task) => {
-  const ai = buildAiFields(task);
-  return {
-    ...task,
-    source: task.source || "Custom",
-    type: task.type || "Task",
-    priority: task.priority || "Medium",
-    status: task.status || "To Do",
-    time: ai.effort,
-    xp: ai.xp,
-    difficulty: ai.difficulty,
-    impact: ai.impact,
-    priorityScore: ai.priorityScore,
-    aiInsight: ai.aiInsight,
-    notes: task.notes || "",
-    labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
-    workingToday: Boolean(task.workingToday),
-    icon: iconForType(task.type || "Task"),
-    accent: task.accent || accentForPriority(task.priority || "Medium"),
-  };
-};
-
-const makeTaskId = (source, externalId) => {
-  if (externalId?.trim()) return externalId.trim();
-  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : source === "Microsoft To Do" ? "TODO" : "CUS";
-  return `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`;
-};
-
-const initialTasks = [
-  normalizeTask({
-    id: "PAY-2301",
-    externalId: "PAY-2301",
-    projectKey: "PAY",
-    title: "Fix payment gateway timeout issue",
-    description: "Users face timeout while making payments on the checkout page.",
-    source: "Jira",
-    type: "Bug",
-    priority: "High",
-    status: "In Progress",
-    impact: 9,
-    time: 120,
-    actualMinutes: 45,
-    xp: 120,
-    workingToday: true,
-    dueDate: todayKey(),
-    notes: "Retry policy may be too generous for the gateway sandbox. Validate timeout cap and add regression coverage.",
-    labels: ["payments", "backend"],
-  }),
-  normalizeTask({
-    id: "ORD-1587",
-    externalId: "ORD-1587",
-    projectKey: "ORD",
-    title: "Implement order tracking API",
-    description: "Create a REST API to fetch real-time order status.",
-    source: "Jira",
-    type: "Epic",
-    priority: "Medium",
-    status: "To Do",
-    impact: 8,
-    time: 90,
-    xp: 90,
-    workingToday: true,
-    dueDate: addDaysKey(todayKey(), 1),
-    notes: "Contract is clear; biggest risk is mapping courier status states cleanly.",
-    labels: ["api"],
-  }),
-  normalizeTask({
-    id: "DOC-047",
-    externalId: "DOC-047",
-    title: "Update deployment documentation",
-    description: "Update deployment steps for the v2.3.0 release.",
-    source: "Microsoft To Do",
-    type: "Task",
-    priority: "Low",
-    status: "To Do",
-    impact: 5,
-    time: 30,
-    xp: 30,
-    workingToday: false,
-    notes: "Add rollback screenshots and note the environment variable rename.",
-    labels: ["docs"],
-  }),
-  normalizeTask({
-    id: "PR-468",
-    externalId: "PR-468",
-    title: "Review PR #468",
-    description: "Review caching updates and leave concise feedback.",
-    source: "Jira",
-    type: "Review",
-    priority: "Low",
-    status: "Done",
-    impact: 4,
-    time: 20,
-    actualMinutes: 25,
-    xp: 30,
-    workingToday: false,
-    completedAt: nowIso(),
-    notes: "Cache invalidation looked good. Suggested a smaller TTL for the checkout path.",
-    labels: ["review"],
-  }),
-  normalizeTask({
-    id: "OUT-902",
-    externalId: "OUT-902",
-    title: "Team retrospective",
-    description: "Capture action items from the sprint retrospective.",
-    source: "Outlook",
-    type: "Meeting",
-    priority: "Medium",
-    status: "Upcoming",
-    impact: 6,
-    time: 60,
-    xp: 60,
-    workingToday: true,
-    startDate: todayKey(),
-    notes: "Bring release readiness and CI stability as discussion topics.",
-    labels: ["meeting"],
-  }),
-];
-
-const readStoredTasks = () => {
-  const storedTasks = readStoredJson(TASKS_STORAGE_KEY, null);
-  return Array.isArray(storedTasks) ? storedTasks.map(normalizeTask) : initialTasks;
-};
-
-const schedule = [
-  { time: "09:00 AM", title: "Daily Standup", duration: "30m", durationMinutes: 30, color: "purple" },
-  { time: "10:00 AM", title: "Architecture Review", duration: "1h", durationMinutes: 60, color: "orange" },
-  { time: "11:30 AM", title: "Client Sync", duration: "1h", durationMinutes: 60, color: "blue" },
-  { time: "01:00 PM", title: "Focus Time Block", duration: "2h 45m available", durationMinutes: 165, color: "green", focus: true },
-];
-
-const defaultOverview = {
-  meetingMinutes: 190,
-  focusMinutes: 155,
-  newLearnings: "Gateway sandbox timeout thresholds differ from production.",
-  wentWell: "Review feedback was concise and actionable.",
-  wentWrong: "Timeout details were split across a few systems.",
 };
 
 const Pill = ({ children, tone = "neutral", testId }) => (
@@ -459,220 +166,6 @@ const StatCard = ({ label, value, detail, icon, tone, trend, down, progress, tes
   </section>
 );
 
-const questPriorityRank = { Critical: 4, High: 3, Medium: 2, Low: 1 };
-const questStatusRank = { "In Progress": 4, "To Do": 3, Blocked: 2, Upcoming: 1, Done: 0 };
-
-const compareQuestTasks = (a, b) => {
-  const statusDiff = (questStatusRank[b.status] ?? 1) - (questStatusRank[a.status] ?? 1);
-  if (statusDiff) return statusDiff;
-  const scoreDiff = (b.priorityScore || 0) - (a.priorityScore || 0);
-  if (scoreDiff) return scoreDiff;
-  const priorityDiff = (questPriorityRank[b.priority] || 0) - (questPriorityRank[a.priority] || 0);
-  if (priorityDiff) return priorityDiff;
-  const impactDiff = parseNumber(b.impact, 0) - parseNumber(a.impact, 0);
-  if (impactDiff) return impactDiff;
-  return parseNumber(a.time, 0) - parseNumber(b.time, 0);
-};
-
-const workingTodayTasks = (tasks) => tasks.filter((task) => task.workingToday);
-
-const defaultQuestOrder = (tasks) => [...workingTodayTasks(tasks)].sort(compareQuestTasks);
-
-const sortedTaskIds = (tasks) => tasks.map((task) => task.id).sort();
-
-const sameTaskIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
-
-const questIdForTask = (taskId) => `quest-${taskId}`;
-
-const questReason = (task, index) => {
-  if (task.status === "Blocked") return { label: "Unblock first", text: "Clear the dependency before adding more work on top." };
-  if (task.status === "In Progress") return { label: "Continue", text: "This is already open, so finishing the thread protects momentum." };
-  if (task.startDate === todayKey() || task.dueDate === todayKey()) return { label: "Scheduled", text: "It is tied to today, so it should stay visible in the route." };
-  if (parseNumber(task.time, 0) <= 35) return { label: "Quick win", text: "Small enough to complete cleanly and bank progress." };
-  if (parseNumber(task.impact, 0) >= 8 || task.priority === "Critical" || task.priority === "High") return { label: "High impact", text: "High priority and impact make it worth doing before lower leverage work." };
-  return { label: index === 0 ? "Best next" : "Steady progress", text: `${task.priority} priority ${task.type.toLowerCase()} from ${task.source}, estimated at ${formatMinutes(task.time)}.` };
-};
-
-const questActionLabel = (task) => {
-  if (task.status === "Done") return "Completed";
-  if (task.status === "Blocked") return "Resolve blocker";
-  if (task.status === "In Progress") return "Continue";
-  if (task.status === "Upcoming") return "Prepare";
-  return "Start";
-};
-
-const questFocusTargetMinutes = (task) => {
-  const effort = parseNumber(task.time, 60);
-  if (effort <= 30) return effort;
-  return Math.min(90, Math.max(25, Math.ceil((effort * 0.55) / 5) * 5));
-};
-
-const buildQuestForTask = (task, index) => {
-  const reason = questReason(task, index);
-  return {
-    id: questIdForTask(task.id),
-    taskId: task.id,
-    rank: index + 1,
-    state: task.status === "Done" ? "completed" : "queued",
-    reason: `${reason.label}: ${reason.text}`,
-    reasonLabel: reason.label,
-    actionLabel: questActionLabel(task),
-    rewardXp: task.xp,
-    focusTargetMinutes: questFocusTargetMinutes(task),
-    focusMinutes: 0,
-    startedAt: null,
-    completedAt: task.status === "Done" ? task.completedAt || nowIso() : null,
-    skippedAt: null,
-    skipReason: "",
-  };
-};
-
-const applyActiveQuest = (run) => {
-  if (!run) return null;
-  const openQuests = run.quests.filter((quest) => quest.state !== "completed" && quest.state !== "skipped");
-  const activeQuestId = openQuests.find((quest) => quest.id === run.activeQuestId)?.id || openQuests[0]?.id || null;
-  const quests = run.quests.map((quest) => {
-    if (quest.state === "completed" || quest.state === "skipped") return quest;
-    return {
-      ...quest,
-      state: quest.id === activeQuestId ? "active" : "queued",
-      startedAt: quest.id === activeQuestId ? quest.startedAt || nowIso() : quest.startedAt,
-    };
-  });
-  return {
-    ...run,
-    activeQuestId,
-    status: openQuests.length ? run.status === "needs_update" ? "needs_update" : "active" : "completed",
-    quests,
-  };
-};
-
-const isCurrentQuestRun = (questRun) => Boolean(questRun && questRun.workDate === todayKey());
-
-const isQuestRunSynced = (tasks, questRun) => {
-  if (!isCurrentQuestRun(questRun)) return false;
-  return sameTaskIds(questRun.sourceTaskIds || [], sortedTaskIds(workingTodayTasks(tasks)));
-};
-
-const deriveQuestProgress = (run, tasks, focusSessions = []) => {
-  if (!isCurrentQuestRun(run)) return null;
-  const taskById = new Map(tasks.map((task) => [task.id, task]));
-  const todaySessions = sessionsForDay(focusSessions, run.workDate);
-  const focusByTaskId = todaySessions.reduce((acc, session) => {
-    if (!session.task_id) return acc;
-    acc[session.task_id] = (acc[session.task_id] || 0) + sessionMinutes(session);
-    return acc;
-  }, {});
-  const synced = isQuestRunSynced(tasks, run);
-  const quests = (run.quests || []).map((quest) => {
-    const task = taskById.get(quest.taskId);
-    const focusMinutes = focusByTaskId[quest.taskId] || 0;
-    if (!task) return { ...quest, focusMinutes, state: quest.state === "active" ? "queued" : quest.state };
-    if (quest.state === "skipped") return { ...quest, focusMinutes, rewardXp: task.xp, actionLabel: questActionLabel(task), focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task) };
-    const isCompleted = task.status === "Done";
-    return {
-      ...quest,
-      focusMinutes,
-      rewardXp: task.xp,
-      actionLabel: questActionLabel(task),
-      focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task),
-      state: isCompleted ? "completed" : quest.state,
-      completedAt: isCompleted ? quest.completedAt || task.completedAt || nowIso() : quest.completedAt,
-    };
-  });
-  return applyActiveQuest({ ...run, quests, status: synced ? run.status : "needs_update" });
-};
-
-const generateQuestRun = (tasks, focusSessions = []) => {
-  const orderedTasks = defaultQuestOrder(tasks);
-  const run = {
-    id: `quest-run-${todayKey()}-${Date.now()}`,
-    workDate: todayKey(),
-    generatedAt: nowIso(),
-    sourceTaskIds: sortedTaskIds(workingTodayTasks(tasks)),
-    activeQuestId: null,
-    status: orderedTasks.length ? "active" : "not_generated",
-    quests: orderedTasks.map(buildQuestForTask),
-  };
-  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions);
-};
-
-const migrateQuestPlan = (questPlan, tasks, focusSessions = []) => {
-  if (!questPlan || questPlan.workDate !== todayKey()) return null;
-  const taskById = new Map(tasks.map((task) => [task.id, task]));
-  const orderedTasks = (questPlan.orderedTaskIds || []).map((id) => taskById.get(id)).filter(Boolean);
-  const run = {
-    id: `quest-run-${questPlan.workDate}-${new Date(questPlan.generatedAt || nowIso()).getTime() || Date.now()}`,
-    workDate: questPlan.workDate,
-    generatedAt: questPlan.generatedAt || nowIso(),
-    sourceTaskIds: questPlan.sourceTaskIds || sortedTaskIds(orderedTasks),
-    activeQuestId: null,
-    status: orderedTasks.length ? "active" : "not_generated",
-    quests: orderedTasks.map(buildQuestForTask),
-  };
-  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions);
-};
-
-const readQuestRun = (tasks, focusSessions = []) => {
-  const storedRun = readStoredJson(QUEST_RUN_STORAGE_KEY, null);
-  if (storedRun?.workDate === todayKey() && Array.isArray(storedRun.quests)) return deriveQuestProgress(storedRun, tasks, focusSessions);
-  return migrateQuestPlan(readStoredJson(QUEST_PLAN_STORAGE_KEY, null), tasks, focusSessions);
-};
-
-const saveQuestRun = (run) => {
-  if (!run || run.workDate !== todayKey()) return removeStoredJson(QUEST_RUN_STORAGE_KEY);
-  writeStoredJson(QUEST_RUN_STORAGE_KEY, run);
-  removeStoredJson(QUEST_PLAN_STORAGE_KEY);
-};
-
-const clearQuestRun = () => {
-  removeStoredJson(QUEST_RUN_STORAGE_KEY);
-  removeStoredJson(QUEST_PLAN_STORAGE_KEY);
-};
-
-const isUsableQuestRun = (tasks, questRun) => isCurrentQuestRun(questRun) && isQuestRunSynced(tasks, questRun) && questRun.status !== "not_generated";
-
-const getQuestOrderedTasks = (tasks, questRun) => {
-  const todayTasks = workingTodayTasks(tasks);
-  if (!isUsableQuestRun(tasks, questRun)) return defaultQuestOrder(tasks);
-  const taskById = new Map(todayTasks.map((task) => [task.id, task]));
-  const ordered = (questRun.quests || []).map((quest) => taskById.get(quest.taskId)).filter(Boolean);
-  const orderedIds = new Set(ordered.map((task) => task.id));
-  const appended = todayTasks.filter((task) => !orderedIds.has(task.id)).sort(compareQuestTasks);
-  return [...ordered, ...appended];
-};
-
-const questRationale = (task, index) => {
-  const reason = questReason(task, index);
-  if (task.status === "Done") return "Completed today; it stays visible as earned progress.";
-  return `${reason.label}: ${reason.text}`;
-};
-
-const questGeneratedLabel = (tasks, questRun, taskCount) => {
-  if (!isCurrentQuestRun(questRun)) return `${taskCount} Working Today task${taskCount === 1 ? "" : "s"} ready`;
-  if (!isQuestRunSynced(tasks, questRun)) return `Working Today changed since ${formatDateTime(questRun.generatedAt)}. Update quests to refresh the route.`;
-  if (questRun.status === "completed") return "Daily run completed. Review the summary or regenerate if the day changed.";
-  return `Generated ${formatDateTime(questRun.generatedAt)} from ${taskCount} task${taskCount === 1 ? "" : "s"}`;
-};
-
-const getQuestTask = (tasks, quest) => tasks.find((task) => task.id === quest?.taskId);
-
-const getNextQuest = (questRun) => questRun?.quests?.find((quest) => quest.id === questRun.activeQuestId) || questRun?.quests?.find((quest) => quest.state === "queued");
-
-const getQuestById = (questRun, questId) => questRun?.quests?.find((quest) => quest.id === questId);
-
-const getOpenQuestForTask = (questRun, taskId) => questRun?.quests?.find((quest) => quest.taskId === taskId && quest.state !== "completed" && quest.state !== "skipped");
-
-const questProgressSummary = (questRun) => {
-  const quests = questRun?.quests || [];
-  const completed = quests.filter((quest) => quest.state === "completed").length;
-  const skipped = quests.filter((quest) => quest.state === "skipped").length;
-  const earnedXp = quests.filter((quest) => quest.state === "completed").reduce((sum, quest) => sum + parseNumber(quest.rewardXp, 0), 0);
-  const availableXp = quests.reduce((sum, quest) => sum + parseNumber(quest.rewardXp, 0), 0);
-  const focusMinutes = quests.reduce((sum, quest) => sum + parseNumber(quest.focusMinutes, 0), 0);
-  return { total: quests.length, completed, skipped, earnedXp, availableXp, focusMinutes };
-};
-
 const CompletionUndoNotice = ({ undo, onUndo }) => {
   if (!undo) return null;
   return (
@@ -705,11 +198,11 @@ const MissionCard = ({ task, index, questMeta }) => {
   );
 };
 
-const SchedulePanel = () => (
+const SchedulePanel = ({ events = schedule }) => (
   <section className="surface schedule-panel" data-testid="schedule-panel">
     <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Schedule</h2><NavLink to="/calendar" data-testid="view-calendar-link">View Calendar</NavLink></div>
     <div className="timeline" data-testid="schedule-timeline">
-      {schedule.map((event) => (
+      {events.map((event) => (
         <div className="timeline-row" key={event.time} data-testid={`schedule-row-${slug(event.time)}`}>
           <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
           <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
@@ -896,46 +389,6 @@ const TaskTable = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
   );
 };
 
-const emptyTaskForm = {
-  title: "",
-  description: "",
-  source: "Custom",
-  externalId: "",
-  projectKey: "",
-  type: "Task",
-  priority: "Medium",
-  status: "To Do",
-  dueDate: "",
-  startDate: "",
-  estimatedMinutes: 60,
-  actualMinutes: 0,
-  xp: 60,
-  labels: "",
-  notes: "",
-  workingToday: true,
-  runAiEnrichment: true,
-};
-
-const formFromTask = (task) => ({
-  title: task.title || "",
-  description: task.description || "",
-  source: task.source || "Custom",
-  externalId: task.externalId || task.id || "",
-  projectKey: task.projectKey || "",
-  type: task.type || "Task",
-  priority: task.priority || "Medium",
-  status: task.status || "To Do",
-  dueDate: task.dueDate || "",
-  startDate: task.startDate || "",
-  estimatedMinutes: task.time || 60,
-  actualMinutes: task.actualMinutes || 0,
-  xp: task.xp || 60,
-  labels: (task.labels || []).join(", "),
-  notes: task.notes || "",
-  workingToday: Boolean(task.workingToday),
-  runAiEnrichment: true,
-});
-
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
 
@@ -979,33 +432,6 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   );
 };
 
-const taskFromForm = (form, existingTask) => {
-  const status = form.status || "To Do";
-  const completedAt = status === "Done" ? existingTask?.completedAt || nowIso() : existingTask?.completedAt && existingTask.status === "Done" ? undefined : existingTask?.completedAt;
-  return normalizeTask({
-    ...(existingTask || {}),
-    id: existingTask?.id || makeTaskId(form.source, form.externalId),
-    externalId: form.externalId || existingTask?.externalId || "",
-    projectKey: form.projectKey,
-    title: form.title.trim(),
-    description: form.description,
-    source: form.source,
-    type: form.type,
-    priority: form.priority,
-    status,
-    dueDate: form.dueDate,
-    startDate: form.startDate,
-    time: parseNumber(form.estimatedMinutes, 60),
-    actualMinutes: parseNumber(form.actualMinutes, 0),
-    xp: parseNumber(form.xp, 60),
-    labels: form.labels,
-    notes: form.notes,
-    workingToday: form.workingToday,
-    completedAt,
-    aiInsight: form.runAiEnrichment ? "" : existingTask?.aiInsight,
-  });
-};
-
 const completedTodayTasks = (tasks) => tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt));
 
 const generateStandupNote = (tasks) => {
@@ -1024,11 +450,12 @@ const generateStandupNote = (tasks) => {
   };
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
-  const completedCount = completedTodayTasks(tasks).length;
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
+  const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
-  const totalXp = tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
-  const focusedToday = focusMinutesForSessions(sessionsForDay(focusSessions));
+  const totalXp = dashboardStats?.total_xp ?? tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
+  const focusedToday = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
+  const meetingMinutes = dashboardStats?.meeting_minutes;
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
   const orderedQuestTasks = getQuestOrderedTasks(tasks, questRun);
@@ -1044,14 +471,14 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
         <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail="Captured from sessions" icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value="3h 10m" detail="Tracked in overview" icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
-        <SchedulePanel />
+        <SchedulePanel events={dashboardSchedule} />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{["All", "Working Today", "Done", "Blocked"].map((tab, index) => <button key={tab} className={index === 0 ? "tab active" : "tab"} role="tab" data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={tasks} onComplete={onComplete} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} /></section>
-        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} planned</span><span data-testid="ai-impact-value">{Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
+        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
     </main>
@@ -1370,6 +797,10 @@ const SettingsPage = () => <main className="page-stack" data-testid="settings-pa
 const AppShell = () => {
   const [tasks, setTasks] = useState(readStoredTasks);
   const [overview, setOverview] = useState(defaultOverview);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [dashboardInsight, setDashboardInsight] = useState(null);
+  const [dashboardStatus, setDashboardStatus] = useState("fallback");
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
   const [questRun, setQuestRun] = useState(() => readQuestRun(readStoredTasks(), readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, [])));
@@ -1401,6 +832,33 @@ const AppShell = () => {
   useEffect(() => {
     writeStoredJson(TASKS_STORAGE_KEY, tasks);
   }, [tasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    dashboardApi.today({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        if (Array.isArray(data.tasks) && data.tasks.length) setTasks(data.tasks.map(normalizeApiTask));
+        setDashboardStats(data.stats || null);
+        setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
+        setDashboardInsight(data.ai_insight || null);
+        setDashboardStatus("live");
+        if (data.stats) {
+          setOverview((current) => ({
+            ...current,
+            meetingMinutes: data.stats.meeting_minutes ?? current.meetingMinutes,
+            focusMinutes: data.stats.focus_minutes ?? data.stats.available_focus_minutes ?? current.focusMinutes,
+          }));
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDashboardStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateQuestRun = (updater) => setQuestRun((run) => {
     const nextRun = typeof updater === "function" ? updater(run) : updater;
@@ -1540,7 +998,7 @@ const AppShell = () => {
       <div className="workspace" data-testid="workspace">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <Routes>
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionUndo={completionUndo} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onCompleteQuest={handleCompleteQuest} onUndoQuestCompletion={handleUndoQuestCompletion} />} />

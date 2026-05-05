@@ -4,3 +4,4 @@ oracledb
 pydantic
 httpx
 python-dotenv
+oci

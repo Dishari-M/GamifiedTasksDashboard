@@ -4,6 +4,8 @@ from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
 from services.ai_service import enrich_task
 from services.task_service import complete_task
+from services.phase8_capacity_service import capacity_response
+from services.phase8_dashboard_service import dashboard_today_response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -24,6 +26,10 @@ tags_metadata = [
     {
         "name": "Quests",
         "description": "Read prioritized daily quest recommendations.",
+    },
+    {
+        "name": "Dashboard",
+        "description": "Phase 8 dashboard summary and capacity APIs.",
     },
 ]
 
@@ -56,6 +62,12 @@ def tasks(): return get_tasks()
 
 @app.get("/quests", tags=["Quests"])
 def quests(): return get_quests()
+
+@app.get("/api/v1/capacity", tags=["Dashboard"])
+def capacity(date: str | None = None): return capacity_response(date)
+
+@app.get("/api/v1/dashboard/today", tags=["Dashboard"])
+def dashboard_today(date: str | None = None): return dashboard_today_response(date)
 
 @app.post("/tasks", tags=["Tasks"])
 async def add_task(task:TaskCreate):
