@@ -2686,7 +2686,6 @@ html[data-theme="light"] select:focus-visible {
     width: 240px;
   }
 }
-
 /* Focus quest reward overrides after latest-main styles. */
 .success-action {
   color: #9bd7b1;
@@ -2714,4 +2713,35 @@ html[data-theme="light"] select:focus-visible {
   color: #e9fff0;
   border-color: rgba(129, 199, 164, 0.34);
   background: linear-gradient(145deg, #2f7652, #245f44);
+}
+
+.stat-detail-chip {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.stat-detail-chip.positive {
+  color: var(--green);
+  background: rgba(0, 255, 102, 0.08);
+  border-color: rgba(0, 255, 102, 0.22);
+}
+
+.stat-detail-chip.negative {
+  color: var(--red);
+  background: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.22);
+}
+
+.stat-detail-chip.neutral {
+  color: var(--text-soft);
+  background: rgba(137, 145, 163, 0.1);
+  border-color: rgba(137, 145, 163, 0.22);
 }
