@@ -3,7 +3,6 @@ import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from 
 import {
   ArrowClockwise,
   Bell,
-  Bug,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -19,7 +18,6 @@ import {
   FloppyDisk,
   FunnelSimple,
   GearSix,
-  GitPullRequest,
   House,
   Hourglass,
   Lightning,
@@ -50,7 +48,7 @@ import "./feature-additions.css";
 import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, overviewApi, tasksApi } from "./api/client";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
-import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -66,15 +64,8 @@ const navItems = [
   { label: "Sync", path: "/sync", icon: CloudArrowDown },
   { label: "Settings", path: "/settings", icon: GearSix },
 ];
-
-const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
-const priorities = ["Critical", "High", "Medium", "Low"];
-const statuses = ["To Do", "In Progress", "Blocked", "Done"];
 const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
-const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
 
-const todayKey = () => new Date().toLocaleDateString("en-CA");
-const nowIso = () => new Date().toISOString();
 const THEME_STORAGE_KEY = "devquest.theme.v1";
 
 const readInitialTheme = () => {
@@ -109,273 +100,6 @@ const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 };
-
-const parseNumber = (value, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const isSameDay = (isoValue, day = todayKey()) => {
-  if (!isoValue) return false;
-  return new Date(isoValue).toLocaleDateString("en-CA") === day;
-};
-
-const startOfWeekKey = (date = new Date()) => {
-  const copy = new Date(date);
-  const day = copy.getDay() || 7;
-  copy.setDate(copy.getDate() - day + 1);
-  return copy.toLocaleDateString("en-CA");
-};
-
-const addDaysKey = (dateKey, days) => {
-  const date = new Date(`${dateKey}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toLocaleDateString("en-CA");
-};
-
-const isWithinWeek = (isoValue, weekStart = startOfWeekKey()) => {
-  if (!isoValue) return false;
-  const day = new Date(isoValue).toLocaleDateString("en-CA");
-  return day >= weekStart && day <= addDaysKey(weekStart, 6);
-};
-
-const formatMinutes = (minutes) => {
-  const value = Math.max(0, parseNumber(minutes, 0));
-  const hours = Math.floor(value / 60);
-  const mins = value % 60;
-  if (!hours) return `${mins}m`;
-  if (!mins) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-};
-
-const formatDateTime = (isoValue) => {
-  if (!isoValue) return "Not completed";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(isoValue));
-};
-
-const formatTime = (isoValue) => {
-  if (!isoValue) return "";
-  return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(isoValue));
-};
-
-const formatTimer = (seconds) => {
-  const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const secs = (seconds % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
-};
-
-const iconForType = (type) => {
-  if (type === "Bug") return Bug;
-  if (type === "Epic") return RocketLaunch;
-  if (type === "Review") return GitPullRequest;
-  if (type === "Meeting") return UsersThree;
-  return FileText;
-};
-
-const accentForPriority = (priority) => {
-  if (priority === "Critical" || priority === "High") return "red";
-  if (priority === "Medium") return "gold";
-  if (priority === "Low") return "green";
-  return "blue";
-};
-
-const buildAiFields = (task) => {
-  const priorityWeight = { Critical: 10, High: 8, Medium: 5, Low: 3 }[task.priority] || 5;
-  const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
-  const notesBoost = task.notes ? 0.4 : 0;
-  const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
-  const calculatedPriorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
-  const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
-  const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
-  return {
-    difficulty: task.difficulty || difficulty,
-    impact,
-    priorityScore: Number.isFinite(Number(task.priorityScore)) ? Number(task.priorityScore) : calculatedPriorityScore,
-    effort,
-    xp,
-    aiInsight: task.aiInsight || `${task.priority} priority ${task.type || "Task"} with ${formatMinutes(effort)} expected effort. ${task.notes ? "Use the notes as context for standup and overview summaries." : "Add notes as you learn more to improve the summary."}`,
-  };
-};
-
-const normalizeTask = (task) => {
-  const ai = buildAiFields(task);
-  return {
-    ...task,
-    source: task.source || "Custom",
-    type: task.type || "Task",
-    priority: task.priority || "Medium",
-    status: task.status || "To Do",
-    time: ai.effort,
-    xp: ai.xp,
-    difficulty: ai.difficulty,
-    impact: ai.impact,
-    priorityScore: ai.priorityScore,
-    aiInsight: ai.aiInsight,
-    notes: task.notes || "",
-    labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
-    workingToday: Boolean(task.workingToday),
-    icon: iconForType(task.type || "Task"),
-    accent: task.accent || accentForPriority(task.priority || "Medium"),
-  };
-};
-
-const makeTaskId = (source, externalId) => {
-  if (externalId?.trim()) return externalId.trim();
-  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : source === "Microsoft To Do" ? "TODO" : "CUS";
-  return `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`;
-};
-
-const initialTasks = [
-  normalizeTask({
-    id: "PAY-2301",
-    externalId: "PAY-2301",
-    projectKey: "PAY",
-    title: "Fix payment gateway timeout issue",
-    description: "Users face timeout while making payments on the checkout page.",
-    source: "Jira",
-    type: "Bug",
-    priority: "High",
-    status: "In Progress",
-    impact: 9,
-    time: 120,
-    actualMinutes: 45,
-    xp: 120,
-    workingToday: true,
-    dueDate: todayKey(),
-    notes: "Retry policy may be too generous for the gateway sandbox. Validate timeout cap and add regression coverage.",
-    labels: ["payments", "backend"],
-  }),
-  normalizeTask({
-    id: "ORD-1587",
-    externalId: "ORD-1587",
-    projectKey: "ORD",
-    title: "Implement order tracking API",
-    description: "Create a REST API to fetch real-time order status.",
-    source: "Jira",
-    type: "Epic",
-    priority: "Medium",
-    status: "To Do",
-    impact: 8,
-    time: 90,
-    xp: 90,
-    workingToday: true,
-    dueDate: addDaysKey(todayKey(), 1),
-    notes: "Contract is clear; biggest risk is mapping courier status states cleanly.",
-    labels: ["api"],
-  }),
-  normalizeTask({
-    id: "DOC-047",
-    externalId: "DOC-047",
-    title: "Update deployment documentation",
-    description: "Update deployment steps for the v2.3.0 release.",
-    source: "Microsoft To Do",
-    type: "Task",
-    priority: "Low",
-    status: "To Do",
-    impact: 5,
-    time: 30,
-    xp: 30,
-    workingToday: false,
-    notes: "Add rollback screenshots and note the environment variable rename.",
-    labels: ["docs"],
-  }),
-  normalizeTask({
-    id: "PR-468",
-    externalId: "PR-468",
-    title: "Review PR #468",
-    description: "Review caching updates and leave concise feedback.",
-    source: "Jira",
-    type: "Review",
-    priority: "Low",
-    status: "Done",
-    impact: 4,
-    time: 20,
-    actualMinutes: 25,
-    xp: 30,
-    workingToday: false,
-    completedAt: nowIso(),
-    notes: "Cache invalidation looked good. Suggested a smaller TTL for the checkout path.",
-    labels: ["review"],
-  }),
-  normalizeTask({
-    id: "OUT-902",
-    externalId: "OUT-902",
-    title: "Team retrospective",
-    description: "Capture action items from the sprint retrospective.",
-    source: "Outlook",
-    type: "Meeting",
-    priority: "Medium",
-    status: "Upcoming",
-    impact: 6,
-    time: 60,
-    xp: 60,
-    workingToday: true,
-    startDate: todayKey(),
-    notes: "Bring release readiness and CI stability as discussion topics.",
-    labels: ["meeting"],
-  }),
-];
-
-const TASKS_STORAGE_KEY = "devquest.tasks.v1";
-
-const readStoredTasks = () => {
-  const storedTasks = readStoredJson(TASKS_STORAGE_KEY, null);
-  return Array.isArray(storedTasks) ? storedTasks.map(normalizeTask) : initialTasks;
-};
-
-const schedule = [
-  { time: "09:00 AM", title: "Daily Standup", duration: "30m", durationMinutes: 30, color: "purple" },
-  { time: "10:00 AM", title: "Architecture Review", duration: "1h", durationMinutes: 60, color: "orange" },
-  { time: "11:30 AM", title: "Client Sync", duration: "1h", durationMinutes: 60, color: "blue" },
-  { time: "01:00 PM", title: "Focus Time Block", duration: "2h 45m available", durationMinutes: 165, color: "green", focus: true },
-];
-
-const defaultOverview = {
-  meetingMinutes: 190,
-  focusMinutes: 155,
-  newLearnings: "Gateway sandbox timeout thresholds differ from production.",
-  wentWell: "Review feedback was concise and actionable.",
-  wentWrong: "Timeout details were split across a few systems.",
-};
-
-const normalizeApiTask = (task) =>
-  normalizeTask({
-    id: String(task.external_id || task.task_id),
-    taskId: task.task_id,
-    externalId: task.external_id || "",
-    title: task.title,
-    description: task.description,
-    source: task.external_source || "Custom",
-    type: task.task_type || "Task",
-    priority: task.priority || "Medium",
-    status: task.status || "To Do",
-    time: task.estimated_minutes || task.ai?.effort_minutes || 60,
-    actualMinutes: task.actual_minutes || 0,
-    xp: task.xp_value || 0,
-    workingToday: Boolean(task.working_today),
-    completedAt: task.completed_at,
-    impact: task.ai?.impact_score || 5,
-    priorityScore: task.ai?.priority_score,
-    difficulty: task.ai?.difficulty,
-    aiInsight: task.ai?.insight,
-    notes: task.notes || "",
-    labels: [],
-  });
-
-const normalizeApiSchedule = (events = []) =>
-  events.map((event) => ({
-    time: formatTime(event.start_at),
-    title: event.title,
-    duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),
-    durationMinutes: event.duration_minutes,
-    color: event.is_focus_block ? "green" : "blue",
-    focus: Boolean(event.is_focus_block),
-  }));
 
 const taskXp = (task) => parseNumber(task.xp ?? task.xp_value, 0);
 
@@ -558,7 +282,6 @@ const AuthPage = ({ onAuthenticated }) => {
   );
 };
 
-const Sidebar = ({ open, onClose }) => (
 const Sidebar = ({ open, onClose, levelProgress }) => (
   <aside className={`sidebar ${open ? "sidebar-open" : ""}`} data-testid="app-sidebar">
     <div className="brand" data-testid="app-brand">
@@ -965,40 +688,6 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
     </div>
   );
 };
-const emptyTaskForm = {
-  title: "",
-  description: "",
-  source: "Custom",
-  externalId: "",
-  projectKey: "",
-  type: "Task",
-  priority: "Medium",
-  status: "To Do",
-  dueDate: "",
-  startDate: "",
-  labels: "",
-  notes: "",
-  workingToday: true,
-  runAiEnrichment: true,
-};
-
-const formFromTask = (task) => ({
-  title: task.title || "",
-  description: task.description || "",
-  source: task.source || "Custom",
-  externalId: task.externalId || task.id || "",
-  projectKey: task.projectKey || "",
-  type: task.type || "Task",
-  priority: task.priority || "Medium",
-  status: task.status || "To Do",
-  dueDate: task.dueDate || "",
-  startDate: task.startDate || "",
-  labels: (task.labels || []).join(", "),
-  notes: task.notes || "",
-  workingToday: Boolean(task.workingToday),
-  runAiEnrichment: true,
-});
-
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1051,33 +740,6 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       </div>
     </form>
   );
-};
-
-const taskFromForm = (form, existingTask) => {
-  const status = form.status || "To Do";
-  const completedAt = status === "Done" ? existingTask?.completedAt || nowIso() : existingTask?.completedAt && existingTask.status === "Done" ? undefined : existingTask?.completedAt;
-  return normalizeTask({
-    ...(existingTask || {}),
-    id: existingTask?.id || makeTaskId(form.source, form.externalId),
-    externalId: form.externalId || existingTask?.externalId || "",
-    projectKey: form.projectKey,
-    title: form.title.trim(),
-    description: form.description,
-    source: form.source,
-    type: form.type,
-    priority: form.priority,
-    status,
-    dueDate: form.dueDate,
-    startDate: form.startDate,
-    time: existingTask?.time,
-    actualMinutes: existingTask?.actualMinutes,
-    xp: existingTask?.xp,
-    labels: form.labels,
-    notes: form.notes,
-    workingToday: form.workingToday,
-    completedAt,
-    aiInsight: form.runAiEnrichment ? "" : existingTask?.aiInsight,
-  });
 };
 
 const completedTodayTasks = (tasks) => tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt));

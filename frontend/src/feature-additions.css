@@ -215,6 +215,8 @@ body {
   color: #8fc8ff;
   font-size: 0.9rem;
   font-weight: 900;
+}
+
 html[data-theme="light"] {
   --bg: #f4efe7;
   --surface: #fffaf1;
