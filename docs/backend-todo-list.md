@@ -51,6 +51,11 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Create migration folder under `backend/app/migrations`.
 
+- [ ] Enforce user ownership on every DB table mentioned in this checklist:
+  - [ ] `APP_USERS.USER_ID` is the canonical user key.
+  - [ ] Every other table must include a `USER_ID` column defined as a `NOT NULL` FK to `APP_USERS(USER_ID)`.
+  - [ ] Repository queries, unique keys, and indexes must include `USER_ID` wherever rows are user-scoped.
+
 - [ ] Create sequences:
   - [ ] `APP_USERS_SEQ`
   - [ ] `USER_STATS_SEQ`
@@ -315,6 +320,7 @@ Use this as the execution checklist for building the production backend. The det
 | Column | Type | Notes |
 | --- | --- | --- |
 | `QUEST_ITEM_ID` | `NUMBER(19)` | PK, `QUEST_ITEMS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
 | `QUEST_PLAN_ID` | `NUMBER(19)` | FK to `QUEST_PLANS` |
 | `TASK_ID` | `NUMBER(19)` | FK to `WORK_ITEMS` |
 | `RANK_ORDER` | `NUMBER(5)` | quest order |
@@ -401,6 +407,7 @@ Use this as the execution checklist for building the production backend. The det
 | Column | Type | Notes |
 | --- | --- | --- |
 | `SYNC_RUN_ITEM_ID` | `NUMBER(19)` | PK, `SYNC_RUN_ITEMS_SEQ.NEXTVAL` |
+| `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
 | `SYNC_RUN_ID` | `NUMBER(19)` | FK to `SYNC_RUNS` |
 | `SOURCE` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar`, `Microsoft To Do` |
 | `STATUS` | `VARCHAR2(30)` | `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED` |
@@ -446,20 +453,19 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `WORK_ITEMS(USER_ID, UPDATED_AT)`
   - [ ] `WORK_ITEMS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for non-null external IDs.
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, WORK_DATE)`
-  - [ ] `WORK_ITEM_WORK_DATES(TASK_ID, WORK_DATE)`
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, TASK_ID, WORK_DATE)` unique.
   - [ ] `CALENDAR_EVENTS(USER_ID, START_AT)`
   - [ ] `CALENDAR_EVENTS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for synced events.
   - [ ] `FOCUS_SESSIONS(USER_ID, SESSION_DATE)`
   - [ ] `AI_RUNS(USER_ID, RUN_TYPE, CREATED_AT)`
   - [ ] `QUEST_PLANS(USER_ID, QUEST_DATE)` unique.
-  - [ ] `QUEST_ITEMS(QUEST_PLAN_ID, TASK_ID)` unique.
+  - [ ] `QUEST_ITEMS(USER_ID, QUEST_PLAN_ID, TASK_ID)` unique.
   - [ ] `STANDUP_NOTES(USER_ID, NOTE_DATE)` unique.
   - [ ] `DAILY_OVERVIEWS(USER_ID, OVERVIEW_DATE)` unique.
   - [ ] `WEEKLY_OVERVIEWS(USER_ID, WEEK_START_DATE)` unique.
-  - [ ] `WORK_ITEM_EVENTS(TASK_ID, CREATED_AT)`
+  - [ ] `WORK_ITEM_EVENTS(USER_ID, TASK_ID, CREATED_AT)`
   - [ ] `SYNC_RUNS(USER_ID, CREATED_AT)`
-  - [ ] `SYNC_RUN_ITEMS(SYNC_RUN_ID, SOURCE)`
+  - [ ] `SYNC_RUN_ITEMS(USER_ID, SYNC_RUN_ID, SOURCE)`
 
 - [ ] Add constraints:
   - [ ] Work item status enum.

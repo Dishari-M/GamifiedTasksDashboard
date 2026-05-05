@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
-  Bell,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -23,7 +22,6 @@ import {
   Lightning,
   ListBullets,
   ListChecks,
-  MagnifyingGlass,
   Moon,
   PencilSimple,
   Play,
@@ -333,17 +331,9 @@ const Topbar = ({currentUser, isLoggingOut, onLogout,onMenuClick, theme, onTheme
         <h1 data-testid="page-title">{title}</h1>
         <p data-testid="page-subtitle">{subtitle}</p>
       </div>
-      <label className="search-box" data-testid="search-label">
-        <MagnifyingGlass size={22} weight="duotone" aria-hidden="true" />
-        <input data-testid="global-search-input" aria-label="Search tasks" placeholder="Search tasks..." />
-      </label>
       <button className="theme-toggle" type="button" onClick={onThemeToggle} aria-label={`Switch to ${isLight ? "dark" : "light"} theme`} aria-pressed={isLight} data-testid="theme-toggle-button">
         {isLight ? <Moon size={22} weight="duotone" aria-hidden="true" /> : <SunDim size={22} weight="duotone" aria-hidden="true" />}
         <span className="toggle-knob">{isLight ? <SunDim size={18} weight="fill" aria-hidden="true" /> : <Moon size={18} weight="fill" aria-hidden="true" />}</span>
-      </button>
-      <button className="bell-button" aria-label="View notifications" data-testid="notifications-button">
-        <Bell size={28} weight="duotone" />
-        <span data-testid="notification-count">3</span>
       </button>
       <div className="profile-cluster">
         <button
@@ -943,7 +933,7 @@ const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, on
   );
 };
 
-const CalendarPage = ({ overview }) => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /><section className="surface weekly-panel" data-testid="weekly-overview-card"><div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><NavLink to="/overview">Open overview</NavLink></div><div className="weekly-grid"><StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" /><StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" /><StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" /></div></section></main>;
+const CalendarPage = () => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /></main>;
 
 const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, completionNotice, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus }) => {
   const todaySessions = sessionsForDay(focusSessions);
@@ -1221,14 +1211,23 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
 };
 
 const toList = (value) => Array.isArray(value) ? value : String(value || "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+const listToDraftText = (value) => toList(value).join("\n");
+const reflectionDraftFrom = (source = {}, fallback = {}) => ({
+  newLearnings: listToDraftText(source.new_learnings ?? fallback.newLearnings),
+  wentWell: listToDraftText(source.went_well ?? fallback.wentWell),
+  wentWrong: listToDraftText(source.went_wrong ?? fallback.wentWrong),
+});
 
 const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
+  const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
   const [overviewStatus, setOverviewStatus] = useState("loading");
   const [generating, setGenerating] = useState(null);
+  const [savingDailyOverview, setSavingDailyOverview] = useState(false);
+  const [saveDailyMessage, setSaveDailyMessage] = useState("");
 
   const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
   const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
@@ -1252,19 +1251,21 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
       .then((data) => {
         if (cancelled) return;
         setDailyData(data);
+        setDailyReflectionDraft(reflectionDraftFrom(data, overview));
         setOverviewStatus("live");
         onOverviewChange((current) => ({
           ...current,
           meetingMinutes: data.meeting_minutes ?? current.meetingMinutes,
           focusMinutes: data.focus_minutes ?? current.focusMinutes,
-          newLearnings: toList(data.new_learnings).join("\n") || current.newLearnings,
-          wentWell: toList(data.went_well).join("\n") || current.wentWell,
-          wentWrong: toList(data.went_wrong).join("\n") || current.wentWrong,
+          newLearnings: listToDraftText(data.new_learnings) || current.newLearnings,
+          wentWell: listToDraftText(data.went_well) || current.wentWell,
+          wentWrong: listToDraftText(data.went_wrong) || current.wentWrong,
         }));
       })
       .catch(() => {
         if (cancelled) return;
         setDailyData(null);
+        setDailyReflectionDraft(reflectionDraftFrom({}, overview));
         setOverviewStatus("fallback");
       });
     return () => {
@@ -1291,11 +1292,69 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
     try {
       const data = await overviewApi.generateDaily({ date: selectedDate, include_task_notes: true, include_meetings: true, force: true });
       setDailyData(data);
+      setDailyReflectionDraft(reflectionDraftFrom(data, overview));
       setOverviewStatus("live");
+      setSaveDailyMessage("");
     } catch {
       setOverviewStatus("fallback");
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const updateReflectionDraft = (field, value) => {
+    setDailyReflectionDraft((current) => ({ ...current, [field]: value }));
+    onOverviewChange((current) => ({ ...current, [field]: value }));
+    setSaveDailyMessage("");
+  };
+
+  const updateDailyMetric = (field, value) => {
+    onOverviewChange((current) => ({ ...current, [field]: value }));
+    if (field === "meetingMinutes") {
+      setDailyData((current) => current ? {
+        ...current,
+        meeting_minutes: value,
+        meeting_summary: {
+          ...(current.meeting_summary || {}),
+          meeting_minutes: value,
+        },
+      } : current);
+    }
+    setSaveDailyMessage("");
+  };
+
+  const saveDailyOverview = async () => {
+    setSavingDailyOverview(true);
+    setSaveDailyMessage("");
+    try {
+      const payload = {
+        date: selectedDate,
+        meeting_minutes: dailyMeetingMinutes,
+        focus_minutes: dailyFocusMinutes,
+        new_learnings: toList(dailyReflectionDraft.newLearnings),
+        went_well: toList(dailyReflectionDraft.wentWell),
+        went_wrong: toList(dailyReflectionDraft.wentWrong),
+        summary: dailyData?.summary || "",
+      };
+      const data = await overviewApi.saveDaily(payload);
+      setDailyData((current) => ({ ...(current || {}), ...data }));
+      setDailyReflectionDraft(reflectionDraftFrom(data, dailyReflectionDraft));
+      setOverviewStatus("live");
+      setSaveDailyMessage("Saved to daily overview");
+    } catch {
+      setDailyData((current) => ({
+        ...(current || {}),
+        date: selectedDate,
+        meeting_minutes: dailyMeetingMinutes,
+        focus_minutes: dailyFocusMinutes,
+        new_learnings: toList(dailyReflectionDraft.newLearnings),
+        went_well: toList(dailyReflectionDraft.wentWell),
+        went_wrong: toList(dailyReflectionDraft.wentWrong),
+      }));
+      setOverviewStatus("fallback");
+      setSaveDailyMessage("Saved locally until the backend is available");
+    } finally {
+      setSavingDailyOverview(false);
     }
   };
 
@@ -1311,12 +1370,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
   const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
   const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
-  const update = (field, value) => onOverviewChange({ ...overview, [field]: value });
   const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
   const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
-  const dailyLearnings = toList(dailyData?.new_learnings ?? overview.newLearnings);
-  const dailyWentWell = toList(dailyData?.went_well ?? overview.wentWell);
-  const dailyWentWrong = toList(dailyData?.went_wrong ?? overview.wentWrong);
   const dailyThemes = toList(dailyData?.themes);
   const dailyTaskCount = dailyData?.tasks_completed ?? fallbackCompletedDay.length;
   const dailyXp = dailyData?.xp_earned ?? fallbackDailyXp;
@@ -1343,11 +1398,15 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
           <StatCard label="Focus Time" value={formatMinutes(dailyFocusMinutes)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
-          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
+          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => updateDailyMetric("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
           <label>Focus minutes<input type="number" min="0" value={dailyFocusMinutes} readOnly /></label>
-          <label>New learnings<textarea value={dailyLearnings.join("\n")} onChange={(event) => update("newLearnings", event.target.value)} /></label>
-          <label>Went well<textarea value={dailyWentWell.join("\n")} onChange={(event) => update("wentWell", event.target.value)} /></label>
-          <label>Went wrong<textarea value={dailyWentWrong.join("\n")} onChange={(event) => update("wentWrong", event.target.value)} /></label>
+          <label className="reflection-field">New learnings<textarea rows={5} value={dailyReflectionDraft.newLearnings} onChange={(event) => updateReflectionDraft("newLearnings", event.target.value)} placeholder="One learning per line..." data-testid="daily-new-learnings-input" /></label>
+          <label className="reflection-field">Went well<textarea rows={5} value={dailyReflectionDraft.wentWell} onChange={(event) => updateReflectionDraft("wentWell", event.target.value)} placeholder="Capture wins, useful patterns, or smooth handoffs..." data-testid="daily-went-well-input" /></label>
+          <label className="reflection-field">Went wrong<textarea rows={5} value={dailyReflectionDraft.wentWrong} onChange={(event) => updateReflectionDraft("wentWrong", event.target.value)} placeholder="Capture blockers, friction, delays, or risks..." data-testid="daily-went-wrong-input" /></label>
+          <div className="overview-save-row">
+            <button className="primary-action" type="button" onClick={saveDailyOverview} disabled={savingDailyOverview} data-testid="save-daily-overview-button"><FloppyDisk size={19} weight="duotone" aria-hidden="true" /> {savingDailyOverview ? "Saving" : "Save to Daily Overview"}</button>
+            {saveDailyMessage && <span className="overview-status" data-testid="save-daily-overview-status">{saveDailyMessage}</span>}
+          </div>
         </div>
         {!!dailyThemes.length && <div className="theme-list" data-testid="daily-theme-list">{dailyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
@@ -1664,7 +1723,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
-          <Route path="/calendar" element={<CalendarPage overview={overview} />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionNotice={completionNotice} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} completionNotice={completionNotice} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />

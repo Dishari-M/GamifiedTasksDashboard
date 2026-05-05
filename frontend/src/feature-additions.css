@@ -1528,6 +1528,47 @@ html[data-theme="light"] select:focus-visible {
   grid-column: span 2;
 }
 
+.overview-editor .reflection-field {
+  grid-column: 1 / -1;
+}
+
+.overview-editor .reflection-field textarea {
+  min-height: 128px;
+  height: auto;
+  padding: 14px;
+  line-height: 1.5;
+  font-weight: 700;
+  resize: vertical;
+}
+
+.overview-editor .reflection-field textarea::placeholder {
+  color: rgba(198, 202, 214, 0.58);
+  font-weight: 700;
+}
+
+.overview-save-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.overview-save-row .overview-status {
+  margin-top: 0;
+}
+
+.topbar {
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+}
+
+@media (max-width: 1060px) {
+  .topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+}
+
 .theme-list {
   display: flex;
   gap: 10px;

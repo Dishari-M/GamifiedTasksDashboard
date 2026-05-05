@@ -71,6 +71,7 @@ export const standupApi = {
 
 export const overviewApi = {
   daily: (params = {}) => phase8Api.get("/overviews/daily", { params }).then(unwrap),
+  saveDaily: (payload) => phase8Api.put("/overviews/daily", payload).then(unwrap),
   generateDaily: (payload) => phase8Api.post("/overviews/daily/generate", payload).then(unwrap),
   weekly: (params = {}) => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
   generateWeekly: (payload) => phase8Api.post("/overviews/weekly/generate", payload).then(unwrap),
