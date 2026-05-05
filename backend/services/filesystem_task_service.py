@@ -147,6 +147,11 @@ def update_filesystem_task_today(task_id, payload, user_id=LOCAL_USER_ID):
         now = _now_iso()
         work_date = _extract_work_date(payload, now)
         requested_value = _extract_working_today(payload, task, work_date)
+        if task.get("status") == "Done":
+            requested_value = False
+        elif requested_value and task.get("status") != "Blocked":
+            task["status"] = "In Progress"
+            task["completed_at"] = None
         worked_dates = _task_worked_dates(task)
         if requested_value:
             worked_dates = _add_worked_date(worked_dates, work_date)
@@ -174,6 +179,7 @@ def update_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
+        daily_items = read_records(DAILY_WORK_ITEMS_FILE)
         ai_runs = read_records(AI_RUNS_FILE)
         task = _require_task(tasks, task_id, user_id)
         _validate_row_version(task, payload)
@@ -181,6 +187,8 @@ def update_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
         update_data = _normalize_update_payload(payload)
         _apply_task_updates(task, update_data)
         now = _now_iso()
+        if task.get("status") == "Done":
+            _clear_working_today(task, daily_items, now)
         _finish_task_update(task, now)
 
         if _should_run_ai(payload):
@@ -193,6 +201,7 @@ def update_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
 
         write_records(WORK_ITEMS_FILE, tasks)
         write_records(WORK_ITEM_EVENTS_FILE, events)
+        write_records(DAILY_WORK_ITEMS_FILE, daily_items)
         write_records(AI_RUNS_FILE, ai_runs)
         return updated_task
 
@@ -231,6 +240,7 @@ def update_filesystem_task_status(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
+        daily_items = read_records(DAILY_WORK_ITEMS_FILE)
         task = _require_task(tasks, task_id, user_id)
         if (payload or {}).get("row_version") is not None:
             _validate_row_version(task, payload)
@@ -248,6 +258,8 @@ def update_filesystem_task_status(task_id, payload, user_id=LOCAL_USER_ID):
             task["completed_at"] = now
         elif status != "Done":
             task["completed_at"] = None
+        if status == "Done":
+            _clear_working_today(task, daily_items, now)
         _finish_task_update(task, now)
 
         updated_task = _response_task(task)
@@ -255,6 +267,7 @@ def update_filesystem_task_status(task_id, payload, user_id=LOCAL_USER_ID):
 
         write_records(WORK_ITEMS_FILE, tasks)
         write_records(WORK_ITEM_EVENTS_FILE, events)
+        write_records(DAILY_WORK_ITEMS_FILE, daily_items)
         return updated_task
 
     return with_store_lock(action)
@@ -264,6 +277,7 @@ def complete_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
     def action():
         tasks = read_records(WORK_ITEMS_FILE)
         events = read_records(WORK_ITEM_EVENTS_FILE)
+        daily_items = read_records(DAILY_WORK_ITEMS_FILE)
         task = _require_task(tasks, task_id, user_id)
         _validate_row_version(task, payload)
 
@@ -286,6 +300,7 @@ def complete_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
         )
         if task.get("xp_value") is None:
             task.update(_build_ai_fields(task))
+        _clear_working_today(task, daily_items, now)
         _finish_task_update(task, now)
 
         updated_task = _response_task(task)
@@ -301,6 +316,7 @@ def complete_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
 
         write_records(WORK_ITEMS_FILE, tasks)
         write_records(WORK_ITEM_EVENTS_FILE, events)
+        write_records(DAILY_WORK_ITEMS_FILE, daily_items)
         return updated_task
 
     return with_store_lock(action)
@@ -325,7 +341,7 @@ def _filter_tasks(tasks, filters, user_id):
     if priority_values:
         results = [task for task in results if task.get("priority") in priority_values]
     if working_today is not None:
-        results = [task for task in results if _has_worked_date(task, worked_date) is bool(working_today)]
+        results = [task for task in results if _is_working_on_date(task, worked_date) is bool(working_today)]
     if filters.get("worked_date"):
         results = [task for task in results if _has_worked_date(task, worked_date)]
     if completed_date:
@@ -375,6 +391,10 @@ def _normalize_payload(payload):
     worked_dates = _normalize_worked_dates(data.get("worked_dates"))
     if bool(data.get("working_today", False)):
         worked_dates = _add_worked_date(worked_dates, _today_key(_now_iso()))
+    if data["status"] == "Done":
+        worked_dates = [date for date in worked_dates if date != _today_key(_now_iso())]
+    elif _today_key(_now_iso()) in worked_dates and data["status"] != "Blocked":
+        data["status"] = "In Progress"
     data["worked_dates"] = _worked_dates_to_storage(worked_dates)
     data["working_today"] = _today_key(_now_iso()) in worked_dates
     data["run_ai_enrichment"] = bool(data.get("run_ai_enrichment", False))
@@ -445,6 +465,9 @@ def _apply_task_updates(task, update_data):
         task[field] = value
     if "worked_dates" in update_data:
         task["working_today"] = _has_worked_date(task, _today_key(_now_iso()))
+        if task["working_today"] and task.get("status") not in {"Done", "Blocked"}:
+            task["status"] = "In Progress"
+            task["completed_at"] = None
     if "status" in update_data:
         if update_data.get("status") == "Done" and not task.get("completed_at"):
             task["completed_at"] = _now_iso()
@@ -659,8 +682,21 @@ def _has_worked_date(task, worked_date):
     return worked_date in _task_worked_dates(task)
 
 
+def _is_working_on_date(task, worked_date):
+    return task.get("status") != "Done" and _has_worked_date(task, worked_date)
+
+
 def _add_worked_date(worked_dates, worked_date):
     return sorted(set(worked_dates + [_normalize_date(worked_date, "worked_date")]))
+
+
+def _clear_working_today(task, daily_items, now, work_date=None):
+    work_date = work_date or _today_key(now)
+    worked_dates = [date for date in _task_worked_dates(task) if date != work_date]
+    task["worked_dates"] = _worked_dates_to_storage(worked_dates)
+    task["working_today"] = False
+    task["workingToday"] = False
+    return _upsert_daily_work_item(daily_items, task, now, False, work_date)
 
 
 def _extract_work_date(payload, now):
@@ -814,7 +850,7 @@ def _response_task(task, work_date=None):
     requested_date = _normalize_date(work_date, "worked_date") if work_date else _today_key(_now_iso())
     response["worked_dates"] = worked_dates
     response["workedDates"] = worked_dates
-    response["working_today"] = requested_date in worked_dates
+    response["working_today"] = task.get("status") != "Done" and requested_date in worked_dates
     response["workingToday"] = response["working_today"]
     return response
 
@@ -832,7 +868,7 @@ def _with_frontend_aliases(task):
     task["actualMinutes"] = task["actual_minutes"]
     task["xp"] = task["xp_value"]
     task["workedDates"] = worked_dates
-    task["working_today"] = _has_worked_date(task, _today_key(_now_iso()))
+    task["working_today"] = _is_working_on_date(task, _today_key(_now_iso()))
     task["workingToday"] = task["working_today"]
     task["completedAt"] = task["completed_at"]
     if "priority_score" in task:

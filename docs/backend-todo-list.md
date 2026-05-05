@@ -723,19 +723,21 @@ Use this as the execution checklist for building the production backend. The det
 
 ## Phase 8: Dashboard And Capacity APIs
 
-- [ ] Implement `GET /api/v1/dashboard/today`.
-  - [ ] Return stats.
-  - [ ] Return top missions.
-  - [ ] Return schedule.
-  - [ ] Return AI insight.
-  - [ ] Avoid frontend request waterfalls.
+- [x] Implement `GET /api/v1/dashboard/today`.
+  - [x] Return stats.
+  - [x] Return top missions.
+  - [x] Return schedule.
+  - [x] Return AI insight.
+  - [x] Avoid frontend request waterfalls.
+  - [x] Keep mock/real AI selection environment-driven so teammates without OCI GenAI can run locally.
+  - [x] Wire the existing dashboard UI to consume the endpoint with fallback to local UI data.
 
-- [ ] Implement `GET /api/v1/capacity`.
-  - [ ] Read user workday settings.
-  - [ ] Read calendar events.
-  - [ ] Calculate meeting minutes.
-  - [ ] Calculate available focus minutes.
-  - [ ] Calculate suggested focus windows.
+- [x] Implement `GET /api/v1/capacity`.
+  - [x] Read user workday settings.
+  - [x] Read calendar events.
+  - [x] Calculate meeting minutes.
+  - [x] Calculate available focus minutes.
+  - [x] Calculate suggested focus windows.
 
 ## Phase 9: Calendar And Meeting APIs
 

@@ -81,6 +81,18 @@ Backend URL:
 http://127.0.0.1:8000
 ```
 
+## API Documentation
+
+FastAPI exposes API documentation from the running backend:
+
+```text
+Swagger UI:  http://127.0.0.1:8000/docs
+ReDoc:       http://127.0.0.1:8000/redoc
+OpenAPI JSON: http://127.0.0.1:8000/openapi.json
+```
+
+Use Swagger UI when you want to try requests from the browser. Use ReDoc when you want a cleaner read-only API reference for reviewing endpoints, request fields, and response schemas. Both views are generated from the same OpenAPI JSON.
+
 Smoke test:
 
 ```powershell
@@ -120,6 +132,43 @@ export DB_DSN="your_db_dsn"
 ```
 
 Without these DB variables, the root endpoint `/` can still run, but DB-backed endpoints may fail when they try to connect to Oracle.
+
+## Backend AI Environment
+
+Local development uses mock AI insight by default:
+
+Set these in the same PowerShell window before starting the backend. These are process environment variables, not values to commit into repo files.
+
+```powershell
+$env:DEVQUEST_AI_MODE="mock"
+$env:DEVQUEST_DATA_MODE="mock"
+$env:DEVQUEST_AI_PROVIDER="oci_genai"
+```
+
+Later, when OCI Generative AI access is available:
+
+```powershell
+$env:DEVQUEST_AI_MODE="real"
+$env:DEVQUEST_AI_PROVIDER="oci_genai"
+$env:OCI_GENAI_MODEL_ID="your_model_id"
+$env:OCI_COMPARTMENT_ID="your_compartment_ocid"
+$env:OCI_AUTH_TYPE="config_file"
+$env:OCI_CONFIG_PROFILE="DEFAULT"
+```
+
+`oci_genai` refers to OCI Generative AI through the Generative AI Service Inference API.
+
+Optional OCI settings:
+
+```powershell
+$env:OCI_CONFIG_FILE="C:\Users\your_user\.oci\config"
+$env:OCI_GENAI_ENDPOINT="https://inference.generativeai.<region>.oci.oraclecloud.com"
+$env:OCI_GENAI_SERVING_MODE="on_demand"
+```
+
+Use `OCI_GENAI_SERVING_MODE="dedicated"` only when Oracle provides a dedicated GenAI endpoint OCID. In that case, put the endpoint OCID in `OCI_GENAI_MODEL_ID`.
+
+Restart the backend after changing any `DEVQUEST_*` or `OCI_*` value.
 
 ## Common URLs
 

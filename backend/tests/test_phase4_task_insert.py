@@ -245,6 +245,8 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(body["source"], "Jira")
         self.assertEqual(body["task_type"], "Task")
         self.assertEqual(body["type"], "Task")
+        self.assertEqual(body["status"], "In Progress")
+        self.assertTrue(body["working_today"])
         self.assertEqual(body["xp_value"], 120)
         self.assertEqual(body["xp"], 120)
         self.assertEqual(body["row_version"], 1)
@@ -594,6 +596,7 @@ class Phase4TaskInsertTests(unittest.TestCase):
         )
 
         self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["status"], "In Progress")
         self.assertTrue(update_response.json()["working_today"])
         self.assertTrue(update_response.json()["workingToday"])
         self.assertIn(self._today(), update_response.json()["worked_dates"])
@@ -604,6 +607,29 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertTrue(daily_items[0]["is_working_today"])
         stored_task = self._read_json("work_items.json")[0]
         self.assertIn(self._today(), stored_task["worked_dates"].split(","))
+
+    def test_update_today_true_keeps_blocked_status(self):
+        create_response = self.client.post(
+            "/api/v1/tasks",
+            json={
+                "source": "Custom",
+                "title": "Blocked working task",
+                "type": "Task",
+                "priority": "High",
+                "status": "Blocked",
+                "workingToday": False,
+            },
+        )
+
+        update_response = self.client.put(
+            f"/api/v1/tasks/{create_response.json()['id']}/today",
+            json={"workingToday": True},
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["status"], "Blocked")
+        self.assertTrue(update_response.json()["working_today"])
+        self.assertTrue(update_response.json()["workingToday"])
 
     def test_update_today_false_updates_daily_work_item(self):
         create_response = self.client.post(
@@ -676,6 +702,24 @@ class Phase4TaskInsertTests(unittest.TestCase):
         stored_task = self._read_json("work_items.json")[0]
         self.assertEqual(stored_task["worked_dates"], "2026-05-06,2026-05-07")
 
+    def test_patch_task_with_today_worked_date_sets_status_in_progress(self):
+        create_response = self._create_task("Patch today worked date")
+        task = create_response.json()
+
+        response = self.client.patch(
+            f"/api/v1/tasks/{task['id']}",
+            json={
+                "row_version": task["row_version"],
+                "workedDates": [self._today()],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "In Progress")
+        self.assertTrue(body["working_today"])
+        self.assertIn(self._today(), body["worked_dates"])
+
     def test_patch_task_rejects_stale_row_version(self):
         create_response = self._create_task("Stale patch")
 
@@ -702,8 +746,9 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(self._read_json("work_item_events.json")[-1]["event_type"], "NOTES_UPDATED")
 
     def test_patch_status_updates_status_minutes_notes_and_completion(self):
-        create_response = self._create_task("Status task")
+        create_response = self._create_task("Status task", working_today=True)
         task = create_response.json()
+        self.assertTrue(task["working_today"])
 
         response = self.client.patch(
             f"/api/v1/tasks/{task['id']}/status",
@@ -716,7 +761,27 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(body["actual_minutes"], 20)
         self.assertIn("finished", body["notes"])
         self.assertIsNotNone(body["completed_at"])
+        self.assertFalse(body["working_today"])
+        self.assertFalse(body["workingToday"])
+        self.assertNotIn(self._today(), body["worked_dates"])
+        self.assertFalse(self._read_json("daily_work_items.json")[-1]["is_working_today"])
         self.assertEqual(self._read_json("work_item_events.json")[-1]["event_type"], "STATUS_CHANGED")
+
+    def test_today_toggle_cannot_mark_done_task_working(self):
+        create_response = self._create_task("Done today toggle", status="Done")
+        task = create_response.json()
+
+        response = self.client.put(
+            f"/api/v1/tasks/{task['id']}/today",
+            json={"workingToday": True},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "Done")
+        self.assertFalse(body["working_today"])
+        self.assertFalse(body["workingToday"])
+        self.assertFalse(self._read_json("daily_work_items.json")[-1]["is_working_today"])
 
     def test_patch_status_away_from_done_clears_completed_at(self):
         create_response = self._create_task("Reopen task", status="Done")
@@ -735,9 +800,10 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertIsNone(body["completedAt"])
 
     def test_complete_task_marks_done_appends_notes_computes_xp_and_writes_event(self):
-        create_response = self._create_task("Complete task", run_ai_enrichment=False)
+        create_response = self._create_task("Complete task", working_today=True, run_ai_enrichment=False)
         task = create_response.json()
         self.assertIsNone(task["xp_value"])
+        self.assertTrue(task["working_today"])
 
         response = self.client.post(
             f"/api/v1/tasks/{task['id']}/complete",
@@ -759,6 +825,10 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertGreater(body["xp_value"], 0)
         self.assertIn("shipped", body["notes"])
         self.assertIn("learned file APIs", body["notes"])
+        self.assertFalse(body["working_today"])
+        self.assertFalse(body["workingToday"])
+        self.assertNotIn(self._today(), body["worked_dates"])
+        self.assertFalse(self._read_json("daily_work_items.json")[-1]["is_working_today"])
         self.assertEqual(self._read_json("work_item_events.json")[-1]["event_type"], "TASK_COMPLETED")
 
     def _read_json(self, name):
