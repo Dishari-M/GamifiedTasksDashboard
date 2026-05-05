@@ -1,7 +1,8 @@
 import { formatDateTime, formatMinutes, nowIso, todayKey } from "../../utils/dateTime";
 import { parseNumber } from "../../utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "../../utils/storage";
-import { sessionsForDay, sessionMinutes } from "../focus/focusSessions";
+import { sessionsForDay } from "../focus/focusSessions";
+import { focusMinutesByTaskId, taskRewardDetails } from "../rewards/xpRewards";
 
 export const QUEST_PLAN_STORAGE_KEY = "devquest.questPlan.v1";
 export const QUEST_RUN_STORAGE_KEY = "devquest.questRun.v1";
@@ -57,6 +58,7 @@ const questFocusTargetMinutes = (task) => {
 
 const buildQuestForTask = (task, index) => {
   const reason = questReason(task, index);
+  const reward = taskRewardDetails(task, 0);
   return {
     id: questIdForTask(task.id),
     taskId: task.id,
@@ -65,7 +67,11 @@ const buildQuestForTask = (task, index) => {
     reason: `${reason.label}: ${reason.text}`,
     reasonLabel: reason.label,
     actionLabel: questActionLabel(task),
-    rewardXp: task.xp,
+    baseXp: reward.baseXp,
+    rewardXp: reward.rewardXp,
+    focusBonusXp: reward.focusBonusXp,
+    rewardMultiplier: reward.rewardMultiplier,
+    hasFocusReward: reward.hasFocusReward,
     focusTargetMinutes: questFocusTargetMinutes(task),
     focusMinutes: 0,
     startedAt: null,
@@ -106,22 +112,23 @@ export const deriveQuestProgress = (run, tasks, focusSessions = []) => {
   if (!isCurrentQuestRun(run)) return null;
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const todaySessions = sessionsForDay(focusSessions, run.workDate);
-  const focusByTaskId = todaySessions.reduce((acc, session) => {
-    if (!session.task_id) return acc;
-    acc[session.task_id] = (acc[session.task_id] || 0) + sessionMinutes(session);
-    return acc;
-  }, {});
+  const focusByTask = focusMinutesByTaskId(todaySessions);
   const synced = isQuestRunSynced(tasks, run);
   const quests = (run.quests || []).map((quest) => {
     const task = taskById.get(quest.taskId);
-    const focusMinutes = focusByTaskId[quest.taskId] || 0;
+    const focusMinutes = focusByTask[quest.taskId] || 0;
     if (!task) return { ...quest, focusMinutes, state: quest.state === "active" ? "queued" : quest.state };
-    if (quest.state === "skipped") return { ...quest, focusMinutes, rewardXp: task.xp, actionLabel: questActionLabel(task), focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task) };
+    const reward = taskRewardDetails(task, focusMinutes);
+    if (quest.state === "skipped") return { ...quest, focusMinutes, baseXp: reward.baseXp, rewardXp: reward.rewardXp, focusBonusXp: reward.focusBonusXp, rewardMultiplier: reward.rewardMultiplier, hasFocusReward: reward.hasFocusReward, actionLabel: questActionLabel(task), focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task) };
     const isCompleted = task.status === "Done";
     return {
       ...quest,
       focusMinutes,
-      rewardXp: task.xp,
+      baseXp: reward.baseXp,
+      rewardXp: reward.rewardXp,
+      focusBonusXp: reward.focusBonusXp,
+      rewardMultiplier: reward.rewardMultiplier,
+      hasFocusReward: reward.hasFocusReward,
       actionLabel: questActionLabel(task),
       focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task),
       state: isCompleted ? "completed" : quest.state,
