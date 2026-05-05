@@ -2,6 +2,7 @@ import axios from "axios";
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "/api/v1";
 const BACKEND_BASE_URL = process.env.REACT_APP_BACKEND_BASE_URL || "http://127.0.0.1:8000";
+const PHASE8_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -13,6 +14,13 @@ export const api = axios.create({
 export const backendApi = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: 0,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+const phase8Api = axios.create({
+  baseURL: PHASE8_API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
@@ -46,14 +54,22 @@ export const standupApi = {
 };
 
 export const overviewApi = {
-  daily: (params = {}) => api.get("/overviews/daily", { params }).then(unwrap),
-  generateDaily: (payload) => api.post("/overviews/daily/generate", payload).then(unwrap),
-  weekly: (params = {}) => api.get("/overviews/weekly", { params }).then(unwrap),
-  generateWeekly: (payload) => api.post("/overviews/weekly/generate", payload).then(unwrap),
+  daily: (params = {}) => phase8Api.get("/overviews/daily", { params }).then(unwrap),
+  generateDaily: (payload) => phase8Api.post("/overviews/daily/generate", payload).then(unwrap),
+  weekly: (params = {}) => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
+  generateWeekly: (payload) => phase8Api.post("/overviews/weekly/generate", payload).then(unwrap),
 };
 
 export const calendarApi = {
   events: (params = {}) => api.get("/calendar/events", { params }).then(unwrap),
+};
+
+export const dashboardApi = {
+  today: (params = {}) => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+};
+
+export const capacityApi = {
+  get: (params = {}) => phase8Api.get("/capacity", { params }).then(unwrap),
 };
 
 export const syncApi = {

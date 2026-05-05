@@ -11,8 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
+from routes.overview_routes import router as overview_router
+from routes.work_dates_routes import router as work_dates_router
+from services.ai_service import enrich_task
+from services.phase8_capacity_service import capacity_response
+from services.phase8_dashboard_service import dashboard_today_response
 from services.quest_service import get_quests
-from services.task_service import complete_task, get_tasks
+from services.task_service import complete_task, create_task, get_tasks
 
 
 SERVICE_DIR = Path(__file__).resolve().parent
@@ -77,6 +82,12 @@ class JiraSsoLoginResponse(BaseModel):
     process_id: int | None = None
 
 
+class TaskCreate(BaseModel):
+    title: str = Field(..., examples=["Fix payment gateway timeout issue"])
+    description: str = Field(..., examples=["Users face timeout while making payments on checkout."])
+    priority: str = Field(..., examples=["High"])
+
+
 tags_metadata = [
     {
         "name": "Health",
@@ -93,6 +104,14 @@ tags_metadata = [
     {
         "name": "Jira RCA",
         "description": "Fetch Jira details through MCP and run Codex-powered root cause analysis.",
+    },
+    {
+        "name": "Dashboard",
+        "description": "Phase 8 dashboard summary and capacity APIs.",
+    },
+    {
+        "name": "Overviews",
+        "description": "Daily and weekly productivity overviews with AI-generated insights.",
     },
 ]
 
@@ -112,6 +131,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(overview_router)
+app.include_router(work_dates_router)
 
 
 def verify_api_key(x_api_key: str | None) -> None:
@@ -145,6 +166,23 @@ def tasks():
 @app.get("/quests", tags=["Quests"])
 def quests():
     return get_quests()
+
+
+@app.get("/api/v1/capacity", tags=["Dashboard"])
+def capacity(date: str | None = None):
+    return capacity_response(date)
+
+
+@app.get("/api/v1/dashboard/today", tags=["Dashboard"])
+def dashboard_today(date: str | None = None):
+    return dashboard_today_response(date)
+
+
+@app.post("/tasks", tags=["Tasks"])
+async def add_task(task: TaskCreate):
+    task_payload = task.model_dump()
+    ai = await enrich_task(task_payload["title"], task_payload["description"])
+    return create_task(task_payload, ai)
 
 
 @app.post("/tasks/{task_id}/complete", tags=["Tasks"])
