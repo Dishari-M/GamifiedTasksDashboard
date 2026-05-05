@@ -1,0 +1,279 @@
+import json
+import re
+from datetime import datetime
+from uuid import uuid4
+
+from fastapi import HTTPException
+
+from config import get_ai_mode, get_ai_provider, get_oci_genai_model_id
+from integrations import oci_genai_client
+from services.filesystem_store import read_records, with_store_lock
+
+
+WORK_ITEMS_FILE = "work_items.json"
+
+
+STANDUP_SYSTEM_PROMPT = """
+You are DevQuest's scrum-call standup note writer for a developer.
+Use only the supplied today's work-item evidence.
+Write exactly five concise first-person sentences suitable to read aloud in a scrum call.
+Mention accomplishments, current focus, next steps, and blockers or risks if present.
+Do not invent task names, meetings, blockers, or completed work.
+Return only valid JSON that matches this schema:
+{
+  "sentences": ["sentence 1", "sentence 2", "sentence 3", "sentence 4", "sentence 5"],
+  "accomplished": "brief completed-work summary",
+  "in_progress": "brief active-work summary",
+  "blockers": "brief blockers or risks summary"
+}
+""".strip()
+
+
+def standup_note_response(date=None, user_id="local-user"):
+    work_date = _resolve_work_date(date)
+    return {"data": build_standup_note(work_date, user_id), "meta": {"request_id": str(uuid4())}}
+
+
+def generate_standup_note_response(payload, user_id="local-user"):
+    work_date = _resolve_work_date(payload.date)
+    return {
+        "data": build_standup_note(work_date, user_id, force=payload.force),
+        "meta": {"request_id": str(uuid4())},
+    }
+
+
+def build_standup_note(work_date, user_id="local-user", force=False):
+    context = _standup_context(work_date, user_id)
+    if get_ai_mode() == "mock":
+        note = _mock_note(context)
+    elif get_ai_mode() == "real":
+        note = _real_note(context)
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unsupported DEVQUEST_AI_MODE '{get_ai_mode()}'. Use 'mock' or 'real'.",
+        )
+
+    return _response(context, note, force)
+
+
+def _standup_context(work_date, user_id):
+    def action():
+        tasks = [
+            _normalize_task(task)
+            for task in read_records(WORK_ITEMS_FILE)
+            if task.get("user_id") == user_id
+        ]
+        today_tasks = [task for task in tasks if _is_working_on_date(task, work_date)]
+        completed = [task for task in tasks if _date_part(task.get("completed_at")) == work_date]
+        blockers = [
+            task
+            for task in tasks
+            if task.get("status") == "Blocked" and (_is_working_on_date(task, work_date) or not today_tasks)
+        ]
+        return {
+            "date": work_date,
+            "metrics": {
+                "today_task_count": len(today_tasks),
+                "completed_count": len(completed),
+                "blocker_count": len(blockers),
+                "planned_minutes": sum(task["estimated_minutes"] for task in today_tasks),
+            },
+            "today_work_items": _sort_tasks(today_tasks),
+            "completed_today": _sort_tasks(completed),
+            "blockers": _sort_tasks(blockers),
+        }
+
+    return with_store_lock(action)
+
+
+def _real_note(context):
+    provider = get_ai_provider()
+    if provider != "oci_genai":
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unsupported DEVQUEST_AI_PROVIDER '{provider}'. Use 'oci_genai'.",
+        )
+    if not get_oci_genai_model_id():
+        raise HTTPException(
+            status_code=501,
+            detail="DEVQUEST_AI_MODE=real requires OCI_GENAI_MODEL_ID before OCI Generative AI can be called.",
+        )
+
+    prompt = (
+        "Generate a five-sentence scrum standup note from this JSON context.\n"
+        "Preserve exact task titles when mentioning tasks. "
+        "If there are no blockers, state that directly in one sentence.\n\n"
+        f"{json.dumps(context, indent=2, default=str)}"
+    )
+    try:
+        parsed = oci_genai_client.generate_overview_json(STANDUP_SYSTEM_PROMPT, prompt)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OCI standup generation failed: {exc}") from exc
+    return _normalize_note(parsed, context)
+
+
+def _mock_note(context):
+    completed = context["completed_today"]
+    in_progress = [task for task in context["today_work_items"] if task["status"] not in {"Done", "Blocked"}]
+    blockers = context["blockers"]
+
+    completed_text = _task_titles(completed) or "No completed tasks are logged yet"
+    progress_text = _task_titles(in_progress) or "No active in-progress tasks are selected"
+    blocker_text = _blocker_text(blockers)
+    next_task = in_progress[0]["title"] if in_progress else (context["today_work_items"][0]["title"] if context["today_work_items"] else "the next highest-priority item")
+    planned_minutes = context["metrics"]["planned_minutes"]
+
+    return {
+        "sentences": [
+            f"Yesterday/today I completed {completed_text}.",
+            f"Today I am focused on {progress_text}.",
+            f"My next step is to move {next_task} forward with the latest notes and acceptance criteria.",
+            f"I have {planned_minutes} planned minutes across today's selected work items.",
+            f"Blockers or risks: {blocker_text}.",
+        ],
+        "accomplished": completed_text,
+        "in_progress": progress_text,
+        "blockers": blocker_text,
+    }
+
+
+def _normalize_note(parsed, context):
+    if not isinstance(parsed, dict):
+        parsed = {}
+    fallback = _mock_note(context)
+    sentences = _sentences(parsed.get("sentences"))
+    if len(sentences) < 5:
+        sentences = _sentences(parsed.get("standup_note") or parsed.get("full_note") or parsed.get("summary"))
+    if len(sentences) < 5:
+        sentences = fallback["sentences"]
+    sentences = _exactly_five(sentences)
+    return {
+        "sentences": sentences,
+        "accomplished": str(parsed.get("accomplished") or fallback["accomplished"]),
+        "in_progress": str(parsed.get("in_progress") or parsed.get("inProgress") or fallback["in_progress"]),
+        "blockers": str(parsed.get("blockers") or fallback["blockers"]),
+    }
+
+
+def _response(context, note, force):
+    full_note = " ".join(_exactly_five(note["sentences"]))
+    generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    return {
+        "date": context["date"],
+        "standup_note_id": 8001,
+        "ai_run_id": 9010,
+        "mode": get_ai_mode(),
+        "model_id": get_oci_genai_model_id(),
+        "force": bool(force),
+        "sentences": _exactly_five(note["sentences"]),
+        "full_note": full_note,
+        "fullNote": full_note,
+        "accomplished": note["accomplished"],
+        "in_progress": note["in_progress"],
+        "inProgress": note["in_progress"],
+        "blockers": note["blockers"],
+        "context": context,
+        "generated_at": generated_at,
+        "generatedAt": generated_at,
+    }
+
+
+def _normalize_task(task):
+    return {
+        "task_id": task.get("task_id") or task.get("id"),
+        "external_id": task.get("external_id") or task.get("externalId") or "",
+        "title": task.get("title") or "",
+        "description": task.get("description") or "",
+        "source": task.get("external_source") or task.get("source") or "Custom",
+        "task_type": task.get("task_type") or task.get("type") or "Task",
+        "priority": task.get("priority") or "Medium",
+        "status": task.get("status") or "To Do",
+        "estimated_minutes": int(float(task.get("estimated_minutes") or task.get("time") or 0)),
+        "actual_minutes": int(float(task.get("actual_minutes") or task.get("actualMinutes") or 0)),
+        "xp_value": int(float(task.get("xp_value") or task.get("xp") or 0)),
+        "notes": task.get("notes") or "",
+        "labels": task.get("labels") if isinstance(task.get("labels"), list) else [],
+        "worked_dates": _worked_dates(task),
+        "working_today": bool(task.get("working_today") or task.get("workingToday")),
+        "completed_at": task.get("completed_at") or task.get("completedAt"),
+        "ai_insight": task.get("ai_insight") or task.get("aiInsight") or "",
+        "priority_score": float(task.get("priority_score") or task.get("priorityScore") or 0),
+    }
+
+
+def _sort_tasks(tasks):
+    return sorted(
+        tasks,
+        key=lambda task: (
+            task["status"] == "Done",
+            -task["priority_score"],
+            -task["xp_value"],
+            task["title"],
+        ),
+    )
+
+
+def _resolve_work_date(value=None):
+    if value:
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Date must use YYYY-MM-DD format.") from exc
+        return value
+    return datetime.now().astimezone().date().isoformat()
+
+
+def _worked_dates(task):
+    raw = task.get("worked_dates")
+    if raw is None:
+        raw = task.get("workedDates")
+    if isinstance(raw, list):
+        return [str(item) for item in raw if str(item).strip()]
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def _is_working_on_date(task, work_date):
+    return task.get("status") != "Done" and (work_date in task.get("worked_dates", []) or bool(task.get("working_today")))
+
+
+def _date_part(value):
+    return str(value or "")[:10]
+
+
+def _task_titles(tasks):
+    return "; ".join(task["title"] for task in tasks if task.get("title"))
+
+
+def _blocker_text(blockers):
+    if not blockers:
+        return "No blockers captured"
+    values = []
+    for task in blockers:
+        suffix = f" ({task['notes']})" if task.get("notes") else ""
+        values.append(f"{task['title']}{suffix}")
+    return "; ".join(values)
+
+
+def _sentences(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if not value:
+        return []
+    text = str(value).replace("\n", " ").strip()
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+
+
+def _exactly_five(sentences):
+    cleaned = [str(sentence).strip() for sentence in sentences if str(sentence).strip()]
+    cleaned = [sentence if sentence.endswith((".", "!", "?")) else f"{sentence}." for sentence in cleaned]
+    if len(cleaned) >= 5:
+        return cleaned[:5]
+    filler = [
+        "I will keep the team posted if any risk changes.",
+        "I am keeping the update focused on today's selected work.",
+        "I will follow up after standup with any details that need discussion.",
+    ]
+    return (cleaned + filler)[:5]

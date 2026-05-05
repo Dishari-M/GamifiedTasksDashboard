@@ -60,7 +60,7 @@ Use OCI Generative AI Inference for structured generation.
 Recommended environment:
 
 ```bash
-DEVQUEST_AI_MODE=real
+
 DEVQUEST_AI_PROVIDER=oci_genai
 OCI_GENAI_MODEL_ID=cohere.command-r-plus
 OCI_GENAI_REQUEST_FORMAT=auto

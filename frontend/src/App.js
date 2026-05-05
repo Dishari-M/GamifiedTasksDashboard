@@ -45,7 +45,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, overviewApi, tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, overviewApi, standupApi, tasksApi } from "./api/client";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
 import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
@@ -792,6 +792,22 @@ const generateStandupNote = (tasks) => {
   };
 };
 
+const normalizeStandupNote = (note, fallback) => {
+  if (!note) return fallback;
+  const sentences = Array.isArray(note.sentences) ? note.sentences : [];
+  const fullNote = note.full_note || note.fullNote || sentences.join(" ") || fallback.fullNote;
+  return {
+    accomplished: note.accomplished || fallback.accomplished,
+    inProgress: note.in_progress || note.inProgress || fallback.inProgress,
+    blockers: note.blockers || fallback.blockers,
+    nextSteps: note.next_steps || note.nextSteps || fallback.nextSteps,
+    fullNote,
+    mode: note.mode,
+    modelId: note.model_id || note.modelId,
+    generatedAt: note.generated_at || note.generatedAt,
+  };
+};
+
 const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
@@ -1101,14 +1117,51 @@ const QuestsPage = ({ tasks, questRun, activeSession, completionUndo, onGenerate
 };
 
 const InsightsPage = ({ tasks, onRefreshInsights }) => {
-  const [standupNote, setStandupNote] = useState(() => generateStandupNote(tasks));
+  const fallbackStandupNote = useMemo(() => generateStandupNote(tasks), [tasks]);
+  const [standupNote, setStandupNote] = useState(() => fallbackStandupNote);
+  const [standupStatus, setStandupStatus] = useState("loading");
+  const [isGeneratingStandup, setIsGeneratingStandup] = useState(false);
   const todayTasks = tasks.filter((task) => task.workingToday);
   const completed = completedTodayTasks(tasks);
   const topPriority = [...todayTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))[0];
 
+  useEffect(() => {
+    let cancelled = false;
+    setStandupStatus("loading");
+    standupApi.get({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setStandupNote(normalizeStandupNote(data, fallbackStandupNote));
+        setStandupStatus("live");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStandupNote(fallbackStandupNote);
+        setStandupStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fallbackStandupNote]);
+
   const refresh = () => {
     onRefreshInsights();
-    setStandupNote(generateStandupNote(tasks));
+    setStandupNote(fallbackStandupNote);
+    setStandupStatus("fallback");
+  };
+
+  const generateStandup = async () => {
+    setIsGeneratingStandup(true);
+    try {
+      const data = await standupApi.generate({ date: todayKey(), force: true });
+      setStandupNote(normalizeStandupNote(data, fallbackStandupNote));
+      setStandupStatus("live");
+    } catch {
+      setStandupNote(fallbackStandupNote);
+      setStandupStatus("fallback");
+    } finally {
+      setIsGeneratingStandup(false);
+    }
   };
 
   return (
@@ -1125,8 +1178,9 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
-        <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={() => setStandupNote(generateStandupNote(tasks))} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> Generate</button></div>
+        <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
+        <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
         <div className="insight-grid">
           <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
           <span><strong>In Progress</strong>{standupNote.inProgress}</span>
