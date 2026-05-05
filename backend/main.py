@@ -24,7 +24,6 @@ from services.filesystem_user_service import (
 from services.phase8_capacity_service import capacity_response
 from services.phase8_dashboard_service import dashboard_today_response
 from routes.overview_routes import router as overview_router
-from routes.work_dates_routes import router as work_dates_router
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -81,7 +80,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(overview_router)
-app.include_router(work_dates_router)
 
 @app.get("/", tags=["Health"])
 def root(): return {"msg":"DevQuest Pro"}
