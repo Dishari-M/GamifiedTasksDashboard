@@ -118,7 +118,8 @@ Use this as the execution checklist for building the production backend. The det
 | Column | Type | Notes |
 | --- | --- | --- |
 | `USER_ID` | `NUMBER(19)` | PK, `APP_USERS_SEQ.NEXTVAL` |
-| `DISPLAY_NAME` | `VARCHAR2(200)` | UI profile name |
+| `FIRST_NAME` | `VARCHAR2(120)` | UI profile first name |
+| `LAST_NAME` | `VARCHAR2(120)` | UI profile last name |
 | `EMAIL` | `VARCHAR2(320)` | unique login/email |
 | `USERNAME` | `VARCHAR2(120)` | optional login username |
 | `ROLE_NAME` | `VARCHAR2(80)` | developer, QA, DevOps, manager |
