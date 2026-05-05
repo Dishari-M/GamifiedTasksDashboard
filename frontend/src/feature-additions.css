@@ -45,6 +45,60 @@
   grid-column: span 2;
 }
 
+.form-banner {
+  grid-column: 1 / -1;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 13px;
+  font-weight: 800;
+}
+
+.form-banner-error {
+  color: #ffb8b3;
+  border: 1px solid rgba(255, 59, 48, 0.42);
+  background: rgba(255, 59, 48, 0.14);
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inline-ai-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(32, 199, 255, 0.26);
+  border-radius: 10px;
+  color: var(--cyan);
+  background: rgba(32, 199, 255, 0.1);
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.inline-ai-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(32, 199, 255, 0.42);
+  background: rgba(32, 199, 255, 0.16);
+}
+
+.inline-ai-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
 .checkbox-field {
   min-height: 48px;
   display: flex !important;
@@ -162,6 +216,7 @@
 
 .source-row,
 .insight-list article,
+.insight-task-link,
 .accomplished-list article {
   padding: 16px;
   border-radius: 14px;
@@ -170,8 +225,23 @@
   min-width: 0;
 }
 
+.insight-task-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.insight-task-link:hover {
+  transform: translateY(-1px);
+  border-color: rgba(32, 199, 255, 0.38);
+  background: rgba(32, 199, 255, 0.08);
+}
+
 .source-row strong,
 .insight-list strong,
+.insight-task-link strong,
 .accomplished-list strong {
   display: block;
   color: #fff;
@@ -180,6 +250,7 @@
 
 .source-row span,
 .insight-list span,
+.insight-task-link span,
 .accomplished-list span {
   display: block;
   color: var(--muted);
@@ -188,11 +259,128 @@
 
 .source-row p,
 .insight-list p,
+.insight-task-link p,
 .accomplished-list p {
   margin: 8px 0 0;
   color: var(--text-soft);
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.jira-rca-card,
+.jira-rca-console-card,
+.jira-rca-result {
+  display: grid;
+  gap: 18px;
+  overflow: hidden;
+}
+
+.jira-rca-summary {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.jira-rca-summary > span {
+  color: var(--cyan);
+  font-weight: 900;
+}
+
+.jira-rca-summary h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.35rem;
+}
+
+.jira-rca-summary p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.jira-rca-generate {
+  width: fit-content;
+}
+
+.codex-console {
+  min-height: 260px;
+  max-height: 460px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid rgba(32, 199, 255, 0.2);
+  border-radius: 12px;
+  color: #bfffe4;
+  background: #05070c;
+  font-family: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rca-report {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.rca-report-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(98, 111, 153, 0.18);
+  border-radius: 14px;
+  background: rgba(8, 10, 18, 0.34);
+}
+
+.rca-report-section h3 {
+  margin: 0;
+  color: var(--cyan);
+  font-family: "Exo 2", sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rca-report-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rca-report-body p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.65;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.rca-report-bullet {
+  position: relative;
+  padding-left: 18px;
+}
+
+.rca-report-bullet::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.78em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+}
+
+.rca-report-numbered {
+  padding-left: 2px;
+}
+
+.rca-report-space {
+  height: 8px;
 }
 
 .standup-note {
@@ -307,6 +495,11 @@
   .editor-actions,
   .overview-editor label:nth-child(n+3) {
     grid-column: span 1;
+  }
+
+  .field-label-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .editor-actions {

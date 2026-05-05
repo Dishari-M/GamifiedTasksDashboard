@@ -1,0 +1,118 @@
+approval_policy = "on-request"
+model_provider = "oca"
+preferred_auth_method = "apikey"
+model = "gpt-5.3-codex"
+profile = "gpt-5-3-codex"
+sandbox_mode = "workspace-write"
+web_search_request = true
+
+trust_level = "trusted"
+
+[model_providers.oca]
+base_url = "https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm"
+http_headers = { "client" = "codex-cli", "client-version" = "0" }
+model = "gpt5"
+name = "Oracle Code Assist"
+wire_api = "responses"
+
+
+[profiles.gpt-4-1]
+model = "gpt-4.1"
+model_provider = "oca"
+review_model = "gpt-4.1"
+
+[profiles.gpt-5]
+model = "gpt5"
+model_provider = "oca"
+review_model = "gpt5"
+
+[profiles.gpt-5-2]
+model = "gpt-5.2"
+model_provider = "oca"
+review_model = "gpt-5.2"
+
+[profiles.gpt-5-codex]
+model = "gpt-5-codex"
+model_provider = "oca"
+review_model = "gpt-5-codex"
+personality = "pragmatic"
+
+[profiles.gpt-5-1-codex]
+model = "gpt-5.1-codex"
+model_provider = "oca"
+review_model = "gpt-5.1-codex"
+personality = "pragmatic"
+
+[profiles.gpt-5-1-codex-mini]
+model = "gpt-5.1-codex-mini"
+model_provider = "oca"
+review_model = "gpt-5.1-codex-mini"
+personality = "pragmatic"
+
+[profiles.gpt-5-1-codex-max]
+model = "gpt-5.1-codex-max"
+model_provider = "oca"
+review_model = "gpt-5.1-codex-max"
+personality = "pragmatic"
+
+[profiles.gpt-5-2-codex]
+model = "gpt-5.2-codex"
+model_provider = "oca"
+review_model = "gpt-5.2-codex"
+personality = "pragmatic"
+
+[profiles.gpt-5-3-codex]
+model = "gpt-5.5"
+model_provider = "oca"
+review_model = "gpt-5.3-codex"
+personality = "pragmatic"
+model_reasoning_effort = "medium"
+
+[profiles.gpt-5-3-codex.windows]
+sandbox = "elevated"
+
+[profiles.gpt-5-4]
+model = "gpt-5.4"
+model_provider = "oca"
+review_model = "gpt-5.4"
+personality = "pragmatic"
+
+[profiles.gpt-5-4-pro]
+model = "gpt-5.4-pro"
+model_provider = "oca"
+review_model = "gpt-5.4-pro"
+personality = "pragmatic"
+
+[mcp_servers.central_jira_confluence]
+startup_timeout_sec = 300
+command = "uvx"
+type = "stdio"
+args = [
+  "--python", "3.12",
+  "--default-index", "https://artifactory.oci.oraclecorp.com/api/pypi/global-dev-pypi/simple",
+  "mcp-atlassian",
+  "--jira-url", "https://gbujira.oraclecorp.com",
+  "--jira-use-web-session" 
+]
+enabled = true
+
+[windows]
+sandbox = "elevated"
+
+[projects.'C:\Users\Mohit\Desktop\Parfait AI Tool']
+trust_level = "trusted"
+
+[projects.'c:\oracle_repo']
+trust_level = "trusted"
+
+[projects.'c:\users\mohit\desktop\ojet reports']
+trust_level = "trusted"
+
+[projects.'c:\users\mohit\desktop\gamify_hackathon\gamifiedtasksdashboard']
+trust_level = "trusted"
+
+[projects.'c:\users\mohit']
+trust_level = "trusted"
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4

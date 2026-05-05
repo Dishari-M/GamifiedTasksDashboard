@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import {
   ArrowClockwise,
   Bell,
@@ -42,6 +42,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
+import { jiraApi } from "./api/client";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -64,6 +65,13 @@ const todayKey = () => new Date().toLocaleDateString("en-CA");
 const nowIso = () => new Date().toISOString();
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const jiraKeyPattern = /^[A-Z][A-Z0-9]+-\d+$/;
+
+const jiraKeyForTask = (task) => {
+  if (task?.source !== "Jira") return "";
+  const key = String(task.externalId || task.id || "").trim().toUpperCase();
+  return jiraKeyPattern.test(key) ? key : "";
+};
 
 const parseNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -342,7 +350,7 @@ const Sidebar = ({ open, onClose }) => (
 
 const Topbar = ({ onMenuClick }) => {
   const location = useLocation();
-  const title = location.pathname === "/" ? "Good morning, Dishari" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const title = location.pathname === "/" ? "Good morning, Dishari" : location.pathname.startsWith("/jira/") ? "Jira RCA" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -559,24 +567,81 @@ const formFromTask = (task) => ({
 
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
+  const [banner, setBanner] = useState("");
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
+    setBanner("");
+    setIsGeneratingDescription(false);
   }, [task]);
 
-  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const update = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (field === "externalId" && value.trim()) setBanner("");
+  };
+
+  const generateDescription = async () => {
+    const externalId = form.externalId.trim();
+    if (!externalId) {
+      setBanner("External ID is required before generating a description with AI.");
+      return;
+    }
+
+    setBanner("");
+    setIsGeneratingDescription(true);
+    try {
+      const result = await jiraApi.oneLineDescription(externalId);
+      const description = result.one_liner_description?.trim();
+      if (!description) {
+        setBanner("AI could not generate a Jira description. Please check the External ID and try again.");
+        return;
+      }
+      update("description", description);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 409 && detail?.code === "JIRA_MCP_AUTH_REQUIRED") {
+        const ssoSessionKey = `jira-sso-started:${externalId}`;
+        if (window.sessionStorage.getItem(ssoSessionKey)) {
+          setBanner("Jira SSO was already opened for this ID. Complete that Codex window, then retry; if it already succeeded, close it and click Generate by AI again.");
+          return;
+        }
+        try {
+          await jiraApi.startSsoLogin(externalId);
+          window.sessionStorage.setItem(ssoSessionKey, "true");
+          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then click Generate by AI again.");
+        } catch {
+          setBanner(detail.message || "Jira SSO is required. Start Codex from a terminal, complete Jira sign-in, then retry.");
+        }
+        return;
+      }
+      setBanner(typeof detail === "string" ? detail : detail?.message || "AI description generation failed. Confirm the backend is running and the Jira ID is accessible.");
+    } finally {
+      setIsGeneratingDescription(false);
+    }
+  };
 
   const submit = (event) => {
     event.preventDefault();
     if (!form.title.trim()) return;
     onSubmit(form);
-    if (mode === "create") setForm(emptyTaskForm);
+    if (mode === "create") {
+      setForm(emptyTaskForm);
+      setBanner("");
+    }
   };
 
   return (
     <form className="task-editor-form" onSubmit={submit} data-testid={`${mode}-task-form`}>
+      {banner && <div className="form-banner form-banner-error" role="alert" data-testid={`${mode}-ai-error-banner`}>{banner}</div>}
       <label>Title<input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" data-testid={`${mode}-task-title-input`} /></label>
-      <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
+      <label>
+        <span className="field-label-row">
+          <span>Description</span>
+          <button className="inline-ai-button" type="button" onClick={generateDescription} disabled={isGeneratingDescription} data-testid={`${mode}-generate-description-button`}><Sparkle size={16} weight="duotone" aria-hidden="true" /> {isGeneratingDescription ? "Generating..." : "Generate by AI"}</button>
+        </span>
+        <textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} />
+      </label>
       <label>Type<select value={form.type} onChange={(event) => update("type", event.target.value)}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Source<select value={form.source} onChange={(event) => update("source", event.target.value)}>{sources.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>External ID<input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" /></label>
@@ -745,7 +810,24 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
           <StatCard label="Today XP" value={`${completed.reduce((sum, task) => sum + task.xp, 0)} XP`} detail="Completed today" icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
         <div className="insight-list">
-          {todayTasks.map((task) => <article key={task.id}><strong>{task.title}</strong><span>{Math.round((task.priorityScore || 0) * 100)} priority - {task.xp} XP - {task.time} min effort</span><p>{task.aiInsight}</p></article>)}
+          {todayTasks.map((task) => {
+            const jiraKey = jiraKeyForTask(task);
+            const content = (
+              <>
+                <strong>{task.title}</strong>
+                <span>{Math.round((task.priorityScore || 0) * 100)} priority - {task.xp} XP - {task.time} min effort</span>
+                <p>{task.aiInsight}</p>
+              </>
+            );
+
+            return jiraKey ? (
+              <NavLink className="insight-task-link" key={task.id} to={`/jira/${jiraKey}/rca`} data-testid={`insight-jira-task-${slug(task.id)}`}>
+                {content}
+              </NavLink>
+            ) : (
+              <article key={task.id}>{content}</article>
+            );
+          })}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
@@ -757,6 +839,167 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
           <span><strong>Blockers</strong>{standupNote.blockers}</span>
         </div>
       </section>
+    </main>
+  );
+};
+
+const rcaSectionHeadings = new Set([
+  "JIRA DETAILS",
+  "ROOT CAUSE ANALYSIS",
+  "AFFECTED MODULES",
+  "AFFECTED FILES",
+  "CODE FIX SUGGESTION",
+  "EVIDENCE",
+  "OPEN QUESTIONS",
+]);
+
+const RcaReport = ({ text }) => {
+  const sections = [];
+  let current = { heading: "Analysis", lines: [] };
+
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (rcaSectionHeadings.has(trimmed)) {
+      if (current.lines.some((item) => item.trim())) sections.push(current);
+      current = { heading: trimmed, lines: [] };
+      return;
+    }
+    current.lines.push(line);
+  });
+
+  if (current.lines.some((item) => item.trim())) sections.push(current);
+
+  return (
+    <div className="rca-report" data-testid="jira-rca-output">
+      {sections.map((section) => (
+        <section className="rca-report-section" key={section.heading}>
+          <h3>{section.heading}</h3>
+          <div className="rca-report-body">
+            {section.lines.map((line, index) => {
+              const trimmed = line.trim();
+              if (!trimmed) return <div className="rca-report-space" key={`${section.heading}-${index}`} />;
+              if (/^[-*]\s+/.test(trimmed)) return <p className="rca-report-bullet" key={`${section.heading}-${index}`}>{trimmed.replace(/^[-*]\s+/, "")}</p>;
+              if (/^\d+\.\s+/.test(trimmed)) return <p className="rca-report-numbered" key={`${section.heading}-${index}`}>{trimmed}</p>;
+              return <p key={`${section.heading}-${index}`}>{trimmed}</p>;
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+};
+
+const JiraRcaPage = ({ tasks }) => {
+  const { jiraKey = "" } = useParams();
+  const normalizedJiraKey = jiraKey.trim().toUpperCase();
+  const task = tasks.find((item) => jiraKeyForTask(item) === normalizedJiraKey);
+  const [rcaResult, setRcaResult] = useState(null);
+  const [rcaJob, setRcaJob] = useState(null);
+  const [banner, setBanner] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!rcaJob?.job_id || !["queued", "running"].includes(rcaJob.status)) return undefined;
+
+    const pollJob = async () => {
+      try {
+        const job = await jiraApi.getRcaJob(rcaJob.job_id);
+        setRcaJob(job);
+        if (job.status === "completed" && job.result) {
+          setRcaResult({ jira_key: job.jira_key, ...job.result });
+          setIsGenerating(false);
+        } else if (job.status === "auth_required") {
+          setBanner("Jira SSO is required. Open the SSO session, complete sign-in, then run RCA again.");
+          setIsGenerating(false);
+        } else if (job.status === "failed") {
+          setBanner(job.error || "RCA generation failed. Check the console output below.");
+          setIsGenerating(false);
+        }
+      } catch (error) {
+        const detail = error.response?.data?.detail;
+        setBanner(typeof detail === "string" ? detail : detail?.message || "Could not read live RCA status.");
+        setIsGenerating(false);
+      }
+    };
+
+    const intervalId = window.setInterval(pollJob, 1500);
+    pollJob();
+    return () => window.clearInterval(intervalId);
+  }, [rcaJob?.job_id, rcaJob?.status]);
+
+  const generateRca = async () => {
+    setBanner("");
+    setRcaResult(null);
+    setRcaJob(null);
+    setIsGenerating(true);
+    try {
+      const job = await jiraApi.startRcaJob(normalizedJiraKey, task?.notes || "");
+      setRcaJob(job);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 409 && detail?.code === "JIRA_MCP_AUTH_REQUIRED") {
+        try {
+          await jiraApi.startSsoLogin(normalizedJiraKey);
+          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then run RCA again.");
+        } catch {
+          setBanner(detail.message || "Jira SSO is required. Complete sign-in, then run RCA again.");
+        }
+        setIsGenerating(false);
+        return;
+      }
+      setBanner(typeof detail === "string" ? detail : detail?.message || "RCA generation failed. Confirm the backend is running and Jira is accessible.");
+      setIsGenerating(false);
+    }
+  };
+
+  const startSso = async () => {
+    setBanner("");
+    try {
+      await jiraApi.startSsoLogin(normalizedJiraKey);
+      setBanner("A Codex SSO window was opened. Complete sign-in there, then run RCA again.");
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not start Jira SSO session.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <main className="page-stack" data-testid="jira-rca-page">
+      <section className="surface jira-rca-card" data-testid="jira-rca-card">
+        <div className="section-heading">
+          <h2><Bug size={26} weight="duotone" aria-hidden="true" /> Jira RCA</h2>
+          <NavLink to="/insights" data-testid="back-to-insights-link">Back to insights</NavLink>
+        </div>
+        {banner && <div className="form-banner form-banner-error" role="alert" data-testid="jira-rca-error-banner">{banner}</div>}
+        <div className="jira-rca-summary">
+          <span>{normalizedJiraKey}</span>
+          <h3>{task?.title || "Jira task"}</h3>
+          <p>{task?.description || "Generate RCA to fetch Jira details and analyze the codebase."}</p>
+          {task && <div className="theme-list"><Pill tone={task.priority.toLowerCase()}>{task.priority}</Pill><Pill tone={task.type.toLowerCase()}>{task.type}</Pill><Pill tone="task">{task.source}</Pill></div>}
+        </div>
+        <button className="primary-action jira-rca-generate" type="button" onClick={generateRca} disabled={isGenerating || !normalizedJiraKey} data-testid="generate-jira-rca-button">
+          <Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGenerating ? "Generating RCA..." : "Generate RCA"}
+        </button>
+        {rcaJob?.status === "auth_required" && (
+          <button className="ghost-button jira-rca-generate" type="button" onClick={startSso} data-testid="start-jira-rca-sso-button">
+            Open SSO
+          </button>
+        )}
+      </section>
+      {rcaJob && (
+        <section className="surface jira-rca-console-card" data-testid="jira-rca-console-card">
+          <div className="section-heading"><h2><Database size={26} weight="duotone" aria-hidden="true" /> Codex Console</h2><span>{rcaJob.status}</span></div>
+          <pre className="codex-console" data-testid="jira-rca-console-output">{(rcaJob.logs || []).join("\n") || "Waiting for Codex output..."}</pre>
+        </section>
+      )}
+      {rcaResult && (
+        <section className="surface jira-rca-result" data-testid="jira-rca-result-card">
+          <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> RCA Result</h2><span>{Math.round(rcaResult.elapsed_seconds || 0)}s</span></div>
+          <RcaReport text={rcaResult.root_cause_analysis} />
+        </section>
+      )}
     </main>
   );
 };
@@ -842,6 +1085,7 @@ const AppShell = () => {
           <Route path="/focus" element={<FocusPage />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} onRefreshInsights={handleRefreshInsights} />} />
+          <Route path="/jira/:jiraKey/rca" element={<JiraRcaPage tasks={tasks} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/settings" element={<SettingsPage />} />
