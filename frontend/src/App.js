@@ -1305,6 +1305,7 @@ const SyncPage = () => <main className="page-stack" data-testid="sync-page"><sec
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value="1.5x" readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
 const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
+  const [theme, setTheme] = useState(readInitialTheme);
   const [tasks, setTasks] = useState([]);
   const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
@@ -1318,6 +1319,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [completionUndo, setCompletionUndo] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const levelProgress = useMemo(() => levelProgressFromXp(earnedXpFromState(tasks, focusSessions)), [tasks, focusSessions]);
 
   useEffect(() => {
     let isActive = true;
@@ -1337,6 +1339,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    writeStoredJson(THEME_STORAGE_KEY, theme);
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.theme = theme;
+    }
+  }, [theme]);
 
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
@@ -1571,7 +1580,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} />
       <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />
       <div className="workspace" data-testid="workspace">
-        <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />
+        <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />
          {taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
