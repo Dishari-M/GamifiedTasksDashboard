@@ -124,6 +124,16 @@ def _build_prompt(prompt_payload):
     )
 
 
+def _build_overview_prompt(system_prompt, user_prompt):
+    """Build an explicit system/user prompt for overview JSON generation."""
+    return (
+        "SYSTEM PROMPT:\n"
+        f"{system_prompt}\n\n"
+        "USER PROMPT:\n"
+        f"{user_prompt}"
+    )
+
+
 def _build_chat_details(sdk, prompt_payload):
     """Build OCI chat request details for the configured model/endpoint."""
     model_id = get_oci_genai_model_id()
@@ -186,6 +196,72 @@ def _build_chat_request(sdk, model_id, prompt_payload):
     raise NotImplementedError(
         f"Unsupported OCI_GENAI_REQUEST_FORMAT '{request_format}'. Use 'generic', 'cohere', or 'auto'."
     )
+
+
+def _build_text_chat_request(sdk, model_id, prompt_text, max_tokens=900):
+    """Build a chat request from a fully assembled prompt string."""
+    request_format = get_oci_genai_request_format()
+    if request_format == "auto":
+        request_format = "cohere" if model_id.startswith("cohere.") else "generic"
+
+    if request_format == "cohere":
+        chat_request = sdk["cohere_chat_request"]()
+        chat_request.message = prompt_text
+        chat_request.max_tokens = max_tokens
+        chat_request.temperature = 0.2
+        chat_request.is_stream = False
+        return chat_request
+
+    if request_format == "generic":
+        text_content = sdk["text_content"](
+            type=sdk["text_content"].TYPE_TEXT,
+            text=prompt_text,
+        )
+        user_message = sdk["user_message"](
+            role=sdk["user_message"].ROLE_USER,
+            content=[text_content],
+        )
+        return sdk["generic_chat_request"](
+            api_format=sdk["generic_chat_request"].API_FORMAT_GENERIC,
+            messages=[user_message],
+            max_completion_tokens=max_tokens,
+            temperature=0.2,
+            is_stream=False,
+        )
+
+    raise NotImplementedError(
+        f"Unsupported OCI_GENAI_REQUEST_FORMAT '{request_format}'. Use 'generic', 'cohere', or 'auto'."
+    )
+
+
+def _build_text_chat_details(sdk, system_prompt, user_prompt):
+    """Build OCI chat details for structured overview generation."""
+    model_id = get_oci_genai_model_id()
+    compartment_id = get_oci_compartment_id()
+    if not model_id:
+        raise NotImplementedError("OCI_GENAI_MODEL_ID is required for OCI Generative AI calls.")
+    if not compartment_id:
+        raise NotImplementedError("OCI_COMPARTMENT_ID is required for OCI Generative AI calls.")
+
+    serving_mode = get_oci_genai_serving_mode()
+    if serving_mode == "on_demand":
+        mode = sdk["on_demand_mode"](model_id=model_id)
+    elif serving_mode == "dedicated":
+        mode = sdk["dedicated_mode"](endpoint_id=model_id)
+    else:
+        raise NotImplementedError(
+            f"Unsupported OCI_GENAI_SERVING_MODE '{serving_mode}'. Use 'on_demand' or 'dedicated'."
+        )
+
+    chat_details = sdk["chat_details"]()
+    chat_details.compartment_id = compartment_id
+    chat_details.serving_mode = mode
+    chat_details.chat_request = _build_text_chat_request(
+        sdk,
+        model_id,
+        _build_overview_prompt(system_prompt, user_prompt),
+    )
+    return chat_details
 
 
 def _read_attr(value, name):
@@ -278,3 +354,13 @@ def generate_dashboard_insight(prompt_payload):
     response = client.chat(chat_details)
     text = _extract_text_from_response(response.data)
     return _normalize_insight(text, prompt_payload)
+
+
+def generate_overview_json(system_prompt, user_prompt):
+    """Generate strict JSON for daily or weekly overviews through OCI GenAI."""
+    sdk = _load_oci_sdk()
+    chat_details = _build_text_chat_details(sdk, system_prompt, user_prompt)
+    client = _build_client(sdk)
+    response = client.chat(chat_details)
+    text = _extract_text_from_response(response.data)
+    return _parse_json_text(text)

@@ -1019,6 +1019,41 @@ body {
   margin-bottom: 18px;
 }
 
+.overview-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.overview-controls input {
+  min-height: 46px;
+  min-width: 170px;
+  color: var(--text);
+  border: 1px solid rgba(98, 111, 153, 0.24);
+  border-radius: 13px;
+  background: rgba(8, 10, 18, 0.42);
+  padding: 0 14px;
+}
+
+.overview-step-button {
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  border-radius: 13px;
+  flex: 0 0 auto;
+}
+
+.overview-status {
+  display: inline-flex;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .overview-editor {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));
@@ -1568,10 +1603,33 @@ body {
 
   .task-editor-form,
   .overview-editor,
+  .overview-controls,
   .focus-page,
   .focus-hero-grid,
   .focus-calm-summary {
     grid-template-columns: 1fr;
+  }
+
+  .overview-controls {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) 46px;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .overview-controls input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .overview-controls .primary-action {
+    grid-column: 1 / -1;
+  }
+
+  [data-testid="daily-overview-card"] .section-heading,
+  [data-testid="weekly-overview-card"] .section-heading {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .focus-page {

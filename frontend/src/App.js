@@ -6,6 +6,8 @@ import {
   Bug,
   CalendarBlank,
   CaretDown,
+  CaretLeft,
+  CaretRight,
   CheckCircle,
   CheckSquare,
   Clock,
@@ -45,7 +47,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, overviewApi, tasksApi } from "./api/client";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -1422,59 +1424,164 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
   );
 };
 
+const toList = (value) => Array.isArray(value) ? value : String(value || "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+
 const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
-  const completedToday = completedTodayTasks(tasks);
-  const weekStart = startOfWeekKey();
-  const completedWeek = tasks.filter((task) => task.status === "Done" && isWithinWeek(task.completedAt, weekStart));
-  const todayFocusSessions = sessionsForDay(focusSessions);
-  const weekFocusSessions = focusSessions.filter((session) => {
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
+  const [dailyData, setDailyData] = useState(null);
+  const [weeklyData, setWeeklyData] = useState(null);
+  const [overviewStatus, setOverviewStatus] = useState("loading");
+  const [generating, setGenerating] = useState(null);
+
+  const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
+  const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
+  const fallbackCompletedWeek = tasks.filter((task) => task.status === "Done" && isWithinWeek(task.completedAt, selectedWeek));
+  const fallbackDailyFocus = sessionsForDay(focusSessions, selectedDate);
+  const fallbackWeeklyFocus = focusSessions.filter((session) => {
     const day = session.work_date || new Date(session.started_at).toLocaleDateString("en-CA");
-    return day >= weekStart && day <= addDaysKey(weekStart, 6);
+    return day >= selectedWeek && day <= fallbackWeekEnd;
   });
-  const focusedToday = focusMinutesForSessions(todayFocusSessions);
-  const focusedWeek = focusMinutesForSessions(weekFocusSessions);
-  const topFocus = topFocusedTask(todayFocusSessions);
-  const dailyXp = completedToday.reduce((sum, task) => sum + task.xp, 0);
-  const weeklyXp = completedWeek.reduce((sum, task) => sum + task.xp, 0);
-  const notes = [...completedToday.map((task) => task.notes), ...todayFocusSessions.map((session) => session.outcome_note)].filter(Boolean);
+  const fallbackDailyFocusMinutes = focusMinutesForSessions(fallbackDailyFocus);
+  const fallbackWeeklyFocusMinutes = focusMinutesForSessions(fallbackWeeklyFocus);
+  const topFocus = topFocusedTask(fallbackDailyFocus);
+  const fallbackDailyXp = fallbackCompletedDay.reduce((sum, task) => sum + task.xp, 0);
+  const fallbackWeeklyXp = fallbackCompletedWeek.reduce((sum, task) => sum + task.xp, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOverviewStatus("loading");
+    overviewApi.daily({ date: selectedDate })
+      .then((data) => {
+        if (cancelled) return;
+        setDailyData(data);
+        setOverviewStatus("live");
+        onOverviewChange((current) => ({
+          ...current,
+          meetingMinutes: data.meeting_minutes ?? current.meetingMinutes,
+          focusMinutes: data.focus_minutes ?? current.focusMinutes,
+          newLearnings: toList(data.new_learnings).join("\n") || current.newLearnings,
+          wentWell: toList(data.went_well).join("\n") || current.wentWell,
+          wentWrong: toList(data.went_wrong).join("\n") || current.wentWrong,
+        }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDailyData(null);
+        setOverviewStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, onOverviewChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    overviewApi.weekly({ week_start: selectedWeek })
+      .then((data) => {
+        if (!cancelled) setWeeklyData(data);
+      })
+      .catch(() => {
+        if (!cancelled) setWeeklyData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWeek]);
+
+  const generateDaily = async () => {
+    setGenerating("daily");
+    try {
+      const data = await overviewApi.generateDaily({ date: selectedDate, include_task_notes: true, include_meetings: true, force: true });
+      setDailyData(data);
+      setOverviewStatus("live");
+    } catch {
+      setOverviewStatus("fallback");
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const generateWeekly = async () => {
+    setGenerating("weekly");
+    try {
+      const data = await overviewApi.generateWeekly({ week_start: selectedWeek, include_daily_overviews: true, include_task_notes: true, force: true });
+      setWeeklyData(data);
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
+  const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
   const update = (field, value) => onOverviewChange({ ...overview, [field]: value });
+  const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
+  const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
+  const dailyLearnings = toList(dailyData?.new_learnings ?? overview.newLearnings);
+  const dailyWentWell = toList(dailyData?.went_well ?? overview.wentWell);
+  const dailyWentWrong = toList(dailyData?.went_wrong ?? overview.wentWrong);
+  const dailyThemes = toList(dailyData?.themes);
+  const dailyTaskCount = dailyData?.tasks_completed ?? fallbackCompletedDay.length;
+  const dailyXp = dailyData?.xp_earned ?? fallbackDailyXp;
+  const dailyMeetingMinutes = dailyData?.meeting_minutes ?? overview.meetingMinutes;
+  const dailyFocusMinutes = dailyData?.focus_minutes ?? fallbackDailyFocusMinutes;
+  const weeklyThemes = toList(weeklyData?.themes).length ? toList(weeklyData?.themes) : [...new Set(fallbackCompletedWeek.flatMap((task) => task.labels || []))].slice(0, 5);
+  const topAccomplishments = toList(weeklyData?.top_accomplishments);
 
   return (
     <main className="page-stack" data-testid="overview-page">
       <section className="surface" data-testid="daily-overview-card">
-        <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2><span>{todayKey()}</span></div>
+        <div className="section-heading">
+          <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
+          <div className="overview-controls">
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(-1)} aria-label="Previous day" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} data-testid="daily-overview-date-input" aria-label="Daily overview date" />
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(1)} aria-label="Next day" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
+            <button className="primary-action" onClick={generateDaily} disabled={generating === "daily"} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+          </div>
+        </div>
         <div className="overview-stats">
-          <StatCard label="Tasks Accomplished" value={completedToday.length} detail={`${dailyXp} XP earned`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
-          <StatCard label="Meetings" value={formatMinutes(overview.meetingMinutes)} detail="Editable daily tracker" icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={topFocus ? `Top: ${topFocus.title}` : "Captured from sessions"} icon={Timer} tone="blue" testId="daily-focus-stat" />
+          <StatCard label="Tasks Accomplished" value={dailyTaskCount} detail={`${dailyXp} XP earned`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
+          <StatCard label="Meetings" value={formatMinutes(dailyMeetingMinutes)} detail={dailyData ? `${dailyData.meeting_summary?.meeting_count || 0} scheduled` : "Editable daily tracker"} icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(dailyFocusMinutes)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
-          <label>Meeting minutes<input type="number" min="0" value={overview.meetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
-          <label>Focus minutes<input type="number" min="0" value={focusedToday} readOnly /></label>
-          <label>New learnings<textarea value={overview.newLearnings} onChange={(event) => update("newLearnings", event.target.value)} /></label>
-          <label>Went well<textarea value={overview.wentWell} onChange={(event) => update("wentWell", event.target.value)} /></label>
-          <label>Went wrong<textarea value={overview.wentWrong} onChange={(event) => update("wentWrong", event.target.value)} /></label>
+          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
+          <label>Focus minutes<input type="number" min="0" value={dailyFocusMinutes} readOnly /></label>
+          <label>New learnings<textarea value={dailyLearnings.join("\n")} onChange={(event) => update("newLearnings", event.target.value)} /></label>
+          <label>Went well<textarea value={dailyWentWell.join("\n")} onChange={(event) => update("wentWell", event.target.value)} /></label>
+          <label>Went wrong<textarea value={dailyWentWrong.join("\n")} onChange={(event) => update("wentWrong", event.target.value)} /></label>
         </div>
+        {!!dailyThemes.length && <div className="theme-list" data-testid="daily-theme-list">{dailyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
-          {todayFocusSessions.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(sessionMinutes(session))} - {session.outcome_type}</span><p>{session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
-          {!todayFocusSessions.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
+          {dailyFocus.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(session.actual_minutes || sessionMinutes(session))} - {session.status || session.outcome_type}</span><p>{session.notes || session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
+          {!dailyFocus.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
         </div>
         <div className="accomplished-list">
-          {completedToday.map((task) => <article key={task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completedAt)} - {task.actualMinutes || task.time} mins - {task.xp} XP</span><p>{task.notes}</p></article>)}
+          {dailyTasks.map((task) => <article key={task.task_id || task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completed_at || task.completedAt)} - {task.actual_minutes || task.actualMinutes || task.time} mins - {task.xp_value || task.xp} XP</span><p>{task.notes}</p></article>)}
+          {!dailyTasks.length && <article><strong>No completed tasks</strong><span>{selectedDate}</span><p>Working tasks and focus sessions will still inform the generated overview.</p></article>}
         </div>
-        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {completedToday.length || todayFocusSessions.length ? `Completed ${completedToday.length} task(s), focused ${formatMinutes(focusedToday)}, earned ${dailyXp} XP, and captured ${notes.length} note(s) for AI review.` : "No completions or focus sessions logged for today yet."}</p>
+        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {dailyData?.summary || (dailyTasks.length || dailyFocus.length ? `Completed ${dailyTaskCount} task(s), focused ${formatMinutes(dailyFocusMinutes)}, and earned ${dailyXp} XP.` : "No completion or focus evidence for this date yet.")}</p>
+        <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Local fallback overview"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
-        <div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><span>{weekStart} to {addDaysKey(weekStart, 6)}</span></div>
+        <div className="section-heading">
+          <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+          <div className="overview-controls">
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <input type="date" value={selectedWeek} onChange={(event) => setSelectedWeek(startOfWeekKey(new Date(`${event.target.value}T00:00:00`)))} data-testid="weekly-overview-week-input" aria-label="Weekly overview week" />
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(1)} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
+            <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly"} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+          </div>
+        </div>
         <div className="weekly-grid">
-          <StatCard label="Completed" value={`${completedWeek.length} tasks`} detail={`${weeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
-          <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes * 5)} detail="Projected from daily tracker" icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(focusedWeek)} detail={`${weekFocusSessions.length} real sessions`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
+          <StatCard label="Completed" value={`${weeklyData?.tasks_completed ?? fallbackCompletedWeek.length} tasks`} detail={`${weeklyData?.xp_earned ?? fallbackWeeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
+          <StatCard label="Meeting Time" value={formatMinutes(weeklyData?.meeting_minutes ?? dailyMeetingMinutes * 5)} detail={`${selectedWeek} to ${weeklyData?.week_end || fallbackWeekEnd}`} icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(weeklyData?.focus_minutes ?? fallbackWeeklyFocusMinutes)} detail={`${weeklyData?.daily_overviews?.length || fallbackWeeklyFocus.length} evidence row(s)`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
         </div>
-        <div className="theme-list">
-          {[...new Set(completedWeek.flatMap((task) => task.labels || []))].slice(0, 5).map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}
-        </div>
-        <p className="insight-copy">Weekly summary: {completedWeek.length ? `The week is trending around ${completedWeek.slice(0, 3).map((task) => task.title).join(", ")}.` : "Complete tasks to build the weekly summary."}</p>
+        {!!weeklyThemes.length && <div className="theme-list">{weeklyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
+        {!!topAccomplishments.length && <div className="accomplished-list" data-testid="weekly-top-accomplishments">{topAccomplishments.map((item) => <article key={item}><strong>{item}</strong><span>Top accomplishment</span></article>)}</div>}
+        <p className="insight-copy" data-testid="weekly-overview-summary">Weekly summary: {weeklyData?.summary || (fallbackCompletedWeek.length ? `The week is trending around ${fallbackCompletedWeek.slice(0, 3).map((task) => task.title).join(", ")}.` : "Complete tasks to build the weekly summary.")}</p>
       </section>
     </main>
   );
