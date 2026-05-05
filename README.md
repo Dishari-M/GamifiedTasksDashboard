@@ -20,6 +20,7 @@ The frontend currently implements the DevQuest dashboard experience with in-memo
 
 - `docs/backend-api-integration-plan.md`
 - `docs/backend-todo-list.md`
+- `docs/oracle-db-wallet-setup.md`
 
 Leaderboard can be ignored for the current backend scope.
 
