@@ -11,7 +11,7 @@ The frontend currently keeps all domain data in `frontend/src/App.js`.
 | Dashboard stats, top missions, task table | `initialTasks`, local React state | `GET /api/v1/dashboard/today` |
 | My Tasks add form | Only title and priority are collected | `POST /api/v1/tasks` with all editable task fields |
 | Task status advance and done button | Local state mutation | `PATCH /api/v1/tasks/{task_id}/status` and `POST /api/v1/tasks/{task_id}/complete` |
-| Quests page | First 5 tasks from local state | `GET /api/v1/quests/today`, sourced from daily work table |
+| Quests page | First 5 tasks from local state | `GET /api/v1/quests/today`, sourced from `WORK_ITEM_WORK_DATES` |
 | AI Insights page | Static capacity and standup copy | `GET /api/v1/insights/today`, `POST /api/v1/standup-notes/generate` |
 | Calendar and Weekly Overview | Static schedule and weekly stats | `GET /api/v1/calendar/events`, `GET /api/v1/overviews/daily`, `GET /api/v1/overviews/weekly` |
 | Sync page | Static source readiness | `POST /api/v1/sync/run`, `GET /api/v1/sync/runs` |
@@ -35,7 +35,6 @@ backend/
       routers/
         dashboard.py
         tasks.py
-        daily_work.py
         quests.py
         calendar.py
         insights.py
@@ -51,12 +50,13 @@ backend/
       overviews.py
     repositories/
       tasks_repo.py
-      daily_work_repo.py
+      work_dates_repo.py
       calendar_repo.py
       ai_repo.py
       overview_repo.py
     services/
       task_service.py
+      work_dates_service.py
       quest_service.py
       capacity_service.py
       ai_service.py
@@ -122,8 +122,8 @@ Recommended sequence setup:
 ```sql
 CREATE SEQUENCE APP_USERS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEMS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
+CREATE SEQUENCE WORK_ITEM_WORK_DATES_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEM_EVENTS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
-CREATE SEQUENCE DAILY_WORK_ITEMS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE CALENDAR_EVENTS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE AI_RUNS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE QUEST_PLANS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
@@ -206,7 +206,40 @@ Rules:
 - `NOTES` is editable and should feed AI insights, standup generation, and daily/weekly overviews.
 - Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. Oracle allows multiple `NULL` values in a unique constraint, so custom tasks need only unique `TASK_ID`.
 
-### 4.3 Work Item Audit Events
+### 4.3 Work Item Work Dates
+
+This is the source of truth for the Quests page and the "Working Today" task button. Store one row per user/task/date that is currently selected as worked or planned.
+
+```sql
+CREATE TABLE WORK_ITEM_WORK_DATES (
+  WORK_ITEM_WORK_DATE_ID NUMBER(19) DEFAULT WORK_ITEM_WORK_DATES_SEQ.NEXTVAL PRIMARY KEY,
+  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+  TASK_ID NUMBER(19) NOT NULL REFERENCES WORK_ITEMS(TASK_ID),
+  WORK_DATE DATE NOT NULL,
+  SOURCE VARCHAR2(40) DEFAULT 'USER' NOT NULL,
+  PLANNED_MINUTES NUMBER(8),
+  ACTUAL_MINUTES NUMBER(8),
+  NOTES CLOB,
+  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
+  CONSTRAINT WORK_ITEM_WORK_DATES_UK UNIQUE (USER_ID, TASK_ID, WORK_DATE),
+  CONSTRAINT WORK_ITEM_WORK_DATES_SOURCE_CK CHECK (SOURCE IN ('USER','AI_QUEST','IMPORT','SYSTEM'))
+);
+
+CREATE INDEX WORK_ITEM_WORK_DATES_USER_DATE_IDX ON WORK_ITEM_WORK_DATES(USER_ID, WORK_DATE);
+CREATE INDEX WORK_ITEM_WORK_DATES_TASK_DATE_IDX ON WORK_ITEM_WORK_DATES(TASK_ID, WORK_DATE);
+```
+
+Insert/delete behavior:
+
+- When the user turns on "Working Today", insert `(USER_ID, TASK_ID, WORK_DATE)` if it is absent.
+- When the user reverts "Working Today", delete the matching row if present.
+- Keep add/remove history in `WORK_ITEM_EVENTS`; the active table represents current selected work dates.
+- Use today's UTC date for writes and reads in the current scope; if the product later switches to user-local dates, update the API contract and tests together.
+- Return `worked_dates` arrays by querying this table, not by storing comma-separated dates on `WORK_ITEMS`.
+
+### 4.4 Work Item Audit Events
 
 ```sql
 CREATE TABLE WORK_ITEM_EVENTS (
@@ -223,42 +256,6 @@ CREATE INDEX WORK_ITEM_EVENTS_TASK_IDX ON WORK_ITEM_EVENTS(TASK_ID, CREATED_AT);
 ```
 
 Insert an event for every create, update, status change, completion, today marker change, and AI enrichment.
-
-### 4.4 Daily Work Items
-
-This is the source of truth for the Quests page and the "working on this today" task button.
-
-```sql
-CREATE TABLE DAILY_WORK_ITEMS (
-  DAILY_WORK_ID NUMBER(19) DEFAULT DAILY_WORK_ITEMS_SEQ.NEXTVAL PRIMARY KEY,
-  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
-  TASK_ID NUMBER(19) NOT NULL REFERENCES WORK_ITEMS(TASK_ID),
-  WORK_DATE DATE NOT NULL,
-  IS_WORKING_TODAY NUMBER(1) DEFAULT 1 NOT NULL,
-  SELECTED_BY VARCHAR2(40) DEFAULT 'USER' NOT NULL,
-  RANK_ORDER NUMBER(5),
-  PLANNED_MINUTES NUMBER(8),
-  ACTUAL_MINUTES NUMBER(8),
-  STARTED_AT TIMESTAMP WITH TIME ZONE,
-  STOPPED_AT TIMESTAMP WITH TIME ZONE,
-  NOTES CLOB,
-  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
-  CONSTRAINT DAILY_WORK_ITEMS_UK UNIQUE (USER_ID, TASK_ID, WORK_DATE),
-  CONSTRAINT DAILY_WORK_FLAG_CK CHECK (IS_WORKING_TODAY IN (0,1))
-);
-
-CREATE INDEX DAILY_WORK_USER_DATE_IDX ON DAILY_WORK_ITEMS(USER_ID, WORK_DATE, IS_WORKING_TODAY);
-```
-
-Insert/update behavior:
-
-- When the user turns on "working today", upsert `(USER_ID, TASK_ID, WORK_DATE)`.
-- Set `IS_WORKING_TODAY = 1`.
-- If task was previously removed from today, reuse the same row and update it.
-- When the user turns off "working today", set `IS_WORKING_TODAY = 0`. Do not delete the row.
-- The Quests page reads only rows where `IS_WORKING_TODAY = 1`, enriched with task and AI data.
 
 ### 4.5 Calendar Events And Meetings
 
@@ -473,6 +470,7 @@ Error mapping:
   "notes": "Root cause may be retry policy plus gateway timeout mismatch.",
   "labels": ["backend", "payments"],
   "working_today": true,
+  "worked_dates": ["2026-04-30"],
   "completed_at": null,
   "ai": {
     "difficulty": "Hard",
@@ -514,6 +512,7 @@ Optional:
 - `notes`
 - `labels`
 - `working_today`
+- `worked_dates`
 - `run_ai_enrichment`
 
 ## 7. Task APIs
@@ -529,7 +528,8 @@ Query parameters:
 | `status` | string | Optional repeated enum |
 | `source` | string | `Jira`, `Outlook`, `Microsoft To Do`, `CUSTOM` |
 | `priority` | string | `Low`, `Medium`, `High`, `Critical` |
-| `working_today` | boolean | Joins to `DAILY_WORK_ITEMS` |
+| `working_today` | boolean | Derived from whether a `WORK_ITEM_WORK_DATES` row exists for the requested date |
+| `worked_date` | date | Filter by a specific date in `WORK_ITEM_WORK_DATES` |
 | `completed_from` | datetime | Filter by `COMPLETED_AT` |
 | `completed_to` | datetime | Filter by `COMPLETED_AT` |
 | `q` | string | Search title, description, notes |
@@ -553,6 +553,7 @@ Response:
       "xp_value": 120,
       "notes": "Root cause notes...",
       "working_today": true,
+      "worked_dates": ["2026-04-30"],
       "completed_at": null,
       "ai": {
         "difficulty": "Hard",
@@ -575,8 +576,9 @@ Implementation steps:
 
 1. Authenticate user and resolve `user_id`.
 2. Build a parameterized SQL query with optional filters.
-3. Join `DAILY_WORK_ITEMS` on current local date if `working_today` is requested.
-4. Return paginated rows, mapping CLOB values to strings and JSON columns to arrays.
+3. Derive `working_today` from whether a `WORK_ITEM_WORK_DATES` row exists for the requested date.
+4. If `working_today` or `worked_date` is requested, filter with an indexed join to `WORK_ITEM_WORK_DATES`.
+5. Return paginated rows, mapping CLOB values to strings, JSON columns to arrays, and `worked_dates` from `WORK_ITEM_WORK_DATES`.
 
 ### 7.2 Create Task
 
@@ -602,6 +604,7 @@ Request:
   "notes": "Check flaky gateway mock and retry config.",
   "labels": ["ci", "payments"],
   "working_today": true,
+  "worked_dates": [],
   "run_ai_enrichment": true
 }
 ```
@@ -623,6 +626,7 @@ Response: `201 Created`
       "xp_value": 110,
       "notes": "Check flaky gateway mock and retry config.",
       "working_today": true,
+      "worked_dates": ["2026-04-30"],
       "completed_at": null,
       "ai": {
         "difficulty": "Medium",
@@ -647,10 +651,11 @@ Insert implementation:
 3. Fetch the generated `TASK_ID` with `RETURNING TASK_ID INTO :task_id`.
 4. If `run_ai_enrichment = true`, call task enrichment before insert or insert first with `PENDING` AI state and enrich after commit. Prefer insert-first for lower perceived latency.
 5. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'TASK_CREATED'`, letting `WORK_ITEM_EVENTS_SEQ.NEXTVAL` generate `EVENT_ID`.
-6. If `working_today = true`, upsert into `DAILY_WORK_ITEMS`; let `DAILY_WORK_ITEMS_SEQ.NEXTVAL` generate `DAILY_WORK_ID` for a new row.
-7. If AI was run synchronously, update AI columns and insert `AI_RUNS`; let `AI_RUNS_SEQ.NEXTVAL` generate `AI_RUN_ID`.
-8. Commit. On any failure, roll back.
-9. Return the task including `working_today`.
+6. If `working_today = true`, insert today's work-date row into `WORK_ITEM_WORK_DATES`.
+7. If `worked_dates` is supplied, validate, deduplicate, and insert one `WORK_ITEM_WORK_DATES` row per date. If both `working_today` and `worked_dates` are supplied, include today's date in that set.
+8. If AI was run synchronously, update AI columns and insert `AI_RUNS`; let `AI_RUNS_SEQ.NEXTVAL` generate `AI_RUN_ID`.
+9. Commit. On any failure, roll back.
+10. Return the task including `working_today` and `worked_dates`.
 
 Production note: Use a background job for AI enrichment if request latency exceeds 1 to 2 seconds. Return `ai.status = "pending"` and expose `GET /api/v1/ai-runs/{ai_run_id}`.
 
@@ -671,6 +676,7 @@ Response:
     "status": "To Do",
     "notes": "Check flaky gateway mock and retry config.",
     "working_today": true,
+    "worked_dates": ["2026-04-30"],
     "events": [
       {
         "event_type": "TASK_CREATED",
@@ -705,6 +711,7 @@ Request:
   "xp_value": 140,
   "notes": "The failure reproduces only with the gateway sandbox enabled.",
   "labels": ["ci", "payments", "release-blocker"],
+  "worked_dates": ["2026-04-30", "2026-05-05"],
   "row_version": 1,
   "run_ai_enrichment": true
 }
@@ -722,6 +729,7 @@ Response:
     "actual_minutes": 30,
     "xp_value": 140,
     "notes": "The failure reproduces only with the gateway sandbox enabled.",
+    "worked_dates": ["2026-04-30", "2026-05-05"],
     "ai": {
       "difficulty": "Hard",
       "impact_score": 9.5,
@@ -745,10 +753,11 @@ Update implementation:
 4. Apply only provided fields.
 5. If status transitions to `Done`, set `COMPLETED_AT = SYSTIMESTAMP` unless caller supplied a valid completion time.
 6. If status transitions away from `Done`, keep an audit event. Decide product semantics before clearing `COMPLETED_AT`.
-7. Increment `ROW_VERSION`.
-8. Insert `WORK_ITEM_EVENTS` with old and new values.
-9. If AI enrichment requested, call enrichment and update AI columns in the same transaction or queue a background AI run.
-10. Commit and return the updated row.
+7. If `worked_dates` is supplied through this explicit bulk-edit path, validate dates and replace that task's `WORK_ITEM_WORK_DATES` rows transactionally.
+8. Increment `ROW_VERSION`.
+9. Insert `WORK_ITEM_EVENTS` with old and new values.
+10. If AI enrichment requested, call enrichment and update AI columns in the same transaction or queue a background AI run.
+11. Commit and return the updated row.
 
 ### 7.5 Update Task Notes
 
@@ -879,7 +888,7 @@ Insert/update behavior:
 8. Mark today's daily and weekly overview as dirty by either deleting cached generated rows or adding a dirty flag column if desired.
 9. Commit.
 
-## 8. Working Today And Daily Work APIs
+## 8. Working Today And Work Date APIs
 
 ### 8.1 Mark Task As Working Today
 
@@ -889,11 +898,8 @@ Request:
 
 ```json
 {
-  "work_date": "2026-04-30",
   "is_working_today": true,
-  "planned_minutes": 120,
-  "rank_order": 1,
-  "notes": "Primary quest for today."
+  "row_version": 4
 }
 ```
 
@@ -902,14 +908,11 @@ Response:
 ```json
 {
   "data": {
-    "daily_work_id": 5001,
     "task_id": 1002,
-    "work_date": "2026-04-30",
-    "is_working_today": true,
-    "planned_minutes": 120,
-    "rank_order": 1,
-    "notes": "Primary quest for today.",
-    "row_version": 1
+    "work_date": "2026-05-05",
+    "working_today": true,
+    "worked_dates": ["2026-04-30", "2026-05-05"],
+    "row_version": 5
   },
   "meta": {
     "request_id": "2f7bd7e7-8928-41c0-88c4-d8f1d4df0f6f"
@@ -917,17 +920,20 @@ Response:
 }
 ```
 
-Upsert implementation:
+Update implementation:
 
 1. Validate task exists and belongs to user.
-2. Compute local `WORK_DATE` if omitted.
-3. Try update existing `(USER_ID, TASK_ID, WORK_DATE)`.
-4. If no row exists, insert a new `DAILY_WORK_ITEMS` row.
-5. Set `IS_WORKING_TODAY`, `PLANNED_MINUTES`, `RANK_ORDER`, and `NOTES`.
-6. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'WORKING_TODAY_UPDATED'`.
-7. Commit.
+2. Resolve `work_date` as today's UTC date; do not trust a browser-local date for this button.
+3. Lock the `WORK_ITEMS` row by `TASK_ID` and `USER_ID` for ownership and row-version validation.
+4. Validate request `row_version` against `WORK_ITEMS.ROW_VERSION`.
+5. If `is_working_today = true`, insert into `WORK_ITEM_WORK_DATES` if the row is absent.
+6. If `is_working_today = false`, delete the matching `WORK_ITEM_WORK_DATES` row if present.
+7. Treat repeated add/remove requests as idempotent success.
+8. Increment `WORK_ITEMS.ROW_VERSION` and set `UPDATED_AT = SYSTIMESTAMP`.
+9. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'WORKING_TODAY_UPDATED'`.
+10. Commit.
 
-### 8.2 Get Today's Work Items
+### 8.2 Get Worked Items For A Date
 
 `GET /api/v1/daily-work?date=2026-04-30`
 
@@ -937,21 +943,18 @@ Response:
 {
   "data": {
     "work_date": "2026-04-30",
+    "source": "WORK_ITEM_WORK_DATES",
     "items": [
       {
-        "daily_work_id": 5001,
-        "rank_order": 1,
-        "planned_minutes": 120,
-        "actual_minutes": 115,
-        "task": {
-          "task_id": 1002,
-          "title": "Investigate CI failure in payment service",
-          "priority": "Critical",
-          "status": "Done",
-          "completed_at": "2026-04-30T16:42:00+05:30",
-          "xp_value": 140,
-          "notes": "Fixed retry timeout and added regression coverage."
-        }
+        "task_id": 1002,
+        "title": "Investigate CI failure in payment service",
+        "priority": "Critical",
+        "status": "Done",
+        "completed_at": "2026-04-30T16:42:00+05:30",
+        "xp_value": 140,
+        "notes": "Fixed retry timeout and added regression coverage.",
+        "working_today": true,
+        "worked_dates": ["2026-04-30"]
       }
     ]
   },
@@ -960,6 +963,13 @@ Response:
   }
 }
 ```
+
+Implementation:
+
+1. Resolve `date`; default to today's UTC date if omitted.
+2. Read `WORK_ITEM_WORK_DATES` for the current user/date and join to `WORK_ITEMS`.
+3. Use the `WORK_ITEM_WORK_DATES(USER_ID, WORK_DATE)` index.
+4. Return task rows with `worked_dates` as an array and `working_today` derived from matching row existence.
 
 ## 9. Dashboard APIs
 
@@ -1009,7 +1019,7 @@ Response:
 
 Implementation:
 
-1. Read tasks, daily work rows, calendar events, and latest AI insight for the date.
+1. Read tasks, tasks joined through `WORK_ITEM_WORK_DATES` for the date, calendar events, and latest AI insight for the date.
 2. Compute stats in SQL where possible.
 3. Use cached insight if fresh. Otherwise call `POST /api/v1/insights/today/generate` asynchronously.
 4. Return all data needed by the dashboard in one request to avoid frontend waterfalls.
@@ -1020,7 +1030,7 @@ Implementation:
 
 `GET /api/v1/quests/today?date=2026-04-30`
 
-The Quests page must use `DAILY_WORK_ITEMS` as source of truth.
+The Quests page must use `WORK_ITEM_WORK_DATES` as source of truth.
 
 Response:
 
@@ -1028,7 +1038,7 @@ Response:
 {
   "data": {
     "quest_date": "2026-04-30",
-    "source": "DAILY_WORK_ITEMS",
+    "source": "WORK_ITEM_WORK_DATES",
     "capacity": {
       "workday_minutes": 480,
       "meeting_minutes": 190,
@@ -1106,13 +1116,13 @@ Response:
 
 Insert/update behavior:
 
-1. Read candidate tasks. If `respect_working_today = true`, candidates come from `DAILY_WORK_ITEMS`.
+1. Read candidate tasks. If `respect_working_today = true`, candidates come from `WORK_ITEMS` rows joined through `WORK_ITEM_WORK_DATES` for the quest date.
 2. Compute capacity from settings and calendar events.
 3. Call OCI GenAI with a strict JSON schema for ranked quests.
 4. Validate every returned `task_id` exists in candidate set.
 5. Upsert `QUEST_PLANS` for `(USER_ID, QUEST_DATE)`.
 6. Delete and reinsert `QUEST_ITEMS` for that plan, or update rank rows in place. Prefer delete/reinsert inside one transaction for simplicity.
-7. Upsert `DAILY_WORK_ITEMS` so generated quests remain visible on the Quests page.
+7. Insert one `WORK_ITEM_WORK_DATES` row for each selected task/date if absent.
 8. Commit.
 
 OCI AI steps:
@@ -1396,7 +1406,7 @@ Response:
 
 OCI AI steps:
 
-1. Build context from daily work, task notes, completed tasks, and meeting schedule.
+1. Build context from tasks joined through `WORK_ITEM_WORK_DATES` for the selected date, task notes, completed tasks, and meeting schedule.
 2. Use direct OCI GenAI for structured recommendations.
 3. Use OCI Agent only if the insight needs database-grounded question answering over historical data, for example "compare with last three Fridays".
 4. Store results in `AI_RUNS`.
@@ -1453,7 +1463,7 @@ Response:
 Data source:
 
 - Completed tasks where `TRUNC(COMPLETED_AT AT LOCAL TIME ZONE) = date`
-- In-progress tasks from `DAILY_WORK_ITEMS`
+- In-progress tasks joined through `WORK_ITEM_WORK_DATES` for the selected date
 - Blocked tasks where `STATUS = 'Blocked'`
 - Task `NOTES`, including learnings, what went right, and what went wrong
 - Optional calendar events to mention meeting load only if useful
@@ -1583,7 +1593,7 @@ Response:
 
 Insert/update behavior:
 
-1. Query completed tasks, task notes, daily work rows, and calendar events.
+1. Query completed tasks, task notes, tasks joined through `WORK_ITEM_WORK_DATES` for the overview date, and calendar events.
 2. Calculate metrics in backend code or SQL.
 3. Ask OCI GenAI to summarize learnings and themes. Do not ask AI to calculate totals.
 4. Upsert `DAILY_OVERVIEWS`.
@@ -1833,8 +1843,8 @@ SELECT
   d.WORK_DATE,
   COUNT(CASE WHEN w.STATUS = 'Done' THEN 1 END) AS TASKS_DONE,
   SUM(NVL(w.XP_VALUE, 0)) AS XP_TOTAL,
-  SUM(NVL(d.ACTUAL_MINUTES, 0)) AS ACTUAL_TASK_MINUTES
-FROM DAILY_WORK_ITEMS d
+  SUM(NVL(d.ACTUAL_MINUTES, w.ACTUAL_MINUTES, 0)) AS ACTUAL_TASK_MINUTES
+FROM WORK_ITEM_WORK_DATES d
 JOIN WORK_ITEMS w ON w.TASK_ID = d.TASK_ID
 GROUP BY d.USER_ID, d.WORK_DATE;
 ```
@@ -2061,10 +2071,10 @@ Recommended build order:
 
 1. Replace MongoDB sample backend with FastAPI app structure and Oracle pool.
 2. Add migrations and create schema.
-3. Implement task CRUD, task notes, status, completion, and daily work APIs.
+3. Implement task CRUD, task notes, status, completion, and work-date APIs.
 4. Wire frontend My Tasks and Dashboard to real task data.
 5. Implement calendar event APIs and capacity calculation.
-6. Implement Quest read API from `DAILY_WORK_ITEMS`.
+6. Implement Quest read API from `WORK_ITEM_WORK_DATES`.
 7. Add OCI GenAI task enrichment.
 8. Add quest generation and persist quest plans.
 9. Add standup generator.
@@ -2077,12 +2087,13 @@ Recommended build order:
 Backend unit tests:
 
 - Create task with all fields.
-- Create task with `working_today = true` inserts `DAILY_WORK_ITEMS`.
+- Create task with `working_today = true` inserts a `WORK_ITEM_WORK_DATES` row.
+- Working Today add/remove inserts and deletes `WORK_ITEM_WORK_DATES` rows idempotently.
 - Patch task updates only provided fields and increments row version.
 - Row version conflict returns `409`.
 - Complete task sets `STATUS = 'Done'` and `COMPLETED_AT`.
 - Notes update changes `NOTES` and triggers AI enrichment when requested.
-- Quests read from `DAILY_WORK_ITEMS`, not all tasks.
+- Quests read from `WORK_ITEM_WORK_DATES`, not all tasks.
 - Standup generator uses only completed/in-progress/blocked rows for the date.
 - Daily overview totals are deterministic and do not rely on AI math.
 - AI invalid JSON returns `502` and stores `AI_RUNS.STATUS = 'VALIDATION_FAILED'`.

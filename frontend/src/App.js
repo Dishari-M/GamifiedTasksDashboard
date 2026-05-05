@@ -5,21 +5,27 @@ import {
   Bell,
   CalendarBlank,
   CaretDown,
+  CaretLeft,
+  CaretRight,
   CheckCircle,
   CheckSquare,
   Clock,
   CloudArrowDown,
   Database,
+  DotsThreeVertical,
   FileText,
   Fire,
   Flag,
   FunnelSimple,
   GearSix,
   House,
+  Hourglass,
   Lightning,
+  ListBullets,
   ListChecks,
   MagnifyingGlass,
   Moon,
+  Play,
   Plus,
   RocketLaunch,
   ShieldStar,
@@ -28,20 +34,21 @@ import {
   SquaresFour,
   SunDim,
   Timer,
+  TrendDown,
+  TrendUp,
   Trophy,
   UsersThree,
 } from "@phosphor-icons/react";
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { dashboardApi } from "./api/client";
+import { dashboardApi, overviewApi, tasksApi } from "./api/client";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
-import { applyActiveQuest, clearQuestRun, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
-import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
+import { defaultOverview, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
-import Dashboard, { FocusWidget, MissionCard, SchedulePanel, StatCard, TaskTable } from "./components/dashboard/Dashboard";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: House },
@@ -60,263 +67,17 @@ const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
-const parseNumber = (value, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 };
-
-const isSameDay = (isoValue, day = todayKey()) => {
-  if (!isoValue) return false;
-  return new Date(isoValue).toLocaleDateString("en-CA") === day;
-};
-
-const startOfWeekKey = (date = new Date()) => {
-  const copy = new Date(date);
-  const day = copy.getDay() || 7;
-  copy.setDate(copy.getDate() - day + 1);
-  return copy.toLocaleDateString("en-CA");
-};
-
-const addDaysKey = (dateKey, days) => {
-  const date = new Date(`${dateKey}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toLocaleDateString("en-CA");
-};
-
-const isWithinWeek = (isoValue, weekStart = startOfWeekKey()) => {
-  if (!isoValue) return false;
-  const day = new Date(isoValue).toLocaleDateString("en-CA");
-  return day >= weekStart && day <= addDaysKey(weekStart, 6);
-};
-
-const formatMinutes = (minutes) => {
-  const value = Math.max(0, parseNumber(minutes, 0));
-  const hours = Math.floor(value / 60);
-  const mins = value % 60;
-  if (!hours) return `${mins}m`;
-  if (!mins) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-};
-
-const formatDateTime = (isoValue) => {
-  if (!isoValue) return "Not completed";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(isoValue));
-};
-
-const formatTime = (isoValue) => {
-  if (!isoValue) return "";
-  return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(isoValue));
-};
-
-const iconForType = (type) => {
-  if (type === "Bug") return Bug;
-  if (type === "Epic") return RocketLaunch;
-  if (type === "Review") return GitPullRequest;
-  if (type === "Meeting") return UsersThree;
-  return FileText;
-};
-
-const accentForPriority = (priority) => {
-  if (priority === "Critical" || priority === "High") return "red";
-  if (priority === "Medium") return "gold";
-  if (priority === "Low") return "green";
-  return "blue";
-};
-
-const buildAiFields = (task) => {
-  const priorityWeight = { Critical: 10, High: 8, Medium: 5, Low: 3 }[task.priority] || 5;
-  const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
-  const notesBoost = task.notes ? 0.4 : 0;
-  const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
-  const calculatedPriorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
-  const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
-  const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
-  return {
-    difficulty: task.difficulty || difficulty,
-    impact,
-    priorityScore: Number.isFinite(Number(task.priorityScore)) ? Number(task.priorityScore) : calculatedPriorityScore,
-    effort,
-    xp,
-    aiInsight: task.aiInsight || `${task.priority} priority ${task.type || "Task"} with ${formatMinutes(effort)} expected effort. ${task.notes ? "Use the notes as context for standup and overview summaries." : "Add notes as you learn more to improve the summary."}`,
-  };
-};
-
-const normalizeTask = (task) => {
-  const ai = buildAiFields(task);
-  return {
-    ...task,
-    source: task.source || "Custom",
-    type: task.type || "Task",
-    priority: task.priority || "Medium",
-    status: task.status || "To Do",
-    time: ai.effort,
-    xp: ai.xp,
-    difficulty: ai.difficulty,
-    impact: ai.impact,
-    priorityScore: ai.priorityScore,
-    aiInsight: ai.aiInsight,
-    notes: task.notes || "",
-    labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
-    workingToday: Boolean(task.workingToday),
-    icon: iconForType(task.type || "Task"),
-    accent: task.accent || accentForPriority(task.priority || "Medium"),
-  };
-};
-
-const makeTaskId = (source, externalId) => {
-  if (externalId?.trim()) return externalId.trim();
-  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : source === "Microsoft To Do" ? "TODO" : "CUS";
-  return `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`;
-};
-
-const initialTasks = [
-  normalizeTask({
-    id: "PAY-2301",
-    externalId: "PAY-2301",
-    projectKey: "PAY",
-    title: "Fix payment gateway timeout issue",
-    description: "Users face timeout while making payments on the checkout page.",
-    source: "Jira",
-    type: "Bug",
-    priority: "High",
-    status: "In Progress",
-    impact: 9,
-    time: 120,
-    actualMinutes: 45,
-    xp: 120,
-    workingToday: true,
-    dueDate: todayKey(),
-    notes: "Retry policy may be too generous for the gateway sandbox. Validate timeout cap and add regression coverage.",
-    labels: ["payments", "backend"],
-  }),
-  normalizeTask({
-    id: "ORD-1587",
-    externalId: "ORD-1587",
-    projectKey: "ORD",
-    title: "Implement order tracking API",
-    description: "Create a REST API to fetch real-time order status.",
-    source: "Jira",
-    type: "Epic",
-    priority: "Medium",
-    status: "To Do",
-    impact: 8,
-    time: 90,
-    xp: 90,
-    workingToday: true,
-    dueDate: addDaysKey(todayKey(), 1),
-    notes: "Contract is clear; biggest risk is mapping courier status states cleanly.",
-    labels: ["api"],
-  }),
-  normalizeTask({
-    id: "DOC-047",
-    externalId: "DOC-047",
-    title: "Update deployment documentation",
-    description: "Update deployment steps for the v2.3.0 release.",
-    source: "Microsoft To Do",
-    type: "Task",
-    priority: "Low",
-    status: "To Do",
-    impact: 5,
-    time: 30,
-    xp: 30,
-    workingToday: false,
-    notes: "Add rollback screenshots and note the environment variable rename.",
-    labels: ["docs"],
-  }),
-  normalizeTask({
-    id: "PR-468",
-    externalId: "PR-468",
-    title: "Review PR #468",
-    description: "Review caching updates and leave concise feedback.",
-    source: "Jira",
-    type: "Review",
-    priority: "Low",
-    status: "Done",
-    impact: 4,
-    time: 20,
-    actualMinutes: 25,
-    xp: 30,
-    workingToday: false,
-    completedAt: nowIso(),
-    notes: "Cache invalidation looked good. Suggested a smaller TTL for the checkout path.",
-    labels: ["review"],
-  }),
-  normalizeTask({
-    id: "OUT-902",
-    externalId: "OUT-902",
-    title: "Team retrospective",
-    description: "Capture action items from the sprint retrospective.",
-    source: "Outlook",
-    type: "Meeting",
-    priority: "Medium",
-    status: "Upcoming",
-    impact: 6,
-    time: 60,
-    xp: 60,
-    workingToday: true,
-    startDate: todayKey(),
-    notes: "Bring release readiness and CI stability as discussion topics.",
-    labels: ["meeting"],
-  }),
-];
-
-const schedule = [
-  { time: "09:00 AM", title: "Daily Standup", duration: "30m", durationMinutes: 30, color: "purple" },
-  { time: "10:00 AM", title: "Architecture Review", duration: "1h", durationMinutes: 60, color: "orange" },
-  { time: "11:30 AM", title: "Client Sync", duration: "1h", durationMinutes: 60, color: "blue" },
-  { time: "01:00 PM", title: "Focus Time Block", duration: "2h 45m available", durationMinutes: 165, color: "green", focus: true },
-];
-
-const defaultOverview = {
-  meetingMinutes: 190,
-  focusMinutes: 155,
-  newLearnings: "Gateway sandbox timeout thresholds differ from production.",
-  wentWell: "Review feedback was concise and actionable.",
-  wentWrong: "Timeout details were split across a few systems.",
-};
-
-const normalizeApiTask = (task) =>
-  normalizeTask({
-    id: String(task.external_id || task.task_id),
-    taskId: task.task_id,
-    externalId: task.external_id || "",
-    title: task.title,
-    description: task.description,
-    source: task.external_source || "Custom",
-    type: task.task_type || "Task",
-    priority: task.priority || "Medium",
-    status: task.status || "To Do",
-    time: task.estimated_minutes || task.ai?.effort_minutes || 60,
-    actualMinutes: task.actual_minutes || 0,
-    xp: task.xp_value || 0,
-    workingToday: Boolean(task.working_today),
-    completedAt: task.completed_at,
-    impact: task.ai?.impact_score || 5,
-    priorityScore: task.ai?.priority_score,
-    difficulty: task.ai?.difficulty,
-    aiInsight: task.ai?.insight,
-    notes: task.notes || "",
-    labels: [],
-  });
-
-const normalizeApiSchedule = (events = []) =>
-  events.map((event) => ({
-    time: formatTime(event.start_at),
-    title: event.title,
-    duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),
-    durationMinutes: event.duration_minutes,
-    color: event.is_focus_block ? "green" : "blue",
-    focus: Boolean(event.is_focus_block),
-  }));
 
 const Pill = ({ children, tone = "neutral", testId }) => (
   <span className={`pill pill-${tone}`} data-testid={testId}>
     {children}
+  </span>
+);
+
+const IconBadge = ({ icon: Icon, tone = "violet", testId }) => (
+  <span className={`icon-badge icon-${tone}`} data-testid={testId}>
+    <Icon size={26} weight="duotone" aria-hidden="true" />
   </span>
 );
 
@@ -485,7 +246,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
   const selectedTaskFocusedToday = focusMinutesForSessions(selectedTaskSessions);
-  const selectedQuest = questContext?.task?.id === selectedTask?.id ? questContext.quest : null;
+  const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id ? questContext.quest : null;
   const selectedQuestFocusMinutes = selectedQuest ? selectedQuest.focusMinutes : selectedTaskFocusedToday;
   const selectedQuestTargetMinutes = selectedQuest?.focusTargetMinutes || selectedTask?.time || 0;
   const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
@@ -1012,59 +773,162 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
   );
 };
 
+const toList = (value) => Array.isArray(value) ? value : String(value || "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+
 const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
-  const completedToday = completedTodayTasks(tasks);
-  const weekStart = startOfWeekKey();
-  const completedWeek = tasks.filter((task) => task.status === "Done" && isWithinWeek(task.completedAt, weekStart));
-  const todayFocusSessions = sessionsForDay(focusSessions);
-  const weekFocusSessions = focusSessions.filter((session) => {
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
+  const [dailyData, setDailyData] = useState(null);
+  const [weeklyData, setWeeklyData] = useState(null);
+  const [overviewStatus, setOverviewStatus] = useState("loading");
+  const [generating, setGenerating] = useState(null);
+
+  const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
+  const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
+  const fallbackCompletedWeek = tasks.filter((task) => task.status === "Done" && isWithinWeek(task.completedAt, selectedWeek));
+  const fallbackDailyFocus = sessionsForDay(focusSessions, selectedDate);
+  const fallbackWeeklyFocus = focusSessions.filter((session) => {
     const day = session.work_date || new Date(session.started_at).toLocaleDateString("en-CA");
-    return day >= weekStart && day <= addDaysKey(weekStart, 6);
+    return day >= selectedWeek && day <= fallbackWeekEnd;
   });
-  const focusedToday = focusMinutesForSessions(todayFocusSessions);
-  const focusedWeek = focusMinutesForSessions(weekFocusSessions);
-  const topFocus = topFocusedTask(todayFocusSessions);
-  const dailyXp = completedToday.reduce((sum, task) => sum + task.xp, 0);
-  const weeklyXp = completedWeek.reduce((sum, task) => sum + task.xp, 0);
-  const notes = [...completedToday.map((task) => task.notes), ...todayFocusSessions.map((session) => session.outcome_note)].filter(Boolean);
+  const fallbackDailyFocusMinutes = focusMinutesForSessions(fallbackDailyFocus);
+  const fallbackWeeklyFocusMinutes = focusMinutesForSessions(fallbackWeeklyFocus);
+  const topFocus = topFocusedTask(fallbackDailyFocus);
+  const fallbackDailyXp = fallbackCompletedDay.reduce((sum, task) => sum + task.xp, 0);
+  const fallbackWeeklyXp = fallbackCompletedWeek.reduce((sum, task) => sum + task.xp, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOverviewStatus("loading");
+    overviewApi.daily({ date: selectedDate })
+      .then((data) => {
+        if (cancelled) return;
+        setDailyData(data);
+        setOverviewStatus("live");
+        onOverviewChange((current) => ({
+          ...current,
+          meetingMinutes: data.meeting_minutes ?? current.meetingMinutes,
+          focusMinutes: data.focus_minutes ?? current.focusMinutes,
+          newLearnings: toList(data.new_learnings).join("\n"),
+          wentWell: toList(data.went_well).join("\n"),
+          wentWrong: toList(data.went_wrong).join("\n"),
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) setOverviewStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, onOverviewChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    overviewApi.weekly({ week_start: selectedWeek })
+      .then((data) => {
+        if (!cancelled) setWeeklyData(data);
+      })
+      .catch(() => {
+        if (!cancelled) setWeeklyData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWeek]);
+
+  const generateDaily = async () => {
+    setGenerating("daily");
+    try {
+      const data = await overviewApi.generateDaily({ date: selectedDate, include_task_notes: true, include_meetings: true, force: true });
+      setDailyData(data);
+      setOverviewStatus("live");
+    } catch {
+      setOverviewStatus("fallback");
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const generateWeekly = async () => {
+    setGenerating("weekly");
+    try {
+      const data = await overviewApi.generateWeekly({ week_start: selectedWeek, include_daily_overviews: true, include_task_notes: true, force: true });
+      setWeeklyData(data);
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
+  const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
   const update = (field, value) => onOverviewChange({ ...overview, [field]: value });
+  const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
+  const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
+  const dailyLearnings = toList(dailyData?.new_learnings ?? overview.newLearnings);
+  const dailyWentWell = toList(dailyData?.went_well ?? overview.wentWell);
+  const dailyWentWrong = toList(dailyData?.went_wrong ?? overview.wentWrong);
+  const dailyThemes = toList(dailyData?.themes);
+  const dailyTaskCount = dailyData?.tasks_completed ?? fallbackCompletedDay.length;
+  const dailyXp = dailyData?.xp_earned ?? fallbackDailyXp;
+  const dailyMeetingMinutes = dailyData?.meeting_minutes ?? overview.meetingMinutes;
+  const dailyFocusMinutes = dailyData?.focus_minutes ?? fallbackDailyFocusMinutes;
+  const weeklyThemes = toList(weeklyData?.themes).length ? toList(weeklyData?.themes) : [...new Set(fallbackCompletedWeek.flatMap((task) => task.labels || []))].slice(0, 5);
+  const topAccomplishments = toList(weeklyData?.top_accomplishments);
 
   return (
     <main className="page-stack" data-testid="overview-page">
       <section className="surface" data-testid="daily-overview-card">
-        <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2><span>{todayKey()}</span></div>
+        <div className="section-heading">
+          <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
+          <div className="overview-controls">
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(-1)} aria-label="Previous day" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} data-testid="daily-overview-date-input" aria-label="Daily overview date" />
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(1)} aria-label="Next day" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
+            <button className="primary-action" onClick={generateDaily} disabled={generating === "daily"} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+          </div>
+        </div>
         <div className="overview-stats">
-          <StatCard label="Tasks Accomplished" value={completedToday.length} detail={`${dailyXp} XP earned`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
-          <StatCard label="Meetings" value={formatMinutes(overview.meetingMinutes)} detail="Editable daily tracker" icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={topFocus ? `Top: ${topFocus.title}` : "Captured from sessions"} icon={Timer} tone="blue" testId="daily-focus-stat" />
+          <StatCard label="Tasks Accomplished" value={dailyTaskCount} detail={`${dailyXp} XP earned`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
+          <StatCard label="Meetings" value={formatMinutes(dailyMeetingMinutes)} detail={dailyData ? `${dailyData.meeting_summary?.meeting_count || 0} scheduled` : "Editable daily tracker"} icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(dailyFocusMinutes)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
-          <label>Meeting minutes<input type="number" min="0" value={overview.meetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
-          <label>Focus minutes<input type="number" min="0" value={focusedToday} readOnly /></label>
-          <label>New learnings<textarea value={overview.newLearnings} onChange={(event) => update("newLearnings", event.target.value)} /></label>
-          <label>Went well<textarea value={overview.wentWell} onChange={(event) => update("wentWell", event.target.value)} /></label>
-          <label>Went wrong<textarea value={overview.wentWrong} onChange={(event) => update("wentWrong", event.target.value)} /></label>
+          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
+          <label>Focus minutes<input type="number" min="0" value={dailyFocusMinutes} readOnly /></label>
+          <label>New learnings<textarea value={dailyLearnings.join("\n")} onChange={(event) => update("newLearnings", event.target.value)} /></label>
+          <label>Went well<textarea value={dailyWentWell.join("\n")} onChange={(event) => update("wentWell", event.target.value)} /></label>
+          <label>Went wrong<textarea value={dailyWentWrong.join("\n")} onChange={(event) => update("wentWrong", event.target.value)} /></label>
         </div>
+        {!!dailyThemes.length && <div className="theme-list" data-testid="daily-theme-list">{dailyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
-          {todayFocusSessions.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(sessionMinutes(session))} - {session.outcome_type}</span><p>{session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
-          {!todayFocusSessions.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
+          {dailyFocus.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(session.actual_minutes || sessionMinutes(session))} - {session.status || session.outcome_type}</span><p>{session.notes || session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
+          {!dailyFocus.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
         </div>
         <div className="accomplished-list">
-          {completedToday.map((task) => <article key={task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completedAt)} - {task.actualMinutes || task.time} mins - {task.xp} XP</span><p>{task.notes}</p></article>)}
+          {dailyTasks.map((task) => <article key={task.task_id || task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completed_at || task.completedAt)} - {task.actual_minutes || task.actualMinutes || task.time} mins - {task.xp_value || task.xp} XP</span><p>{task.notes}</p></article>)}
+          {!dailyTasks.length && <article><strong>No completed tasks</strong><span>{selectedDate}</span><p>Working tasks and focus sessions will still inform the generated overview.</p></article>}
         </div>
-        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {completedToday.length || todayFocusSessions.length ? `Completed ${completedToday.length} task(s), focused ${formatMinutes(focusedToday)}, earned ${dailyXp} XP, and captured ${notes.length} note(s) for AI review.` : "No completions or focus sessions logged for today yet."}</p>
+        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {dailyData?.summary || (dailyTasks.length || dailyFocus.length ? `Completed ${dailyTaskCount} task(s), focused ${formatMinutes(dailyFocusMinutes)}, and earned ${dailyXp} XP.` : "No completion or focus evidence for this date yet.")}</p>
+        <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Local fallback overview"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
-        <div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><span>{weekStart} to {addDaysKey(weekStart, 6)}</span></div>
+        <div className="section-heading">
+          <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+          <div className="overview-controls">
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <input type="date" value={selectedWeek} onChange={(event) => setSelectedWeek(startOfWeekKey(new Date(`${event.target.value}T00:00:00`)))} data-testid="weekly-overview-week-input" aria-label="Weekly overview week" />
+            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(1)} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
+            <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly"} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+          </div>
+        </div>
         <div className="weekly-grid">
-          <StatCard label="Completed" value={`${completedWeek.length} tasks`} detail={`${weeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
-          <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes * 5)} detail="Projected from daily tracker" icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(focusedWeek)} detail={`${weekFocusSessions.length} real sessions`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
+          <StatCard label="Completed" value={`${weeklyData?.tasks_completed ?? fallbackCompletedWeek.length} tasks`} detail={`${weeklyData?.xp_earned ?? fallbackWeeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
+          <StatCard label="Meeting Time" value={formatMinutes(weeklyData?.meeting_minutes ?? dailyMeetingMinutes * 5)} detail={`${selectedWeek} to ${weeklyData?.week_end || fallbackWeekEnd}`} icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
+          <StatCard label="Focus Time" value={formatMinutes(weeklyData?.focus_minutes ?? fallbackWeeklyFocusMinutes)} detail={`${weeklyData?.daily_overviews?.length || fallbackWeeklyFocus.length} evidence row(s)`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
         </div>
-        <div className="theme-list">
-          {[...new Set(completedWeek.flatMap((task) => task.labels || []))].slice(0, 5).map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}
-        </div>
-        <p className="insight-copy">Weekly summary: {completedWeek.length ? `The week is trending around ${completedWeek.slice(0, 3).map((task) => task.title).join(", ")}.` : "Complete tasks to build the weekly summary."}</p>
+        {!!weeklyThemes.length && <div className="theme-list">{weeklyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
+        {!!topAccomplishments.length && <div className="accomplished-list" data-testid="weekly-top-accomplishments">{topAccomplishments.map((item) => <article key={item}><strong>{item}</strong><span>Top accomplishment</span></article>)}</div>}
+        <p className="insight-copy" data-testid="weekly-overview-summary">Weekly summary: {weeklyData?.summary || (fallbackCompletedWeek.length ? `The week is trending around ${fallbackCompletedWeek.slice(0, 3).map((task) => task.title).join(", ")}.` : "Complete tasks to build the weekly summary.")}</p>
       </section>
     </main>
   );
@@ -1153,7 +1017,36 @@ const AppShell = () => {
     const nextStatus = statusCycle[(currentIndex + 1) % statusCycle.length] || "To Do";
     return normalizeTask({ ...task, status: nextStatus, completedAt: nextStatus === "Done" ? task.completedAt || nowIso() : task.completedAt });
   }));
-  const handleToggleToday = (id) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, workingToday: !task.workingToday }) : task)));
+  const handleToggleToday = async (id) => {
+    const targetTask = tasks.find((task) => task.id === id);
+    if (!targetTask) return;
+
+    const nextWorkingToday = !targetTask.workingToday;
+    const applyToggle = (apiResult = null) => setTasks((items) => items.map((task) => {
+      if (task.id !== id) return task;
+      return normalizeTask({
+        ...task,
+        workingToday: apiResult?.working_today ?? nextWorkingToday,
+        workedDates: apiResult?.worked_dates ?? task.workedDates,
+        rowVersion: apiResult?.row_version ?? task.rowVersion,
+      });
+    }));
+
+    if (!targetTask.taskId || !targetTask.rowVersion) {
+      applyToggle();
+      return;
+    }
+
+    try {
+      const result = await tasksApi.updateToday(targetTask.taskId, {
+        is_working_today: nextWorkingToday,
+        row_version: targetTask.rowVersion,
+      });
+      applyToggle(result);
+    } catch {
+      applyToggle();
+    }
+  };
   const handleUpdateNotes = (id, notes) => setTasks((items) => items.map((task) => (task.id === id ? normalizeTask({ ...task, notes, aiInsight: "" }) : task)));
   const handleEditTask = (updatedTask) => setTasks((items) => items.map((task) => (task.id === updatedTask.id ? normalizeTask(updatedTask) : task)));
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));

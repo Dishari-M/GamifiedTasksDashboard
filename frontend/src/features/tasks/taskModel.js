@@ -186,6 +186,7 @@ export const normalizeApiTask = (task) =>
   normalizeTask({
     id: String(task.external_id || task.task_id),
     taskId: task.task_id,
+    rowVersion: task.row_version,
     externalId: task.external_id || "",
     title: task.title,
     description: task.description,
@@ -203,6 +204,7 @@ export const normalizeApiTask = (task) =>
     difficulty: task.ai?.difficulty,
     aiInsight: task.ai?.insight,
     notes: task.notes || "",
+    workedDates: task.worked_dates || [],
     labels: [],
   });
 

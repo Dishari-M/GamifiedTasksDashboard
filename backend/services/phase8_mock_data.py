@@ -1,4 +1,5 @@
 from datetime import date as date_type
+from datetime import datetime, timedelta
 
 
 DEFAULT_USER = {
@@ -172,3 +173,45 @@ def get_mock_calendar_events(work_date):
             "external_source": "Outlook",
         },
     ]
+
+
+def get_mock_focus_sessions(start_date, end_date=None):
+    end_date = end_date or start_date
+    sessions = [
+        {
+            "focus_session_id": 7001,
+            "task_id": 1001,
+            "task_title": "Fix payment gateway timeout issue",
+            "session_date": resolve_work_date(),
+            "started_at": iso_at(resolve_work_date(), "13:05"),
+            "ended_at": iso_at(resolve_work_date(), "14:20"),
+            "planned_minutes": 75,
+            "actual_minutes": 75,
+            "status": "Completed",
+            "xp_awarded": 110,
+            "notes": "Validated retry timeout cap and captured the regression path.",
+        },
+        {
+            "focus_session_id": 7002,
+            "task_id": 1002,
+            "task_title": "Implement order tracking API",
+            "session_date": resolve_work_date(),
+            "started_at": iso_at(resolve_work_date(), "15:00"),
+            "ended_at": iso_at(resolve_work_date(), "15:45"),
+            "planned_minutes": 45,
+            "actual_minutes": 45,
+            "status": "Completed",
+            "xp_awarded": 65,
+            "notes": "Mapped courier status states and noted contract risk.",
+        },
+    ]
+    return [
+        session
+        for session in sessions
+        if start_date <= (session.get("session_date") or session.get("started_at", "")[:10]) <= end_date
+    ]
+
+
+def add_days_key(date_key, days):
+    parsed = datetime.strptime(date_key, "%Y-%m-%d").date()
+    return (parsed + timedelta(days=days)).isoformat()

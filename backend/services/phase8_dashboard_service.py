@@ -24,6 +24,7 @@ def _task_response(task, working_today=False, rank_order=None, planned_minutes=N
         "actual_minutes": task["actual_minutes"],
         "xp_value": task["xp_value"],
         "working_today": working_today,
+        "row_version": task.get("row_version", 1),
         "rank_order": rank_order,
         "planned_minutes": planned_minutes,
         "ai": {
