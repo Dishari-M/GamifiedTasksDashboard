@@ -45,7 +45,7 @@ import "./feature-additions.css";
 import { dashboardApi, overviewApi, tasksApi } from "./api/client";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
-import { defaultOverview, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -62,11 +62,57 @@ const navItems = [
   { label: "Settings", path: "/settings", icon: GearSix },
 ];
 
+const THEME_STORAGE_KEY = "devquest.theme.v1";
+
+const readInitialTheme = () => {
+  const stored = readStoredJson(THEME_STORAGE_KEY, null);
+  if (stored === "light" || stored === "dark") return stored;
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
+  return "dark";
+};
+
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+};
+
+const taskXp = (task) => parseNumber(task.xp ?? task.xp_value, 0);
+
+const focusXp = (session) => parseNumber(session.xp_awarded ?? session.xpAwarded, 0);
+
+const earnedXpFromState = (tasks, focusSessions = []) => {
+  const completedTaskXp = tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + taskXp(task), 0);
+  const awardedFocusXp = focusSessions.reduce((sum, session) => sum + focusXp(session), 0);
+  return completedTaskXp + awardedFocusXp;
+};
+
+const levelProgressFromXp = (xpValue) => {
+  const totalXp = Math.max(0, parseNumber(xpValue, 0));
+  let level = 1;
+  let currentLevelStartXp = 0;
+  let nextLevelAtXp = 50;
+
+  while (totalXp >= nextLevelAtXp) {
+    level += 1;
+    currentLevelStartXp = nextLevelAtXp;
+    const nextStep = level < 5 ? 50 : level < 15 ? 100 : 200;
+    nextLevelAtXp += nextStep;
+  }
+
+  const currentLevelXp = totalXp - currentLevelStartXp;
+  const xpForNextLevel = nextLevelAtXp - currentLevelStartXp;
+  const progressPercent = Math.min(100, Math.round((currentLevelXp / xpForNextLevel) * 100));
+
+  return {
+    level,
+    totalXp,
+    currentLevelXp,
+    xpForNextLevel,
+    nextLevelAtXp,
+    progressPercent,
+  };
 };
 
 const Pill = ({ children, tone = "neutral", testId }) => (
@@ -81,7 +127,7 @@ const IconBadge = ({ icon: Icon, tone = "violet", testId }) => (
   </span>
 );
 
-const Sidebar = ({ open, onClose }) => (
+const Sidebar = ({ open, onClose, levelProgress }) => (
   <aside className={`sidebar ${open ? "sidebar-open" : ""}`} data-testid="app-sidebar">
     <div className="brand" data-testid="app-brand">
       <span className="brand-mark" data-testid="app-brand-mark">
@@ -112,21 +158,23 @@ const Sidebar = ({ open, onClose }) => (
       <div className="level-row">
         <ShieldStar size={34} weight="duotone" aria-hidden="true" />
         <div>
-          <strong data-testid="level-value">Level 7</strong>
-          <span data-testid="level-progress-label">450 / 700 XP</span>
+          <strong data-testid="level-value">Level {levelProgress.level}</strong>
+          <span data-testid="level-progress-label">{levelProgress.currentLevelXp} / {levelProgress.xpForNextLevel} XP to Level {levelProgress.level + 1}</span>
         </div>
       </div>
       <div className="progress-track" data-testid="level-progress-track" aria-label="Level progress">
-        <span className="progress-fill level-fill" style={{ width: "64%" }} data-testid="level-progress-fill" />
+        <span className="progress-fill level-fill" style={{ width: `${levelProgress.progressPercent}%` }} data-testid="level-progress-fill" />
       </div>
+      <p className="level-total-xp" data-testid="level-total-xp">{levelProgress.totalXp.toLocaleString()} total XP</p>
     </div>
   </aside>
 );
 
-const Topbar = ({ onMenuClick }) => {
+const Topbar = ({ onMenuClick, theme, onThemeToggle }) => {
   const location = useLocation();
   const title = location.pathname === "/" ? "Good morning, Dishari" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
   const subtitle = location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
+  const isLight = theme === "light";
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -139,9 +187,9 @@ const Topbar = ({ onMenuClick }) => {
         <MagnifyingGlass size={22} weight="duotone" aria-hidden="true" />
         <input data-testid="global-search-input" aria-label="Search tasks" placeholder="Search tasks..." />
       </label>
-      <button className="theme-toggle" aria-label="Dark mode enabled" data-testid="theme-toggle-button">
-        <SunDim size={22} weight="duotone" aria-hidden="true" />
-        <span className="toggle-knob"><Moon size={18} weight="fill" aria-hidden="true" /></span>
+      <button className="theme-toggle" type="button" onClick={onThemeToggle} aria-label={`Switch to ${isLight ? "dark" : "light"} theme`} aria-pressed={isLight} data-testid="theme-toggle-button">
+        {isLight ? <Moon size={22} weight="duotone" aria-hidden="true" /> : <SunDim size={22} weight="duotone" aria-hidden="true" />}
+        <span className="toggle-knob">{isLight ? <SunDim size={18} weight="fill" aria-hidden="true" /> : <Moon size={18} weight="fill" aria-hidden="true" />}</span>
       </button>
       <button className="bell-button" aria-label="View notifications" data-testid="notifications-button">
         <Bell size={28} weight="duotone" />
@@ -455,7 +503,7 @@ const generateStandupNote = (tasks) => {
 const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onComplete, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
-  const totalXp = dashboardStats?.total_xp ?? tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
+  const totalXp = dashboardStats?.total_xp ?? earnedXpFromState(tasks, focusSessions);
   const focusedToday = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
   const meetingMinutes = dashboardStats?.meeting_minutes;
   const nextQuest = getNextQuest(questRun);
@@ -912,7 +960,14 @@ const AppShell = () => {
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [completionUndo, setCompletionUndo] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(readInitialTheme);
   const statusCycle = useMemo(() => ["To Do", "In Progress", "Blocked", "Done"], []);
+  const levelProgress = useMemo(() => levelProgressFromXp(earnedXpFromState(tasks, focusSessions)), [tasks, focusSessions]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    writeStoredJson(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     writeStoredJson(FOCUS_SESSIONS_STORAGE_KEY, focusSessions);
@@ -1126,11 +1181,11 @@ const AppShell = () => {
   });
 
   return (
-    <div className="app-shell" data-testid="app-shell">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="app-shell" data-theme={theme} data-testid="app-shell">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} />
       <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />
       <div className="workspace" data-testid="workspace">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <Topbar onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />
         <Routes>
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={(task) => setTasks((items) => [task, ...items])} onComplete={handleComplete} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
