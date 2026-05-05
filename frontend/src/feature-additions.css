@@ -1546,19 +1546,6 @@ html[data-theme="light"] select:focus-visible {
   font-weight: 700;
 }
 
-.overview-save-row {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.overview-save-row .overview-status {
-  margin-top: 0;
-}
-
 .topbar {
   grid-template-columns: minmax(220px, 1fr) auto auto;
 }
