@@ -45,7 +45,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, overviewApi,standupApi,tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, insightsApi, overviewApi, standupApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
@@ -377,17 +377,23 @@ const Topbar = ({currentUser, isLoggingOut, onLogout,onMenuClick, theme, onTheme
   );
 };
 
-const StatCard = ({ label, value, detail, icon, tone, trend, down, progress, testId }) => (
-  <section className="stat-card surface" data-testid={testId}>
-    <div className="stat-head"><span>{label}</span><IconBadge icon={icon} tone={tone} testId={`${testId}-icon`} /></div>
-    <div className="stat-value" data-testid={`${testId}-value`}>{value}</div>
-    {typeof progress === "number" && <div className="progress-track" data-testid={`${testId}-progress-track`} aria-label={`${label} progress`}><span className="progress-fill" style={{ width: `${progress}%` }} data-testid={`${testId}-progress-fill`} /></div>}
-    <div className={`stat-detail ${down ? "negative" : "positive"}`} data-testid={`${testId}-detail`}>
-      {trend && (down ? <TrendDown size={17} weight="bold" aria-hidden="true" /> : <TrendUp size={17} weight="bold" aria-hidden="true" />)}
-      {detail}
-    </div>
-  </section>
-);
+const StatCard = ({ label, value, detail, detailInsight, icon, tone, trend, down, progress, testId }) => {
+  const insightDirection = detailInsight?.direction;
+  const direction = insightDirection || (down ? "down" : "up");
+  const showTrend = trend || insightDirection === "up" || insightDirection === "down";
+  const detailText = detailInsight?.label || detail;
+  return (
+    <section className="stat-card surface" data-testid={testId}>
+      <div className="stat-head"><span>{label}</span><IconBadge icon={icon} tone={tone} testId={`${testId}-icon`} /></div>
+      <div className="stat-value" data-testid={`${testId}-value`}>{value}</div>
+      {typeof progress === "number" && <div className="progress-track" data-testid={`${testId}-progress-track`} aria-label={`${label} progress`}><span className="progress-fill" style={{ width: `${progress}%` }} data-testid={`${testId}-progress-fill`} /></div>}
+      <div className={`stat-detail stat-detail-chip ${direction === "down" ? "negative" : direction === "neutral" ? "neutral" : "positive"}`} data-testid={`${testId}-detail`}>
+        {showTrend && (direction === "down" ? <TrendDown size={17} weight="bold" aria-hidden="true" /> : <TrendUp size={17} weight="bold" aria-hidden="true" />)}
+        {detailText}
+      </div>
+    </section>
+  );
+};
 
 const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
@@ -816,7 +822,7 @@ const normalizeStandupNote = (note, fallback) => {
   };
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
@@ -838,11 +844,11 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   return (
     <main className="dashboard-page" data-testid="dashboard-page">
       <section className="stats-grid" aria-label="Daily productivity metrics">
-        <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
-        <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
-        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" detailInsight={dashboardStatInsights?.total_xp} icon={Trophy} tone="violet" trend testId="stat-total-xp" />
+        <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" detailInsight={dashboardStatInsights?.tasks_completed} icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
+        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" detailInsight={dashboardStatInsights?.working_today} icon={Flag} tone="gold" testId="stat-working-today" />
+        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} detailInsight={dashboardStatInsights?.focus_minutes} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
@@ -1066,15 +1072,49 @@ const QuestsPage = ({ tasks, questRun, activeSession, completionNotice, onGenera
   );
 };
 
-const InsightsPage = ({ tasks, onRefreshInsights }) => {
+const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
   const fallbackStandupNote = useMemo(() => generateStandupNote(tasks), [tasks]);
   const [standupNote, setStandupNote] = useState(() => fallbackStandupNote);
   const [standupStatus, setStandupStatus] = useState("loading");
   const [isGeneratingStandup, setIsGeneratingStandup] = useState(false);
+  const [todayInsight, setTodayInsight] = useState(null);
+  const [insightStatus, setInsightStatus] = useState("loading");
+  const [insightError, setInsightError] = useState("");
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const todayTasks = tasks.filter((task) => task.workingToday);
   const completed = completedTodayTasks(tasks);
   const completedXp = earnedXpForTasks(completed, focusSessions);
   const topPriority = [...todayTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))[0];
+  const backendTaskInsights = todayInsight?.task_insights || [];
+  const displayedInsights = backendTaskInsights.length ? backendTaskInsights : todayTasks.map((task) => ({
+    task_id: task.taskId || task.id,
+    title: task.title,
+    priority_score: task.priorityScore || 0,
+    xp_value: task.xp,
+    effort_minutes: task.time,
+    insight: task.aiInsight,
+  }));
+
+  useEffect(() => {
+    let cancelled = false;
+    setInsightStatus("loading");
+    insightsApi.today({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setTodayInsight(data);
+        setInsightStatus("live");
+        setInsightError("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setTodayInsight(null);
+        setInsightStatus("fallback");
+        setInsightError(error?.response?.data?.detail?.message || error?.message || "AI insights are using local fallback data.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1115,17 +1155,55 @@ const InsightsPage = ({ tasks, onRefreshInsights }) => {
     }
   };
 
+  const generateInsight = async () => {
+    setIsGeneratingInsight(true);
+    setInsightError("");
+    try {
+      const data = await insightsApi.generateToday({
+        date: todayKey(),
+        include_tasks: true,
+        include_calendar: true,
+        include_notes: true,
+        force: true,
+      });
+      setTodayInsight(data);
+      setInsightStatus("live");
+    } catch (error) {
+      setInsightStatus("fallback");
+      setInsightError(error?.response?.data?.detail?.message || error?.message || "Unable to generate AI insight.");
+    } finally {
+      setIsGeneratingInsight(false);
+    }
+  };
+
   return (
     <main className="page-stack" data-testid="insights-page">
       <section className="surface insight-detail-card" data-testid="capacity-analysis-card">
-        <div className="section-heading"><h2><Sparkle size={26} weight="duotone" aria-hidden="true" /> AI Task Insights</h2><button className="ghost-button" onClick={refresh} data-testid="refresh-insights-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button></div>
+        <div className="section-heading">
+          <h2><Sparkle size={26} weight="duotone" aria-hidden="true" /> AI Task Insights</h2>
+          <div className="editor-actions">
+            <button className="ghost-button" onClick={refresh} data-testid="refresh-insights-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="primary-action" onClick={generateInsight} disabled={isGeneratingInsight} data-testid="generate-ai-insight-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingInsight ? "Generating..." : "AI"}</button>
+          </div>
+        </div>
         <div className="capacity-grid">
           <StatCard label="Top Priority" value={topPriority?.priority || "None"} detail={topPriority?.title || "Mark a task for today"} icon={Flag} tone="red" testId="capacity-top-priority-stat" />
-          <StatCard label="Planned Effort" value={formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} detail="Working-today tasks" icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
-          <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} icon={Trophy} tone="green" testId="capacity-xp-stat" />
+          <StatCard label="Focus Capacity" value={formatMinutes(todayInsight?.capacity?.available_focus_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} detail={insightStatus === "live" ? "From insights API" : "Working-today effort"} detailInsight={todayInsight?.stat_insights?.focus_minutes} icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
+          <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} detailInsight={todayInsight?.stat_insights?.total_xp} icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
+        <article className="insight-copy" data-testid="daily-ai-insight">
+          <strong>Daily Insight</strong>
+          <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
+          {insightError && <p className="form-error" role="alert">{insightError}</p>}
+        </article>
+        {(todayInsight?.risks?.length > 0 || todayInsight?.recommendations?.length > 0) && (
+          <div className="insight-grid" data-testid="ai-risk-recommendation-grid">
+            <span><strong>Risks</strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
+            <span><strong>Recommendations</strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
+          </div>
+        )}
         <div className="insight-list">
-          {todayTasks.map((task) => <article key={task.id}><strong>{task.title}</strong><span>{Math.round((task.priorityScore || 0) * 100)} priority - {task.xp} XP - {task.time} min effort</span><p>{task.aiInsight}</p></article>)}
+          {displayedInsights.map((task) => <article key={task.task_id}><strong>{task.title}</strong><span>{Math.round((task.priority_score || 0) * 100)} priority - {task.xp_value} XP - {task.effort_minutes} min effort</span><p>{task.insight}</p></article>)}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
@@ -1320,6 +1398,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
   const [dashboardInsight, setDashboardInsight] = useState(null);
   const [dashboardStatus, setDashboardStatus] = useState("fallback");
@@ -1553,6 +1632,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       .then((data) => {
         if (cancelled) return;
         setDashboardStats(data.stats || null);
+        setDashboardStatInsights(data.stat_insights || null);
         setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
         setDashboardInsight(data.ai_insight || null);
         setDashboardStatus("live");
@@ -1567,6 +1647,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       .catch(() => {
         if (cancelled) return;
         setDashboardStatus("fallback");
+        setDashboardStatInsights(null);
       });
     return () => {
       cancelled = true;
@@ -1582,7 +1663,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionNotice={completionNotice} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />

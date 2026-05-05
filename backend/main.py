@@ -23,8 +23,11 @@ from services.filesystem_user_service import (
 )
 from services.phase8_capacity_service import capacity_response
 from services.phase8_dashboard_service import dashboard_today_response
+from routes.insights_routes import router as insights_router
+from routes.missions_routes import router as missions_router
 from routes.overview_routes import router as overview_router
 from routes.standup_routes import router as standup_router
+from routes.quests_routes import router as quests_router
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -47,6 +50,10 @@ tags_metadata = [
         "description": "Read prioritized daily quest recommendations.",
     },
     {
+        "name": "Missions",
+        "description": "Generate AI mission recommendations without mutating working-today state.",
+    },
+    {
         "name": "Auth",
         "description": "Local filesystem login and profile creation.",
     },
@@ -61,6 +68,10 @@ tags_metadata = [
     {
         "name": "Overviews",
         "description": "Daily and weekly productivity overviews with AI-generated insights.",
+    },
+    {
+        "name": "Insights",
+        "description": "AI-generated daily risks, recommendations, and task insights.",
     },
 ]
 
@@ -82,6 +93,9 @@ app.add_middleware(
 )
 app.include_router(overview_router)
 app.include_router(standup_router)
+app.include_router(insights_router)
+app.include_router(missions_router)
+app.include_router(quests_router)
 
 @app.get("/", tags=["Health"])
 def root(): return {"msg":"DevQuest Pro"}
