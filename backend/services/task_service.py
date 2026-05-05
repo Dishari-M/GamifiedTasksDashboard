@@ -22,6 +22,8 @@ def get_tasks():
 
 def complete_task(task_id):
     conn=get_connection();cur=conn.cursor()
-    cur.execute("UPDATE DEVQUEST_WORK_ITEMS SET STATUS='done' WHERE ID=:1",(task_id,))
-    conn.commit();conn.close()
-    return {"id":task_id,"status":"done"}
+    cur.execute("UPDATE DEVQUEST_WORK_ITEMS SET STATUS='done' WHERE ID=:1", (task_id,))
+    conn.commit()
+    updated=cur.rowcount
+    conn.close()
+    return {"id":task_id,"status":"done","updated":updated}
