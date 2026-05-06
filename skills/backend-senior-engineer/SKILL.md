@@ -93,7 +93,7 @@ Use this pattern for OCI GenAI or Agent-backed endpoints:
 
 ## Connector Standard
 
-For Jira, Outlook Calendar, and Microsoft To Do:
+For Jira, Outlook Calendar:
 
 - Store credentials only in environment variables or a secrets manager.
 - Fetch incrementally using updated-since or delta mechanisms when available.

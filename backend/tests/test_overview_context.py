@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from services import overview_ai_service, overview_service
 
@@ -125,6 +125,58 @@ class OverviewContextTests(unittest.TestCase):
         self.assertEqual(overview["new_learnings"][:2], ["Saved weekly learning", "Generated learning"])
         self.assertEqual(overview["went_well"][:2], ["Saved weekly win", "Generated win"])
         self.assertEqual(overview["went_wrong"][:2], ["Saved weekly risk", "Generated risk"])
+
+    def test_oracle_daily_overview_ensures_storage_before_read(self):
+        cur = object()
+        conn = Mock()
+        conn.cursor.return_value = cur
+        context = overview_service._context(
+            start_date="2026-05-06",
+            end_date="2026-05-06",
+            completed_tasks=[],
+            worked_tasks=[],
+            calendar_events=[],
+            focus_sessions=[],
+            daily_overviews=[],
+        )
+
+        with (
+            patch("services.overview_service._get_connection", return_value=conn),
+            patch("services.overview_service.overview_repository.ensure_overview_storage") as ensure_storage,
+            patch("services.overview_service.overview_repository.fetch_daily_overview_row", return_value=None),
+            patch("services.overview_service.overview_repository.fetch_daily_overviews", return_value=[]),
+            patch("services.overview_service._oracle_context", return_value=context),
+        ):
+            response = overview_service._oracle_daily_overview("2026-05-06", user_id=42, generate=False)
+
+        ensure_storage.assert_called_once_with(cur)
+        self.assertEqual(response["date"], "2026-05-06")
+
+    def test_oracle_weekly_overview_ensures_storage_before_read(self):
+        cur = object()
+        conn = Mock()
+        conn.cursor.return_value = cur
+        context = overview_service._context(
+            start_date="2026-05-04",
+            end_date="2026-05-10",
+            completed_tasks=[],
+            worked_tasks=[],
+            calendar_events=[],
+            focus_sessions=[],
+            daily_overviews=[],
+        )
+
+        with (
+            patch("services.overview_service._get_connection", return_value=conn),
+            patch("services.overview_service.overview_repository.ensure_overview_storage") as ensure_storage,
+            patch("services.overview_service.overview_repository.fetch_weekly_overview_row", return_value=None),
+            patch("services.overview_service.overview_repository.fetch_daily_overviews_for_week", return_value=[]),
+            patch("services.overview_service._oracle_context", return_value=context),
+        ):
+            response = overview_service._oracle_weekly_overview("2026-05-04", "2026-05-10", user_id=42, generate=False)
+
+        ensure_storage.assert_called_once_with(cur)
+        self.assertEqual(response["week_start"], "2026-05-04")
 
 
 if __name__ == "__main__":
