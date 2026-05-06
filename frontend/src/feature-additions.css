@@ -2978,6 +2978,7 @@ html[data-theme="light"] .accomplished-list article,
 html[data-theme="light"] .next-quest-card,
 html[data-theme="light"] .quest-path-row,
 html[data-theme="light"] .quest-summary,
+html[data-theme="light"] .focus-active-task-card,
 html[data-theme="light"] .focus-selected-task,
 html[data-theme="light"] .focus-breakdown-item,
 html[data-theme="light"] .focus-session-list article,
@@ -2998,9 +2999,11 @@ html[data-theme="light"] .source-row strong,
 html[data-theme="light"] .insight-list strong,
 html[data-theme="light"] .accomplished-list strong,
 html[data-theme="light"] .next-quest-card h3,
+html[data-theme="light"] .completion-momentum-copy strong,
 html[data-theme="light"] .quest-summary strong,
 html[data-theme="light"] .quest-path-copy strong,
 html[data-theme="light"] .completion-undo-notice strong,
+html[data-theme="light"] .focus-active-task-card strong,
 html[data-theme="light"] .focus-quest-saved strong,
 html[data-theme="light"] .focus-selected-task strong,
 html[data-theme="light"] .focus-context-line strong,
@@ -3048,6 +3051,7 @@ html[data-theme="light"] .accomplished-list span,
 html[data-theme="light"] .quest-board-summary,
 html[data-theme="light"] .quest-path-copy span,
 html[data-theme="light"] .quest-path-copy p,
+html[data-theme="light"] .focus-active-task-card span,
 html[data-theme="light"] .focus-selected-task span,
 html[data-theme="light"] .focus-breakdown-item span,
 html[data-theme="light"] .focus-session-list span,
@@ -3148,6 +3152,28 @@ html[data-theme="light"] .table-action,
 html[data-theme="light"] .focus-chip {
   min-width: 24px;
   min-height: 24px;
+}
+
+html[data-theme="light"] .focus-period-control {
+  background: #fffdf7;
+  border-color: var(--a11y-border-soft);
+}
+
+html[data-theme="light"] .focus-period-control button {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-period-control button:hover,
+html[data-theme="light"] .focus-period-control button:focus-visible {
+  color: var(--text);
+  background: #f1eadf;
+  border-color: rgba(112, 96, 70, 0.56);
+}
+
+html[data-theme="light"] .focus-period-control button.active {
+  color: #14231d;
+  background: #dcebf1;
+  border-color: #467f9c;
 }
 
 html[data-theme="light"] .field-error,
