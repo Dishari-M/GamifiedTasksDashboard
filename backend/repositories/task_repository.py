@@ -122,6 +122,28 @@ def fetch_task_for_update(cur, user_id, task_id):
     return {"task_id": row[0], "user_id": row[1], "status": row[2], "row_version": row[3]}
 
 
+def fetch_task_by_external_identity_for_update(cur, user_id, external_source, external_id):
+    cur.execute(
+        """
+        SELECT TASK_ID, USER_ID, STATUS, ROW_VERSION
+        FROM WORK_ITEMS
+        WHERE USER_ID = :user_id
+          AND EXTERNAL_SOURCE = :external_source
+          AND EXTERNAL_ID = :external_id
+        FOR UPDATE
+        """,
+        {
+            "user_id": user_id,
+            "external_source": external_source,
+            "external_id": external_id,
+        },
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {"task_id": row[0], "user_id": row[1], "status": row[2], "row_version": row[3]}
+
+
 def insert_task(cur, user_id, task, ai):
     task_id = cur.var(int)
     cur.execute(

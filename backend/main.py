@@ -566,10 +566,10 @@ def update_oracle_today(task_id: str, payload: dict, user_id: int = Depends(curr
 
 
 @app.post("/api/v1/sync/run", tags=["Sync"])
-async def run_filesystem_sync(payload: dict | None = None, user_id: str = Depends(current_user_id)):
+async def run_filesystem_sync(payload: dict | None = None, user_id: int = Depends(current_oracle_user_id)):
     return await run_sync(codex_config, user_id, (payload or {}).get("sources"))
 
 
 @app.get("/api/v1/sync/runs", tags=["Sync"])
-def filesystem_sync_runs(user_id: str = Depends(current_user_id)):
+def filesystem_sync_runs(user_id: int = Depends(current_oracle_user_id)):
     return latest_sync_run(user_id)

@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
+import oracledb
 from fastapi import HTTPException
 
+from db import get_connection
+from repositories import task_repository
+from services.api_cache import invalidate_user_cache
 from services.filesystem_store import read_records, with_store_lock, write_records
+from services.user_context import parse_oracle_user_id
 
 
 SYNC_RUNS_FILE = "sync_runs.json"
 CALENDAR_EVENTS_FILE = "calendar_events.json"
-WORK_ITEMS_FILE = "work_items.json"
-WORK_ITEM_EVENTS_FILE = "work_item_events.json"
-DAILY_WORK_ITEMS_FILE = "daily_work_items.json"
-USERS_FILE = "users.json"
 LOCAL_OFFSET = timezone(timedelta(hours=5, minutes=30))
+OUTLOOK_EVENT_SOURCE = "Outlook"
+OUTLOOK_SYNC_SOURCES = ("Outlook", "Outlook Calendar")
+TASK_RELATED_CACHE_NAMESPACES = ("task_list", "dashboard_today")
+CALENDAR_RELATED_CACHE_NAMESPACES = ("dashboard_today", "capacity")
 
 
 def _now_iso():
@@ -31,24 +37,33 @@ def _next_id(records, field):
 
 
 def _user_profile(user_id):
-    users = read_records(USERS_FILE)
-    for user in users:
-        if str(user.get("user_id") or user.get("id")) == str(user_id):
-            return user
-    return {}
-
-
-def _first_jira_key(user_id):
-    tasks = read_records(WORK_ITEMS_FILE)
-    for task in tasks:
-        if task.get("user_id") != user_id:
-            continue
-        if task.get("external_source") != "Jira" and task.get("source") != "Jira":
-            continue
-        key = str(task.get("external_id") or task.get("externalId") or "").strip().upper()
-        if key:
-            return key
-    return ""
+    oracle_user_id = parse_oracle_user_id(user_id)
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT USER_ID, DISPLAY_NAME, EMAIL, ROLE_NAME, TIMEZONE
+            FROM APP_USERS
+            WHERE USER_ID = :user_id
+            """,
+            {"user_id": oracle_user_id},
+        )
+        row = cur.fetchone()
+        if not row:
+            return {}
+        return {
+            "user_id": row[0],
+            "id": f"user-{row[0]}",
+            "display_name": row[1],
+            "email": row[2],
+            "role_name": row[3],
+            "timezone": row[4],
+        }
+    finally:
+        if conn:
+            conn.close()
 
 
 def _sync_run_response(run):
@@ -76,13 +91,12 @@ def latest_sync_run(user_id):
 
 
 def list_calendar_events(date=None, user_id=None):
+    if user_id is not None:
+        return _list_oracle_calendar_events(user_id, date or _today_key())
+
     def action():
         work_date = date or _today_key()
-        events = [
-            event
-            for event in read_records(CALENDAR_EVENTS_FILE)
-            if event.get("event_date") == work_date and (not user_id or event.get("user_id") == user_id)
-        ]
+        events = [event for event in read_records(CALENDAR_EVENTS_FILE) if event.get("event_date") == work_date]
         active = [event for event in events if not event.get("removed")]
         return sorted(active, key=lambda event: event.get("start_at") or "")
 
@@ -90,6 +104,9 @@ def list_calendar_events(date=None, user_id=None):
 
 
 def list_removed_calendar_events(date=None, user_id=None):
+    if user_id is not None:
+        return []
+
     def action():
         work_date = date or _today_key()
         events = [
@@ -124,6 +141,12 @@ async def fetch_outlook_calendar_events(codex_config, user_id, date):
 
 
 def remove_calendar_event(event_id, user_id):
+    oracle_user_id = parse_oracle_user_id(user_id)
+    event = _fetch_oracle_calendar_event(oracle_user_id, event_id)
+    if event:
+        _delete_oracle_calendar_event(oracle_user_id, event_id)
+        return {"removed": True, "event": event}
+
     def action():
         events = read_records(CALENDAR_EVENTS_FILE)
         event_id_text = str(event_id)
@@ -149,6 +172,9 @@ def remove_calendar_event(event_id, user_id):
 
 
 def restore_calendar_event(event_id, user_id):
+    if _fetch_oracle_calendar_event(parse_oracle_user_id(user_id), event_id):
+        return {"restored": True, "event": _fetch_oracle_calendar_event(parse_oracle_user_id(user_id), event_id)}
+
     def action():
         events = read_records(CALENDAR_EVENTS_FILE)
         event_id_text = str(event_id)
@@ -180,6 +206,11 @@ def update_calendar_event(event_id, user_id, payload):
             status_code=422,
             detail={"code": "CALENDAR_EVENT_TITLE_REQUIRED", "message": "Calendar event title is required."},
         )
+
+    oracle_user_id = parse_oracle_user_id(user_id)
+    event = _update_oracle_calendar_event(oracle_user_id, event_id, title)
+    if event:
+        return {"updated": True, "event": event}
 
     def action():
         events = read_records(CALENDAR_EVENTS_FILE)
@@ -428,65 +459,76 @@ def _date_or_none(value):
 
 
 def _upsert_jira_work_items(user_id, issues):
-    def action():
-        tasks = read_records(WORK_ITEMS_FILE)
-        events = read_records(WORK_ITEM_EVENTS_FILE)
-        daily_items = read_records(DAILY_WORK_ITEMS_FILE)
-        now = _now_iso()
-        today = _today_key()
-        created = 0
-        updated = 0
-        synced_tasks = []
+    oracle_user_id = parse_oracle_user_id(user_id)
+    today = _today_key()
+    created = 0
+    updated = 0
+    synced_tasks = []
+    conn = None
 
-        task_by_jira_key = {
-            str(task.get("external_id") or task.get("externalId") or "").strip().upper(): task
-            for task in tasks
-            if task.get("user_id") == user_id and task.get("external_source") == "Jira"
-        }
-
-        next_task_id = _next_id(tasks, "task_id")
-        next_event_id = _next_id(events, "event_id")
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
         for issue in issues:
             jira_key = issue["jira_key"]
-            task = task_by_jira_key.get(jira_key)
-            if task is None:
-                task = _new_jira_task(next_task_id, user_id, issue, now, today)
-                next_task_id += 1
-                tasks.append(task)
-                task_by_jira_key[jira_key] = task
-                events.append(_work_item_event(next_event_id, task, "TASK_CREATED", now, task))
-                next_event_id += 1
+            existing = task_repository.fetch_task_by_external_identity_for_update(
+                cur,
+                oracle_user_id,
+                "Jira",
+                jira_key,
+            )
+            if existing is None:
+                task = _jira_task_payload(issue, today)
+                ai = _jira_ai_payload(issue)
+                task_id = task_repository.insert_task(cur, oracle_user_id, task, ai)
+                task_repository.insert_work_date(cur, oracle_user_id, task_id, today, task["estimated_minutes"])
+                task_repository.insert_task_event(
+                    cur,
+                    oracle_user_id,
+                    task_id,
+                    "TASK_CREATED",
+                    None,
+                    {"source": "Jira", "jira_key": jira_key, "synced_at": _now_iso()},
+                )
                 created += 1
             else:
-                _update_jira_task(task, issue, now, today)
-                events.append(
-                    _work_item_event(
-                        next_event_id,
-                        task,
-                        "JIRA_SYNC_UPDATED",
-                        now,
-                        {"jira_key": jira_key, "status": issue.get("status"), "synced_at": now},
-                    )
+                task_id = existing["task_id"]
+                fields = _jira_update_fields(issue)
+                task_repository.update_task_fields(cur, oracle_user_id, task_id, fields)
+                task_repository.insert_work_date(cur, oracle_user_id, task_id, today, 60)
+                task_repository.insert_task_event(
+                    cur,
+                    oracle_user_id,
+                    task_id,
+                    "JIRA_SYNC_UPDATED",
+                    {"row_version": existing["row_version"]},
+                    {"jira_key": jira_key, "status": issue.get("status"), "synced_at": _now_iso()},
                 )
-                next_event_id += 1
                 updated += 1
 
-            _upsert_sync_daily_work_item(daily_items, task, now, today)
-            synced_tasks.append(_task_response(task))
+            synced_tasks.append(task_repository.fetch_task(cur, oracle_user_id, task_id, today))
 
-        write_records(WORK_ITEMS_FILE, tasks)
-        write_records(WORK_ITEM_EVENTS_FILE, events)
-        write_records(DAILY_WORK_ITEMS_FILE, daily_items)
+        conn.commit()
+        invalidate_user_cache(oracle_user_id, TASK_RELATED_CACHE_NAMESPACES)
         return {"tasks": synced_tasks, "created": created, "updated": updated}
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "JIRA_SYNC_STORAGE_UNAVAILABLE", "message": "Jira sync storage is unavailable."},
+        ) from exc
+    except Exception:
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            conn.close()
 
-    return with_store_lock(action)
 
-
-def _new_jira_task(task_id, user_id, issue, now, today):
-    task = {
-        "task_id": task_id,
-        "id": str(task_id),
-        "user_id": user_id,
+def _jira_task_payload(issue, today):
+    return {
         "external_source": "Jira",
         "external_id": issue["jira_key"],
         "title": issue["title"],
@@ -502,83 +544,48 @@ def _new_jira_task(task_id, user_id, issue, now, today):
         "xp_value": 60,
         "notes": f"Jira status at sync: {issue.get('status') or 'Open'}",
         "labels": issue.get("labels") or [],
-        "worked_dates": today,
+        "worked_dates": [today],
         "working_today": True,
         "run_ai_enrichment": False,
-        "row_version": 1,
-        "created_at": now,
-        "updated_at": now,
-        "completed_at": None,
-        "difficulty": "Medium",
-        "impact": _impact_for_priority(issue["priority"]),
-        "priority_score": _priority_score(issue["priority"]),
-        "ai_insight": f"{issue['priority']} priority {issue['task_type']} synced from Jira.",
     }
-    return _with_task_aliases(task)
 
 
-def _update_jira_task(task, issue, now, today):
-    task.update(
-        {
-            "title": issue["title"],
-            "description": issue["description"],
-            "task_type": issue["task_type"],
-            "priority": issue["priority"],
-            "status": "In Progress",
-            "project_key": issue.get("project_key"),
-            "due_at": issue.get("due_at"),
-            "completed_at": None,
-            "labels": issue.get("labels") or [],
-            "working_today": True,
-            "updated_at": now,
-            "row_version": int(task.get("row_version") or 1) + 1,
-            "impact": _impact_for_priority(issue["priority"]),
-            "priority_score": _priority_score(issue["priority"]),
-            "ai_insight": f"{issue['priority']} priority {issue['task_type']} synced from Jira.",
-        }
-    )
-    worked_dates = _worked_dates(task)
-    if today not in worked_dates:
-        worked_dates.append(today)
-    task["worked_dates"] = ",".join(sorted(set(worked_dates)))
-    _with_task_aliases(task)
-
-
-def _upsert_sync_daily_work_item(daily_items, task, now, today):
-    for item in daily_items:
-        if item.get("user_id") == task["user_id"] and item.get("task_id") == task["task_id"] and item.get("work_date") == today:
-            item["is_working_today"] = True
-            item["updated_at"] = now
-            return item
-    item = {
-        "daily_work_item_id": _next_id(daily_items, "daily_work_item_id"),
-        "task_id": task["task_id"],
-        "user_id": task["user_id"],
-        "work_date": today,
-        "is_working_today": True,
-        "created_at": now,
-        "updated_at": now,
-    }
-    daily_items.append(item)
-    return item
-
-
-def _work_item_event(event_id, task, event_type, now, payload):
+def _jira_ai_payload(issue):
     return {
-        "event_id": event_id,
-        "task_id": task["task_id"],
-        "user_id": task["user_id"],
-        "event_type": event_type,
-        "created_at": now,
-        "payload": payload,
+        "difficulty": "Medium",
+        "impact_score": _impact_for_priority(issue["priority"]),
+        "priority_score": _priority_score(issue["priority"]),
+        "effort_minutes": 60,
+        "category": issue["task_type"],
+        "insight": f"{issue['priority']} priority {issue['task_type']} synced from Jira.",
+        "model_id": "jira-sync",
+        "xp_value": 60,
     }
 
 
-def _worked_dates(task):
-    value = task.get("worked_dates") or task.get("workedDates") or ""
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return [item.strip() for item in str(value).split(",") if item.strip()]
+def _jira_update_fields(issue):
+    return [
+        ("TITLE", "title", issue["title"]),
+        ("DESCRIPTION", "description", issue["description"]),
+        ("TASK_TYPE", "task_type", issue["task_type"]),
+        ("PRIORITY", "priority", issue["priority"]),
+        ("STATUS", "status", "In Progress"),
+        ("PROJECT_KEY", "project_key", issue.get("project_key")),
+        ("DUE_DATE", "due_at", issue.get("due_at")),
+        ("COMPLETED_AT", "completed_at", None),
+        ("ESTIMATED_MINUTES", "estimated_minutes", 60),
+        ("XP_VALUE", "xp_value", 60),
+        ("NOTES", "notes", f"Jira status at sync: {issue.get('status') or 'Open'}"),
+        ("LABELS_JSON", "labels_json", json.dumps(issue.get("labels") or [], separators=(",", ":"))),
+        ("AI_DIFFICULTY", "ai_difficulty", "Medium"),
+        ("AI_IMPACT_SCORE", "ai_impact_score", _impact_for_priority(issue["priority"])),
+        ("AI_PRIORITY_SCORE", "ai_priority_score", _priority_score(issue["priority"])),
+        ("AI_EFFORT_MINUTES", "ai_effort_minutes", 60),
+        ("AI_CATEGORY", "ai_category", issue["task_type"]),
+        ("AI_INSIGHT", "ai_insight", f"{issue['priority']} priority {issue['task_type']} synced from Jira."),
+        ("AI_MODEL_VERSION", "ai_model_version", "jira-sync"),
+        ("AI_ENRICHED_AT", "ai_enriched_at", datetime.now(timezone.utc)),
+    ]
 
 
 def _impact_for_priority(priority):
@@ -587,35 +594,6 @@ def _impact_for_priority(priority):
 
 def _priority_score(priority):
     return round(min(0.99, (_impact_for_priority(priority) * 0.9 + 0.1) / 10), 2)
-
-
-def _task_response(task):
-    return _with_task_aliases(dict(task))
-
-
-def _with_task_aliases(task):
-    worked_dates = sorted(set(_worked_dates(task)))
-    task["worked_dates"] = ",".join(worked_dates)
-    task["source"] = task["external_source"]
-    task["type"] = task["task_type"]
-    task["externalId"] = task["external_id"]
-    task["projectKey"] = task.get("project_key")
-    task["dueDate"] = task.get("due_at")
-    task["startDate"] = task.get("start_at")
-    task["time"] = task.get("estimated_minutes")
-    task["actualMinutes"] = task.get("actual_minutes")
-    task["xp"] = task.get("xp_value")
-    task["workedDates"] = worked_dates
-    task["working_today"] = bool(task.get("working_today"))
-    task["workingToday"] = bool(task.get("working_today"))
-    task["completedAt"] = task.get("completed_at")
-    if "priority_score" in task:
-        task["priorityScore"] = task["priority_score"]
-    if "ai_insight" in task:
-        task["aiInsight"] = task["ai_insight"]
-    task["jiraTshirtSize"] = task.get("jira_tshirt_size")
-    task["jiraTshirtSizing"] = task.get("jira_tshirt_sizing")
-    return task
 
 
 async def _sync_outlook(codex_config, user_id, work_date=None):
@@ -637,7 +615,7 @@ async def _sync_outlook(codex_config, user_id, work_date=None):
         }
     except Exception as exc:
         return {
-            **_source_status("Outlook Calendar", "FAILED", "Outlook Calendar sync failed.", str(exc)),
+            **_source_status("Outlook Calendar", "FAILED", "Outlook Calendar sync failed.", _exception_message(exc)),
             "events": [],
         }
 
@@ -700,8 +678,8 @@ def _normalize_outlook_events(raw_events, user_id, work_date):
                 "event_id": index + 1,
                 "user_id": user_id,
                 "event_date": work_date,
-                "external_source": "Outlook Calendar",
-                "external_id": str(raw_event.get("external_id") or raw_event.get("id") or f"outlook-{work_date}-{index + 1}"),
+                "external_source": OUTLOOK_EVENT_SOURCE,
+                "external_id": _outlook_external_id(raw_event, work_date, start_at, title, index),
                 "title": title,
                 "start_at": start_at,
                 "end_at": end_at,
@@ -718,6 +696,8 @@ def _normalize_outlook_events(raw_events, user_id, work_date):
 
 
 def _should_hide_outlook_event(title, start_at, end_at, duration, raw_event):
+    if not start_at or not end_at or duration <= 0:
+        return True
     lower_title = str(title or "").lower()
     location = str(raw_event.get("location") or "").lower()
     status = str(raw_event.get("status") or raw_event.get("show_as") or raw_event.get("showAs") or "").lower()
@@ -732,24 +712,372 @@ def _should_hide_outlook_event(title, start_at, end_at, duration, raw_event):
     return is_all_day
 
 
-def _replace_calendar_events(user_id, work_date, events):
-    def action():
-        existing = [
-            event
-            for event in read_records(CALENDAR_EVENTS_FILE)
-            if not (
-                event.get("user_id") == user_id
-                and event.get("event_date") == work_date
-                and not event.get("removed")
-            )
-        ]
-        next_id = _next_id(existing, "event_id")
-        for event in events:
-            event["event_id"] = next_id
-            next_id += 1
-        write_records(CALENDAR_EVENTS_FILE, existing + events)
+def _outlook_external_id(raw_event, work_date, start_at, title, index):
+    external_id = str(
+        raw_event.get("external_id")
+        or raw_event.get("externalId")
+        or raw_event.get("id")
+        or raw_event.get("iCalUId")
+        or raw_event.get("ical_uid")
+        or ""
+    ).strip()
+    if external_id:
+        return external_id[:200]
+    stable = f"outlook-{work_date}-{start_at or index}-{title}"
+    return stable[:200]
 
-    return with_store_lock(action)
+
+def _replace_calendar_events(user_id, work_date, events):
+    oracle_user_id = parse_oracle_user_id(user_id)
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        existing_by_external_id = _oracle_outlook_events_by_external_id(cur, oracle_user_id)
+        existing_for_day = _oracle_outlook_events_by_external_id(cur, oracle_user_id, work_date)
+        seen_external_ids = set()
+        for event in events:
+            event["external_source"] = OUTLOOK_EVENT_SOURCE
+            event["user_id"] = oracle_user_id
+            external_id = str(event.get("external_id") or "").strip()
+            if not external_id:
+                continue
+            seen_external_ids.add(external_id)
+            existing = existing_by_external_id.get(external_id)
+            if existing:
+                event["event_id"] = existing["event_id"]
+                _update_oracle_outlook_event(cur, oracle_user_id, existing["event_id"], event)
+            else:
+                event["event_id"] = _insert_oracle_outlook_event(cur, oracle_user_id, event)
+        stale_event_ids = [
+            event["event_id"]
+            for external_id, event in existing_for_day.items()
+            if external_id not in seen_external_ids
+        ]
+        _delete_stale_oracle_outlook_events(cur, oracle_user_id, stale_event_ids)
+        conn.commit()
+        invalidate_user_cache(oracle_user_id, CALENDAR_RELATED_CACHE_NAMESPACES)
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "CALENDAR_STORAGE_UNAVAILABLE",
+                "message": "Calendar storage is unavailable.",
+                "error": _oracle_error_message(exc),
+            },
+        ) from exc
+    finally:
+        if conn:
+            conn.close()
+
+    return events
+
+
+def _oracle_outlook_events_by_external_id(cur, user_id, work_date=None):
+    source_names = _outlook_source_binds()
+    day_filter = ""
+    binds = {"user_id": user_id, **source_names["binds"]}
+    if work_date:
+        day_filter = "AND TRUNC(CAST(START_AT AS TIMESTAMP)) = TO_DATE(:work_date, 'YYYY-MM-DD')"
+        binds["work_date"] = work_date
+    cur.execute(
+        f"""
+        SELECT EVENT_ID, EXTERNAL_ID
+        FROM CALENDAR_EVENTS
+        WHERE USER_ID = :user_id
+          AND EXTERNAL_SOURCE IN ({source_names["placeholders"]})
+          {day_filter}
+        """,
+        binds,
+    )
+    return {
+        str(row[1] or "").strip(): {"event_id": row[0], "external_id": row[1]}
+        for row in cur.fetchall()
+        if str(row[1] or "").strip()
+    }
+
+
+def _insert_oracle_outlook_event(cur, user_id, event):
+    event_id = cur.var(int)
+    cur.execute(
+        """
+        INSERT INTO CALENDAR_EVENTS (
+            EVENT_ID,
+            USER_ID,
+            EXTERNAL_SOURCE,
+            EXTERNAL_ID,
+            TITLE,
+            DESCRIPTION,
+            START_AT,
+            END_AT,
+            DURATION_MINUTES,
+            IS_MEETING,
+            IS_FOCUS_BLOCK,
+            ATTENDEE_COUNT,
+            CREATED_AT,
+            UPDATED_AT,
+            ROW_VERSION
+        )
+        VALUES (
+            CALENDAR_EVENTS_SEQ.NEXTVAL,
+            :user_id,
+            :external_source,
+            :external_id,
+            :title,
+            :description,
+            :start_at,
+            :end_at,
+            :duration_minutes,
+            :is_meeting,
+            :is_focus_block,
+            :attendee_count,
+            SYSTIMESTAMP,
+            SYSTIMESTAMP,
+            1
+        )
+        RETURNING EVENT_ID INTO :event_id
+        """,
+        _oracle_calendar_binds(user_id, event, event_id),
+    )
+    return int(event_id.getvalue()[0])
+
+
+def _update_oracle_outlook_event(cur, user_id, event_id, event):
+    binds = _oracle_calendar_binds(user_id, event)
+    binds["event_id"] = event_id
+    cur.execute(
+        """
+        UPDATE CALENDAR_EVENTS
+        SET EXTERNAL_SOURCE = :external_source,
+            EXTERNAL_ID = :external_id,
+            TITLE = :title,
+            DESCRIPTION = :description,
+            START_AT = :start_at,
+            END_AT = :end_at,
+            DURATION_MINUTES = :duration_minutes,
+            IS_MEETING = :is_meeting,
+            IS_FOCUS_BLOCK = :is_focus_block,
+            ATTENDEE_COUNT = :attendee_count,
+            UPDATED_AT = SYSTIMESTAMP,
+            ROW_VERSION = ROW_VERSION + 1
+        WHERE USER_ID = :user_id
+          AND EVENT_ID = :event_id
+        """,
+        binds,
+    )
+
+
+def _delete_stale_oracle_outlook_events(cur, user_id, event_ids):
+    if not event_ids:
+        return
+    binds = {"user_id": user_id}
+    placeholders = []
+    for index, event_id in enumerate(event_ids):
+        bind = f"event_id_{index}"
+        binds[bind] = event_id
+        placeholders.append(f":{bind}")
+    cur.execute(
+        f"""
+        DELETE FROM CALENDAR_EVENTS
+        WHERE USER_ID = :user_id
+          AND EVENT_ID IN ({", ".join(placeholders)})
+        """,
+        binds,
+    )
+
+
+def _oracle_calendar_binds(user_id, event, event_id=None):
+    binds = {
+        "user_id": user_id,
+        "external_source": _max_text(event.get("external_source") or OUTLOOK_EVENT_SOURCE, 40),
+        "external_id": _max_text(event.get("external_id"), 200),
+        "title": _max_text(event.get("title") or "Outlook event", 300),
+        "description": event.get("description") or "",
+        "start_at": _datetime_or_none(event.get("start_at")),
+        "end_at": _datetime_or_none(event.get("end_at")),
+        "duration_minutes": event.get("duration_minutes") or 0,
+        "is_meeting": 1 if event.get("is_meeting") else 0,
+        "is_focus_block": 1 if event.get("is_focus_block") else 0,
+        "attendee_count": event.get("attendee_count") or 0,
+    }
+    if event_id is not None:
+        binds["event_id"] = event_id
+    return binds
+
+
+def _outlook_source_binds():
+    binds = {}
+    placeholders = []
+    for index, source in enumerate(OUTLOOK_SYNC_SOURCES):
+        bind = f"source_{index}"
+        binds[bind] = source
+        placeholders.append(f":{bind}")
+    return {"binds": binds, "placeholders": ", ".join(placeholders)}
+
+
+def _list_oracle_calendar_events(user_id, work_date):
+    oracle_user_id = parse_oracle_user_id(user_id)
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                EVENT_ID,
+                USER_ID,
+                EXTERNAL_SOURCE,
+                EXTERNAL_ID,
+                TITLE,
+                DESCRIPTION,
+                START_AT,
+                END_AT,
+                DURATION_MINUTES,
+                IS_MEETING,
+                IS_FOCUS_BLOCK,
+                ATTENDEE_COUNT,
+                CREATED_AT,
+                UPDATED_AT,
+                ROW_VERSION
+            FROM CALENDAR_EVENTS
+            WHERE USER_ID = :user_id
+              AND TRUNC(CAST(START_AT AS TIMESTAMP)) = TO_DATE(:work_date, 'YYYY-MM-DD')
+            ORDER BY START_AT
+            """,
+            {"user_id": oracle_user_id, "work_date": work_date},
+        )
+        return [_calendar_event_row(row) for row in cur.fetchall()]
+    except oracledb.DatabaseError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "CALENDAR_STORAGE_UNAVAILABLE", "message": "Calendar storage is unavailable."},
+        ) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def _fetch_oracle_calendar_event(user_id, event_id):
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                EVENT_ID,
+                USER_ID,
+                EXTERNAL_SOURCE,
+                EXTERNAL_ID,
+                TITLE,
+                DESCRIPTION,
+                START_AT,
+                END_AT,
+                DURATION_MINUTES,
+                IS_MEETING,
+                IS_FOCUS_BLOCK,
+                ATTENDEE_COUNT,
+                CREATED_AT,
+                UPDATED_AT,
+                ROW_VERSION
+            FROM CALENDAR_EVENTS
+            WHERE USER_ID = :user_id
+              AND EVENT_ID = :event_id
+            """,
+            {"user_id": user_id, "event_id": event_id},
+        )
+        row = cur.fetchone()
+        return _calendar_event_row(row) if row else None
+    except oracledb.DatabaseError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "CALENDAR_STORAGE_UNAVAILABLE", "message": "Calendar storage is unavailable."},
+        ) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def _update_oracle_calendar_event(user_id, event_id, title):
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE CALENDAR_EVENTS
+            SET TITLE = :title,
+                UPDATED_AT = SYSTIMESTAMP,
+                ROW_VERSION = ROW_VERSION + 1
+            WHERE USER_ID = :user_id
+              AND EVENT_ID = :event_id
+            """,
+            {"user_id": user_id, "event_id": event_id, "title": title},
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            return None
+        conn.commit()
+        return _fetch_oracle_calendar_event(user_id, event_id)
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "CALENDAR_STORAGE_UNAVAILABLE", "message": "Calendar storage is unavailable."},
+        ) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def _delete_oracle_calendar_event(user_id, event_id):
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM CALENDAR_EVENTS
+            WHERE USER_ID = :user_id
+              AND EVENT_ID = :event_id
+            """,
+            {"user_id": user_id, "event_id": event_id},
+        )
+        conn.commit()
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "CALENDAR_STORAGE_UNAVAILABLE", "message": "Calendar storage is unavailable."},
+        ) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def _calendar_event_row(row):
+    return {
+        "event_id": row[0],
+        "id": row[0],
+        "user_id": row[1],
+        "external_source": row[2],
+        "external_id": row[3],
+        "title": row[4],
+        "description": str(row[5] or ""),
+        "start_at": row[6].isoformat() if row[6] else None,
+        "end_at": row[7].isoformat() if row[7] else None,
+        "duration_minutes": row[8] or 0,
+        "is_meeting": bool(row[9]),
+        "is_focus_block": bool(row[10]),
+        "attendee_count": row[11] or 0,
+        "created_at": row[12].isoformat() if row[12] else None,
+        "updated_at": row[13].isoformat() if row[13] else None,
+        "row_version": row[14] or 1,
+    }
 
 
 def _normalize_date(value):
@@ -764,6 +1092,33 @@ def _normalize_date(value):
             detail={"code": "VALIDATION_ERROR", "message": "date must use YYYY-MM-DD format."},
         ) from exc
     return text
+
+
+def _datetime_or_none(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "VALIDATION_ERROR", "message": "calendar event timestamps must use ISO format."},
+        ) from exc
+
+
+def _max_text(value, max_length):
+    text = str(value or "").strip()
+    return text[:max_length]
+
+
+def _oracle_error_message(exc):
+    error = exc.args[0] if getattr(exc, "args", None) else exc
+    message = getattr(error, "message", None)
+    code = getattr(error, "code", None)
+    if message and code:
+        return f"ORA-{code}: {message}"
+    return str(message or exc)
 
 
 def _duration_minutes(start_at, end_at, fallback=None):
@@ -796,6 +1151,15 @@ def _source_status(source, status, message, error=""):
         "message": message,
         "error": error,
     }
+
+
+def _exception_message(exc):
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        return detail.get("error") or detail.get("message") or str(detail)
+    if detail:
+        return str(detail)
+    return str(exc) or exc.__class__.__name__
 
 
 def _selected_sync_sources(sources):

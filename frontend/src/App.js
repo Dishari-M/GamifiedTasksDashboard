@@ -1061,13 +1061,18 @@ const PageLoader = ({ title = "Loading", detail = "Getting the latest data ready
   </main>
 );
 
-const FloatingNotice = ({ notice }) => {
+const FloatingNotice = ({ notice, onDismiss }) => {
   if (!notice) return null;
   return (
     <div className={`floating-notice floating-notice-${notice.tone || "success"}`} role="status" aria-live="polite" data-testid="floating-notice">
-      <strong>{notice.title}</strong>
-      {notice.message && <span>{notice.message}</span>}
-      {notice.detail && <span>{notice.detail}</span>}
+      <div className="floating-notice-copy">
+        <strong>{notice.title}</strong>
+        {notice.message && <span>{notice.message}</span>}
+        {notice.detail && <span>{notice.detail}</span>}
+      </div>
+      <button className="floating-notice-close" type="button" onClick={onDismiss} aria-label="Dismiss notification" data-testid="floating-notice-close">
+        <X size={16} weight="bold" aria-hidden="true" />
+      </button>
     </div>
   );
 };
@@ -1201,7 +1206,7 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
   );
 };
 
-const CalendarPage = ({ overview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent, selectedDate, onDateChange, onFetchDate, isFetchingDate }) => (
+const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent }) => (
   <main className="page-stack calendar-page" data-testid="calendar-page">
     <section className="surface weekly-panel" data-testid="weekly-overview-card">
       <div className="section-heading">
@@ -1214,7 +1219,7 @@ const CalendarPage = ({ overview, events = schedule, removedEvents = [], onUpdat
         <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" />
       </div>
     </section>
-    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} selectedDate={selectedDate} onDateChange={onDateChange} onFetchDate={onFetchDate} isFetchingDate={isFetchingDate} />
+    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} />
   </main>
 );
 
@@ -2082,6 +2087,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [questRun, setQuestRun] = useState(null);
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [savingFocusState, setSavingFocusState] = useState(null);
+  const [syncRun, setSyncRun] = useState(null);
+  const [syncingSource, setSyncingSource] = useState("");
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [completingQuestId, setCompletingQuestId] = useState(null);
   const [floatingNotice, setFloatingNotice] = useState(null);
@@ -2101,9 +2108,16 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
 
   useEffect(() => {
     if (!floatingNotice) return undefined;
-    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 4200);
+    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [floatingNotice]);
+
+  const showFloatingNotice = (notice) => {
+    setFloatingNotice({
+      id: `${Date.now()}-${Math.random()}`,
+      ...notice,
+    });
+  };
 
   const loadTasks = async () => {
     const loadedTasks = await tasksApi.list();
@@ -2205,10 +2219,15 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     const createdTask = await tasksApi.create(form);
     setTasks((items) => [normalizeTask(createdTask), ...items]);
   };
-  const handleRunSync = async (source) => {
+  const handleRunSync = (source) => {
     const selectedSources = source ? [source] : ["Jira", "Outlook Calendar"];
     const syncingKey = source || "ALL";
     setSyncingSource(syncingKey);
+    showFloatingNotice({
+      title: "Sync Up started in background.",
+      message: "You can continue using the app.",
+      tone: "info",
+    });
     setSyncRun((current) => ({
       ...(current || {}),
       status: "RUNNING",
@@ -2217,34 +2236,55 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "RUNNING" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Fetching today's Outlook meetings." : "Ready to sync." },
       ],
     }));
-    try {
-      const result = await syncApi.run(source ? { sources: selectedSources } : {});
-      setSyncRun(result);
-      const events = result?.calendar_events || result?.calendarEvents || [];
-      if (selectedSources.includes("Outlook Calendar") || events.length) {
-        const normalizedEvents = normalizeApiSchedule(events);
-        setCalendarSchedule(normalizedEvents);
-        setDashboardSchedule(normalizedEvents);
-      }
-      if (selectedSources.includes("Jira")) {
-        const refreshedTasks = await tasksApi.list();
-        const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
-        setTasks(taskItems.map(normalizeTask));
-      }
-      setTaskLoadError("");
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      setSyncRun({
-        status: "FAILED",
-        last_sync_at: nowIso(),
-        sources: [
-          { source: "Jira", status: selectedSources.includes("Jira") ? "FAILED" : "IDLE", message: selectedSources.includes("Jira") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Jira") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
-          { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "FAILED" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Outlook Calendar") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
-        ],
+
+    syncApi.run(source ? { sources: selectedSources } : {})
+      .then(async (result) => {
+        setSyncRun(result);
+        const events = result?.calendar_events || result?.calendarEvents || [];
+        if (selectedSources.includes("Outlook Calendar") || events.length) {
+          const normalizedEvents = normalizeApiSchedule(events);
+          setCalendarSchedule(normalizedEvents);
+          setDashboardSchedule(normalizedEvents);
+        }
+        if (selectedSources.includes("Jira")) {
+          const refreshedTasks = await tasksApi.list();
+          const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
+          setTasks(taskItems.map(normalizeTask));
+        }
+        setTaskLoadError("");
+        const failedSources = (result?.sources || []).filter((item) => item?.status === "FAILED");
+        if (result?.status === "FAILED" || failedSources.length) {
+          showFloatingNotice({
+            title: "Sync finished with issues",
+            message: failedSources[0]?.error || failedSources[0]?.message || "Please check the Sync page for details.",
+            tone: "error",
+          });
+          return;
+        }
+        showFloatingNotice({
+          title: "Sync Successfully",
+          tone: "success",
+        });
+      })
+      .catch((error) => {
+        const detail = error.response?.data?.detail;
+        setSyncRun({
+          status: "FAILED",
+          last_sync_at: nowIso(),
+          sources: [
+            { source: "Jira", status: selectedSources.includes("Jira") ? "FAILED" : "IDLE", message: selectedSources.includes("Jira") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Jira") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+            { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "FAILED" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Outlook Calendar") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+          ],
+        });
+        showFloatingNotice({
+          title: "Sync finished with issues",
+          message: typeof detail === "string" ? detail : detail?.message || error.message || "Please check the Sync page for details.",
+          tone: "error",
+        });
+      })
+      .finally(() => {
+        setSyncingSource("");
       });
-    } finally {
-      setSyncingSource("");
-    }
   };
   const renameScheduleEvent = (items, eventId, title) =>
     items.map((event) => (String(event.eventId) === String(eventId) ? { ...event, title } : event));
@@ -2539,6 +2579,17 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     if (location.pathname !== "/") return undefined;
 
     let cancelled = false;
+    const loadTodayCalendarSchedule = () =>
+      calendarApi.events({ date: todayKey() })
+        .then((data) => {
+          if (cancelled) return;
+          const events = Array.isArray(data) ? data : data?.items || [];
+          const normalizedEvents = normalizeApiSchedule(events);
+          setDashboardSchedule(normalizedEvents);
+          setCalendarSchedule(normalizedEvents);
+        })
+        .catch(() => {});
+
     setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
       .then((data) => {
@@ -2558,6 +2609,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       })
       .catch(() => {
         if (cancelled) return;
+        loadTodayCalendarSchedule();
         setDashboardStatus("fallback");
         setDashboardStatInsights(null);
       });
@@ -2578,7 +2630,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         if (cancelled) return;
         const events = Array.isArray(data) ? data : data?.items || [];
         const removedEvents = data?.removed_items || data?.removedItems || [];
-        if (events.length) setCalendarSchedule(normalizeApiSchedule(events));
+        const normalizedEvents = normalizeApiSchedule(events);
+        setCalendarSchedule(normalizedEvents);
+        setDashboardSchedule(normalizedEvents);
         setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
       })
       .catch(() => {});
@@ -2593,12 +2647,12 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       {!isDistractionFreeFocus && <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />}
       <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""}`} data-testid="workspace">
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
-        <FloatingNotice notice={floatingNotice} />
+        <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} />} />
-          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />
