@@ -9,7 +9,8 @@ from integrations import oci_genai_client
 
 DAILY_OVERVIEW_SYSTEM_PROMPT = """
 You are DevQuest's productivity insight analyst for a developer.
-Use only the supplied task, work-date, focus-session, and calendar evidence.
+Use only the supplied task, work-date, focus-session, calendar, and existing daily overview evidence.
+Treat existing daily_overviews as saved user reflection and prior overview context for continuity.
 Do not calculate totals; the backend supplies numeric totals.
 Do not invent task names, meetings, blockers, or accomplishments.
 Return only valid JSON that matches this schema:
@@ -26,7 +27,7 @@ Keep every array to 1-5 concise strings.
 
 WEEKLY_OVERVIEW_SYSTEM_PROMPT = """
 You are DevQuest's weekly productivity analyst for a developer.
-Use only the supplied daily summaries, completed tasks, work-date rows, focus sessions, and calendar evidence.
+Use only the supplied daily_overviews, completed tasks, work-date rows, focus sessions, and calendar evidence.
 Do not calculate totals; the backend supplies numeric totals.
 Separate evidence from interpretation, and avoid motivational filler.
 Return only valid JSON that matches this schema:
@@ -108,28 +109,41 @@ def _build_ai_output(scope, system_prompt, user_prompt, context):
 def _mock_output(scope, context):
     completed = context.get("completed_tasks", [])
     focus = context.get("focus_sessions", [])
+    daily_overviews = context.get("daily_overviews", [])
+    saved_learnings = _daily_overview_items(daily_overviews, "new_learnings")
+    saved_went_well = _daily_overview_items(daily_overviews, "went_well")
+    saved_went_wrong = _daily_overview_items(daily_overviews, "went_wrong")
+    saved_summaries = [
+        str(item.get("summary")).strip()
+        for item in daily_overviews
+        if item.get("summary") and str(item.get("summary")).strip()
+    ]
     notes = [
         value
         for item in completed + focus
         for value in [item.get("notes") or item.get("outcome_note")]
         if value
-    ]
+    ] + saved_learnings + saved_went_well + saved_went_wrong + saved_summaries
     themes = _themes(context)
     first_title = completed[0]["title"] if completed else None
 
     if scope == "weekly":
         top_accomplishments = [task["title"] for task in completed[:5]]
+        if not top_accomplishments:
+            top_accomplishments = saved_went_well[:5]
         summary = (
             f"The week closed {len(completed)} task(s) with {context['metrics']['focus_minutes']} minutes of focus time. "
             f"The strongest signals are {', '.join(themes[:3]) if themes else 'task completion and focus follow-through'}."
         )
+        if saved_summaries:
+            summary = f"{summary} Saved daily overview context covers {len(saved_summaries)} day(s)."
         return {
             "summary": summary,
             "top_accomplishments": top_accomplishments or ["No completed task evidence is available yet."],
-            "new_learnings": _learning_items(notes),
+            "new_learnings": saved_learnings[:6] or _learning_items(notes),
             "themes": themes,
-            "went_well": _went_well(completed, focus),
-            "went_wrong": _went_wrong(notes, context),
+            "went_well": saved_went_well[:6] or _went_well(completed, focus),
+            "went_wrong": saved_went_wrong[:6] or _went_wrong(notes, context),
             "generated_at": _generated_at(),
         }
 
@@ -139,11 +153,13 @@ def _mock_output(scope, context):
     )
     if first_title:
         summary = f"{summary} The clearest accomplishment was {first_title}."
+    if saved_summaries:
+        summary = f"{summary} Saved reflection noted: {saved_summaries[0][:180]}"
     return {
         "summary": summary,
-        "new_learnings": _learning_items(notes),
-        "went_well": _went_well(completed, focus),
-        "went_wrong": _went_wrong(notes, context),
+        "new_learnings": saved_learnings[:5] or _learning_items(notes),
+        "went_well": saved_went_well[:5] or _went_well(completed, focus),
+        "went_wrong": saved_went_wrong[:5] or _went_wrong(notes, context),
         "themes": themes,
         "generated_at": _generated_at(),
     }
@@ -152,18 +168,22 @@ def _mock_output(scope, context):
 def _normalize_output(scope, parsed, context):
     if not isinstance(parsed, dict):
         parsed = {}
+    saved_learnings = _daily_overview_items(context.get("daily_overviews", []), "new_learnings")
+    saved_went_well = _daily_overview_items(context.get("daily_overviews", []), "went_well")
+    saved_went_wrong = _daily_overview_items(context.get("daily_overviews", []), "went_wrong")
     normalized = {
         "summary": str(parsed.get("summary") or _mock_output(scope, context)["summary"]),
-        "new_learnings": _list(parsed.get("new_learnings")) or _learning_items([]),
-        "went_well": _list(parsed.get("went_well")) or _went_well(context.get("completed_tasks", []), context.get("focus_sessions", [])),
-        "went_wrong": _list(parsed.get("went_wrong")),
+        "new_learnings": _list(parsed.get("new_learnings")) or saved_learnings or _learning_items([]),
+        "went_well": _list(parsed.get("went_well")) or saved_went_well or _went_well(context.get("completed_tasks", []), context.get("focus_sessions", [])),
+        "went_wrong": _list(parsed.get("went_wrong")) or saved_went_wrong,
         "themes": _list(parsed.get("themes")) or _themes(context),
         "generated_at": _generated_at(),
     }
     if scope == "weekly":
         normalized["top_accomplishments"] = _list(parsed.get("top_accomplishments")) or [
             task["title"] for task in context.get("completed_tasks", [])[:5]
-        ]
+        ] or saved_went_well[:6]
+    _merge_saved_daily_overview_reflections(normalized, context, 6 if scope == "weekly" else 5)
     return normalized
 
 
@@ -173,6 +193,32 @@ def _list(value):
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def _daily_overview_items(daily_overviews, field):
+    items = []
+    for overview in daily_overviews:
+        for value in _list(overview.get(field)):
+            if value not in items:
+                items.append(value)
+    return items
+
+
+def _merge_saved_daily_overview_reflections(output, context, limit):
+    for field in ("new_learnings", "went_well", "went_wrong"):
+        saved = _daily_overview_items(context.get("daily_overviews", []), field)
+        if saved:
+            output[field] = _merge_text_items(saved, output.get(field, []), limit)
+    return output
+
+
+def _merge_text_items(primary, secondary, limit):
+    merged = []
+    for value in list(primary or []) + list(secondary or []):
+        text = str(value).strip()
+        if text and text not in merged:
+            merged.append(text)
+    return merged[:limit]
 
 
 def _themes(context):

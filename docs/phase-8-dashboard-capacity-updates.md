@@ -89,6 +89,7 @@ Oracle Autonomous Database will be integrated later. For now, implementation sho
 - [x] Return tasks.
 - [x] Return schedule.
 - [x] Return AI insight.
+- [x] Return dynamic `stat_insights` labels for stat-card subtext.
 - [x] Return all dashboard data in one response to avoid frontend request waterfalls.
 
 ### Pending Tests / Smoke Checks
@@ -120,6 +121,7 @@ Oracle Autonomous Database will be integrated later. For now, implementation sho
 - Added `backend/integrations/oci_genai_client.py` with lazy OCI SDK loading and real-mode Generative AI Inference call.
 - Added `backend/services/phase8_capacity_service.py`.
 - Added `backend/services/phase8_dashboard_service.py`.
+- Added backend-calculated `stat_insights` on `GET /api/v1/dashboard/today` so dashboard card labels can show comparisons such as `33% more vs yesterday`.
 - Added `GET /api/v1/capacity` in `backend/main.py`.
 - Added `GET /api/v1/dashboard/today` in `backend/main.py`.
 - Updated the OCI GenAI real-mode boundary to support env-selected request formats:
@@ -131,8 +133,38 @@ Oracle Autonomous Database will be integrated later. For now, implementation sho
   - Added `dashboardApi.today()` and `capacityApi.get()` in `frontend/src/api/client.js`.
   - `frontend/src/App.js` now fetches `GET /api/v1/dashboard/today` on app shell mount.
   - Existing Dashboard sections consume Phase 8 stats, tasks, schedule, and AI insight when available.
+  - Dashboard stat cards render API-provided `stat_insights` as highlighted chips under each card value.
   - Existing local demo data remains as fallback if the backend is down or AI is not configured.
   - No broad UI refactor was done; task mutations remain local for now.
 - Restarted local backend and verified live responses for:
   - `http://127.0.0.1:8000/api/v1/capacity?date=2026-05-01`
   - `http://127.0.0.1:8000/api/v1/dashboard/today?date=2026-05-01`
+
+### Dynamic Stat Labels
+
+`GET /api/v1/dashboard/today` returns `stat_insights` next to `stats`.
+
+```json
+{
+  "stat_insights": {
+    "total_xp": {
+      "label": "30 XP more vs yesterday",
+      "direction": "up",
+      "current_value": 30,
+      "previous_value": 0,
+      "value_change": 30,
+      "percent_change": null
+    },
+    "meeting_minutes": {
+      "label": "Same as yesterday",
+      "direction": "neutral",
+      "current_value": 150,
+      "previous_value": 150,
+      "value_change": 0,
+      "percent_change": 0
+    }
+  }
+}
+```
+
+The backend owns the numeric comparison. AI may refer to these values in prose, but it should not generate replacement trend numbers.

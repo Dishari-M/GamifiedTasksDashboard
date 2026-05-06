@@ -44,6 +44,11 @@ def generate_daily_overview_response(payload):
     return {"data": generate_daily_overview(work_date, payload), "meta": {"request_id": str(uuid4())}}
 
 
+def save_daily_overview_response(payload):
+    work_date = resolve_work_date(payload.date)
+    return {"data": save_daily_overview(work_date, payload), "meta": {"request_id": str(uuid4())}}
+
+
 def generate_weekly_overview_response(payload):
     week_start = _week_start(payload.week_start)
     return {"data": generate_weekly_overview(week_start, payload), "meta": {"request_id": str(uuid4())}}
@@ -63,6 +68,14 @@ def generate_daily_overview(work_date, payload):
     context = _mock_daily_context(work_date)
     ai = build_daily_ai_output(context)
     return {**_daily_response(context, ai), "daily_overview_id": 8101, "ai_run_id": 9005}
+
+
+def save_daily_overview(work_date, payload):
+    if get_data_mode() == "oracle":
+        return _oracle_save_daily_overview(work_date, payload)
+    context = _mock_daily_context(work_date)
+    overview = _daily_response(context, _manual_daily_ai_payload(payload))
+    return {**_apply_daily_overrides(overview, payload), "daily_overview_id": 8101, "ai_run_id": None}
 
 
 def get_weekly_overview(week_start):
@@ -140,8 +153,17 @@ def _oracle_daily_overview(work_date, generate=False, request_payload=None):
         cur = conn.cursor()
         saved = overview_repository.fetch_daily_overview_row(cur, DEFAULT_USER_ID, work_date)
         context = _oracle_context(cur, work_date, work_date)
-        if saved and not generate:
-            return {**_daily_response(context, saved), "daily_overview_id": saved["daily_overview_id"], "ai_run_id": saved["source_ai_run_id"]}
+        if _include_daily_overviews(request_payload):
+            _with_daily_overviews(
+                context,
+                overview_repository.fetch_daily_overviews(cur, DEFAULT_USER_ID, work_date, work_date),
+            )
+        force = bool((request_payload or {}).get("force"))
+        if saved and (not generate or not force):
+            overview = _apply_saved_overview_metrics(_daily_response(context, saved), saved)
+            return {**overview, "daily_overview_id": saved["daily_overview_id"], "ai_run_id": saved["source_ai_run_id"]}
+        if not generate:
+            return _daily_response(context, _empty_daily_ai())
 
         request = _ai_request_payload("DAILY_OVERVIEW", DAILY_OVERVIEW_SYSTEM_PROMPT, context, request_payload)
         ai_run_id = overview_repository.insert_ai_run(
@@ -158,7 +180,13 @@ def _oracle_daily_overview(work_date, generate=False, request_payload=None):
         overview_repository.upsert_daily_overview(cur, DEFAULT_USER_ID, work_date, ai_run_id, overview)
         overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
         conn.commit()
-        return {**overview, "ai_run_id": ai_run_id}
+        cur = conn.cursor()
+        refreshed = overview_repository.fetch_daily_overview_row(cur, DEFAULT_USER_ID, work_date) or {}
+        return {
+            **overview,
+            "daily_overview_id": refreshed.get("daily_overview_id"),
+            "ai_run_id": refreshed.get("source_ai_run_id"),
+        }
     except HTTPException:
         if conn:
             conn.rollback()
@@ -182,9 +210,17 @@ def _oracle_weekly_overview(week_start, week_end, generate=False, request_payloa
         cur = conn.cursor()
         saved = overview_repository.fetch_weekly_overview_row(cur, DEFAULT_USER_ID, week_start)
         context = _oracle_context(cur, week_start, week_end)
-        context["daily_overviews"] = overview_repository.fetch_daily_overviews_for_week(cur, DEFAULT_USER_ID, week_start, week_end)
-        if saved and not generate:
-            return {**_weekly_response(context, saved), "weekly_overview_id": saved["weekly_overview_id"], "ai_run_id": saved["source_ai_run_id"]}
+        if _include_daily_overviews(request_payload):
+            _with_daily_overviews(
+                context,
+                overview_repository.fetch_daily_overviews_for_week(cur, DEFAULT_USER_ID, week_start, week_end),
+            )
+        force = bool((request_payload or {}).get("force"))
+        if saved and (not generate or not force):
+            overview = _apply_saved_overview_metrics(_weekly_response(context, saved), saved)
+            return {**overview, "weekly_overview_id": saved["weekly_overview_id"], "ai_run_id": saved["source_ai_run_id"]}
+        if not generate:
+            return _weekly_response(context, _empty_weekly_ai())
 
         request = _ai_request_payload("WEEKLY_OVERVIEW", WEEKLY_OVERVIEW_SYSTEM_PROMPT, context, request_payload)
         ai_run_id = overview_repository.insert_ai_run(
@@ -201,7 +237,13 @@ def _oracle_weekly_overview(week_start, week_end, generate=False, request_payloa
         overview_repository.upsert_weekly_overview(cur, DEFAULT_USER_ID, week_start, week_end, ai_run_id, overview)
         overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
         conn.commit()
-        return {**overview, "ai_run_id": ai_run_id}
+        cur = conn.cursor()
+        refreshed = overview_repository.fetch_weekly_overview_row(cur, DEFAULT_USER_ID, week_start) or {}
+        return {
+            **overview,
+            "weekly_overview_id": refreshed.get("weekly_overview_id"),
+            "ai_run_id": refreshed.get("source_ai_run_id"),
+        }
     except HTTPException:
         if conn:
             conn.rollback()
@@ -212,6 +254,39 @@ def _oracle_weekly_overview(week_start, week_end, generate=False, request_payloa
         if conn:
             conn.rollback()
         raise HTTPException(status_code=503, detail="Overview storage is unavailable.") from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def _oracle_save_daily_overview(work_date, payload):
+    conn = None
+    try:
+        conn = _get_connection()
+        cur = conn.cursor()
+        saved = overview_repository.fetch_daily_overview_row(cur, DEFAULT_USER_ID, work_date)
+        context = _oracle_context(cur, work_date, work_date)
+        overview = _daily_response(context, _manual_daily_ai_payload(payload, saved))
+        overview = _apply_daily_overrides(overview, payload)
+        overview_repository.upsert_daily_overview(
+            cur,
+            DEFAULT_USER_ID,
+            work_date,
+            saved.get("source_ai_run_id") if saved else None,
+            overview,
+        )
+        conn.commit()
+        cur = conn.cursor()
+        refreshed = overview_repository.fetch_daily_overview_row(cur, DEFAULT_USER_ID, work_date) or {}
+        return {
+            **overview,
+            "daily_overview_id": refreshed.get("daily_overview_id"),
+            "ai_run_id": refreshed.get("source_ai_run_id"),
+        }
+    except _oracle_database_error() as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=503, detail="Daily overview storage is unavailable.") from exc
     finally:
         if conn:
             conn.close()
@@ -233,7 +308,7 @@ def _context(start_date, end_date, completed_tasks, worked_tasks, calendar_event
     meeting_events = [event for event in events if event["is_meeting"]]
     focus_minutes = sum(item["actual_minutes"] for item in focus)
     meeting_minutes = sum(event["duration_minutes"] for event in meeting_events)
-    return {
+    context = {
         "start_date": start_date,
         "end_date": end_date,
         "metrics": {
@@ -249,8 +324,8 @@ def _context(start_date, end_date, completed_tasks, worked_tasks, calendar_event
         "worked_tasks": worked,
         "calendar_events": events,
         "focus_sessions": focus,
-        "daily_overviews": daily_overviews,
     }
+    return _with_daily_overviews(context, daily_overviews)
 
 
 def _daily_response(context, ai):
@@ -296,6 +371,60 @@ def _weekly_response(context, ai):
         "daily_overviews": context.get("daily_overviews", []),
         "generated_at": ai.get("generated_at"),
     }
+
+
+def _manual_daily_ai_payload(payload, saved=None):
+    saved = saved or {}
+    return {
+        "new_learnings": payload.new_learnings,
+        "went_well": payload.went_well,
+        "went_wrong": payload.went_wrong,
+        "themes": saved.get("themes", []),
+        "summary": payload.summary or saved.get("summary") or "",
+        "generated_at": saved.get("updated_at"),
+    }
+
+
+def _empty_daily_ai():
+    return {
+        "new_learnings": [],
+        "went_well": [],
+        "went_wrong": [],
+        "themes": [],
+        "summary": "",
+        "generated_at": None,
+    }
+
+
+def _empty_weekly_ai():
+    return {
+        **_empty_daily_ai(),
+        "top_accomplishments": [],
+    }
+
+
+def _apply_daily_overrides(overview, payload):
+    if payload.meeting_minutes is not None:
+        overview["meeting_minutes"] = payload.meeting_minutes
+        overview["meeting_summary"] = {
+            **overview.get("meeting_summary", {}),
+            "meeting_minutes": payload.meeting_minutes,
+        }
+    if payload.focus_minutes is not None:
+        overview["focus_minutes"] = payload.focus_minutes
+    return overview
+
+
+def _apply_saved_overview_metrics(overview, saved):
+    for field in ("tasks_completed", "xp_earned", "meeting_minutes", "focus_minutes"):
+        if field in saved:
+            overview[field] = saved.get(field) or 0
+    if "meeting_summary" in overview and "meeting_minutes" in saved:
+        overview["meeting_summary"] = {
+            **overview.get("meeting_summary", {}),
+            "meeting_minutes": saved.get("meeting_minutes") or 0,
+        }
+    return overview
 
 
 def _normalize_task(task):
@@ -346,6 +475,46 @@ def _normalize_focus(session):
         "xp_awarded": session.get("xp_awarded") or 0,
         "notes": session.get("notes") or session.get("outcome_note") or "",
     }
+
+
+def _normalize_daily_overview(overview):
+    return {
+        "date": overview.get("date") or overview.get("overview_date"),
+        "tasks_completed": overview.get("tasks_completed") or 0,
+        "xp_earned": overview.get("xp_earned") or 0,
+        "meeting_minutes": overview.get("meeting_minutes") or 0,
+        "focus_minutes": overview.get("focus_minutes") or 0,
+        "new_learnings": _list_text(overview.get("new_learnings")),
+        "went_well": _list_text(overview.get("went_well")),
+        "went_wrong": _list_text(overview.get("went_wrong")),
+        "summary": overview.get("summary") or "",
+        "updated_at": overview.get("updated_at"),
+    }
+
+
+def _with_daily_overviews(context, daily_overviews):
+    normalized = [_normalize_daily_overview(overview) for overview in daily_overviews]
+    context["daily_overviews"] = normalized
+    context["daily_overview_metrics"] = {
+        "saved_day_count": len(normalized),
+        "tasks_completed": sum(item["tasks_completed"] for item in normalized),
+        "xp_earned": sum(item["xp_earned"] for item in normalized),
+        "meeting_minutes": sum(item["meeting_minutes"] for item in normalized),
+        "focus_minutes": sum(item["focus_minutes"] for item in normalized),
+    }
+    return context
+
+
+def _include_daily_overviews(request_payload):
+    return bool((request_payload or {}).get("include_daily_overviews", True))
+
+
+def _list_text(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def _completed_between(task, start_date, end_date):

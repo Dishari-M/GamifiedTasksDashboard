@@ -8,6 +8,7 @@ from services.phase8_data_provider import (
     get_work_items,
     resolve_work_date,
 )
+from services.stat_insight_service import build_stat_insights, previous_date_key
 
 
 def _task_response(task, working_today=False, rank_order=None, planned_minutes=None):
@@ -69,10 +70,13 @@ def _completed_on_date(task, work_date):
 
 def build_dashboard(date=None):
     work_date = resolve_work_date(date)
+    previous_date = previous_date_key(work_date)
     tasks = get_work_items()
     daily_work_items = [item for item in get_daily_work_items(work_date) if item["is_working_today"]]
+    previous_daily_work_items = [item for item in get_daily_work_items(previous_date) if item["is_working_today"]]
     events = get_calendar_events(work_date)
     capacity = build_capacity(work_date)
+    previous_capacity = build_capacity(previous_date)
 
     task_by_id = {task["task_id"]: task for task in tasks}
     daily_by_task_id = {item["task_id"]: item for item in daily_work_items}
@@ -103,21 +107,34 @@ def build_dashboard(date=None):
     ]
 
     tasks_completed_today = sum(1 for task in tasks if _completed_on_date(task, work_date))
+    previous_tasks_completed = sum(1 for task in tasks if _completed_on_date(task, previous_date))
     total_xp = sum(task["xp_value"] for task in tasks if task["status"] == "Done")
+    previous_xp = sum(task["xp_value"] for task in tasks if _completed_on_date(task, previous_date))
     focus_minutes = max(capacity["available_focus_minutes"] - 10, 0)
+    previous_focus_minutes = max(previous_capacity["available_focus_minutes"] - 10, 0)
     schedule = [_schedule_response(event) for event in events]
     ai_insight = build_ai_insight(work_date, capacity, top_missions, dashboard_tasks, schedule, planned_tasks)
+    stats = {
+        "total_xp": total_xp,
+        "tasks_completed_today": tasks_completed_today,
+        "tasks_planned_today": len(daily_work_items),
+        "focus_minutes": focus_minutes,
+        "meeting_minutes": capacity["meeting_minutes"],
+        "available_focus_minutes": capacity["available_focus_minutes"],
+    }
+    previous_stats = {
+        "total_xp": previous_xp,
+        "tasks_completed_today": previous_tasks_completed,
+        "tasks_planned_today": len(previous_daily_work_items),
+        "focus_minutes": previous_focus_minutes,
+        "meeting_minutes": previous_capacity["meeting_minutes"],
+        "available_focus_minutes": previous_capacity["available_focus_minutes"],
+    }
 
     return {
         "date": work_date,
-        "stats": {
-            "total_xp": total_xp,
-            "tasks_completed_today": tasks_completed_today,
-            "tasks_planned_today": len(daily_work_items),
-            "focus_minutes": focus_minutes,
-            "meeting_minutes": capacity["meeting_minutes"],
-            "available_focus_minutes": capacity["available_focus_minutes"],
-        },
+        "stats": stats,
+        "stat_insights": build_stat_insights(stats, previous_stats),
         "top_missions": top_missions,
         "tasks": dashboard_tasks,
         "schedule": schedule,
