@@ -10,7 +10,7 @@ from integrations import oci_genai_client
 MISSION_SYSTEM_PROMPT = """
 You are DevQuest's mission planner for a developer.
 Use only the supplied task and capacity evidence.
-Recommend missions based on priority, XP, time available, time needed, impact, and notes.
+Recommend missions based on priority, XP, RCA T-shirt complexity when present, time available, time needed, impact, and notes.
 Do not invent tasks or task IDs.
 Return only valid JSON that matches this schema:
 {
@@ -32,6 +32,7 @@ QUEST_SYSTEM_PROMPT = """
 You are DevQuest's daily quest route planner for a developer.
 Use only the supplied task, calendar, and capacity evidence.
 Rank a practical quest plan that fits available focus time when possible.
+When XP is not explicit, use RCA T-shirt complexity if present before falling back to effort and priority.
 Do not invent tasks or task IDs.
 Return only valid JSON that matches this schema:
 {

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from services.filesystem_store import read_records, with_store_lock, write_records
+from services.xp_service import normalize_tshirt_size, resolve_xp_value
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -29,6 +30,10 @@ ALIASES = {
     "workingToday": "working_today",
     "workedDates": "worked_dates",
     "runAiEnrichment": "run_ai_enrichment",
+    "rcaTshirtSize": "rca_tshirt_size",
+    "rcaFileChangeCount": "rca_file_change_count",
+    "rcaComplexitySource": "rca_complexity_source",
+    "rcaComplexityAt": "rca_complexity_at",
 }
 
 
@@ -61,6 +66,10 @@ def create_filesystem_task(payload, user_id=LOCAL_USER_ID):
             "start_at": task_input.get("start_at"),
             "estimated_minutes": task_input.get("estimated_minutes"),
             "actual_minutes": task_input.get("actual_minutes"),
+            "rca_tshirt_size": task_input.get("rca_tshirt_size"),
+            "rca_file_change_count": task_input.get("rca_file_change_count"),
+            "rca_complexity_source": task_input.get("rca_complexity_source"),
+            "rca_complexity_at": task_input.get("rca_complexity_at"),
             "xp_value": task_input.get("xp_value"),
             "notes": task_input.get("notes") or "",
             "labels": task_input.get("labels") or [],
@@ -385,6 +394,13 @@ def _normalize_payload(payload):
     data["start_at"] = _empty_to_none(data.get("start_at"))
     data["estimated_minutes"] = _optional_number(data.get("estimated_minutes"), "estimated_minutes")
     data["actual_minutes"] = _optional_number(data.get("actual_minutes"), "actual_minutes")
+    raw_tshirt_size = data.get("rca_tshirt_size")
+    data["rca_tshirt_size"] = normalize_tshirt_size(raw_tshirt_size)
+    if raw_tshirt_size not in (None, "") and data["rca_tshirt_size"] is None:
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+    data["rca_file_change_count"] = _optional_number(data.get("rca_file_change_count"), "rca_file_change_count")
+    data["rca_complexity_source"] = _empty_to_none(data.get("rca_complexity_source"))
+    data["rca_complexity_at"] = _empty_to_none(data.get("rca_complexity_at"))
     data["xp_value"] = _optional_number(data.get("xp_value"), "xp_value")
     data["notes"] = _empty_to_default(data.get("notes"), "")
     data["labels"] = _normalize_labels(data.get("labels"))
@@ -418,6 +434,10 @@ def _normalize_update_payload(payload):
         "start_at",
         "estimated_minutes",
         "actual_minutes",
+        "rca_tshirt_size",
+        "rca_file_change_count",
+        "rca_complexity_source",
+        "rca_complexity_at",
         "xp_value",
         "notes",
         "labels",
@@ -451,6 +471,18 @@ def _normalize_update_payload(payload):
             data[field] = _optional_number(data[field], field)
             if data[field] is not None and data[field] < 0:
                 _validation_error(f"{field} cannot be negative.", {"field": field})
+    if "rca_tshirt_size" in data:
+        data["rca_tshirt_size"] = normalize_tshirt_size(data["rca_tshirt_size"])
+        if raw.get("rca_tshirt_size") not in (None, "") and data["rca_tshirt_size"] is None:
+            _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+    if "rca_file_change_count" in data:
+        data["rca_file_change_count"] = _optional_number(data["rca_file_change_count"], "rca_file_change_count")
+        if data["rca_file_change_count"] is not None and data["rca_file_change_count"] < 0:
+            _validation_error("rca_file_change_count cannot be negative.", {"field": "rca_file_change_count"})
+    if "rca_complexity_source" in data:
+        data["rca_complexity_source"] = _empty_to_none(data["rca_complexity_source"])
+    if "rca_complexity_at" in data:
+        data["rca_complexity_at"] = _empty_to_none(data["rca_complexity_at"])
     if "notes" in data:
         data["notes"] = _empty_to_default(data["notes"], "")
     if "labels" in data:
@@ -566,10 +598,12 @@ def _validate_task_input(data):
     _validate_enum("priority", data["priority"], VALID_PRIORITIES)
     _validate_enum("status", data["status"], VALID_STATUSES)
 
-    for field in ("estimated_minutes", "actual_minutes", "xp_value"):
+    for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         value = data.get(field)
         if value is not None and value < 0:
             _validation_error(f"{field} cannot be negative.", {"field": field})
+    if data.get("rca_tshirt_size") is None and data.get("rca_tshirt_size") not in (None, ""):
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
 
 
 def _validate_unique_external_identity(tasks, data, user_id):
@@ -834,7 +868,7 @@ def _build_ai_fields(task):
     difficulty = "Hard" if effort >= 105 or priority_weight >= 9 else "Easy" if effort <= 35 and priority_weight <= 5 else "Medium"
     xp_value = task.get("xp_value")
     if xp_value is None:
-        xp_value = max(10, round((effort * 0.75 + impact * 9 + priority_weight * 5) / 10) * 10)
+        xp_value = resolve_xp_value(task)
     return {
         "xp_value": xp_value,
         "difficulty": difficulty,
@@ -867,6 +901,10 @@ def _with_frontend_aliases(task):
     task["time"] = task["estimated_minutes"]
     task["actualMinutes"] = task["actual_minutes"]
     task["xp"] = task["xp_value"]
+    task["rcaTshirtSize"] = task.get("rca_tshirt_size")
+    task["rcaFileChangeCount"] = task.get("rca_file_change_count")
+    task["rcaComplexitySource"] = task.get("rca_complexity_source")
+    task["rcaComplexityAt"] = task.get("rca_complexity_at")
     task["workedDates"] = worked_dates
     task["working_today"] = _is_working_on_date(task, _today_key(_now_iso()))
     task["workingToday"] = task["working_today"]

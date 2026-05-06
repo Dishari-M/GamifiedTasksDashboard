@@ -13,6 +13,7 @@ from services.mission_quest_ai_service import (
 )
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import get_calendar_events, resolve_work_date
+from services.xp_service import resolve_xp_value
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -201,6 +202,7 @@ def _user_tasks(tasks, user_id):
 
 
 def _ai_task(task):
+    xp_value = resolve_xp_value(task)
     return {
         "task_id": int(task.get("task_id")),
         "title": task.get("title") or "",
@@ -209,7 +211,11 @@ def _ai_task(task):
         "status": task.get("status") or "",
         "task_type": task.get("task_type") or "",
         "effort_minutes": int(task.get("estimated_minutes") or task.get("time") or 0),
-        "xp_value": int(task.get("xp_value") or task.get("xp") or 0),
+        "xp_value": xp_value,
+        "xp_source": _xp_source(task),
+        "rca_tshirt_size": task.get("rca_tshirt_size") or task.get("rcaTshirtSize"),
+        "rca_file_change_count": task.get("rca_file_change_count") or task.get("rcaFileChangeCount"),
+        "rca_complexity_source": task.get("rca_complexity_source") or task.get("rcaComplexitySource"),
         "impact_score": float(task.get("impact") or task.get("ai_impact_score") or 0),
         "priority_score": float(task.get("priority_score") or task.get("ai_priority_score") or 0),
         "notes": task.get("notes") or "",
@@ -225,9 +231,17 @@ def _default_rank(tasks):
             -float(task.get("impact") or task.get("ai_impact_score") or 0),
             -_priority_weight(task.get("priority")),
             int(task.get("estimated_minutes") or task.get("time") or 0),
-            -int(task.get("xp_value") or task.get("xp") or 0),
+            -resolve_xp_value(task),
         ),
     )
+
+
+def _xp_source(task):
+    if task.get("xp_value") not in (None, "") or task.get("xp") not in (None, ""):
+        return "explicit"
+    if task.get("rca_tshirt_size") or task.get("rcaTshirtSize"):
+        return "rca_tshirt_size"
+    return "default"
 
 
 def _validated_missions(missions, tasks, max_items):
@@ -271,7 +285,7 @@ def _validated_quests(quests, tasks, max_items):
                 "reason": item.get("reason") or "Recommended by priority, impact, XP, and effort fit.",
                 "suggested_start_at": item.get("suggested_start_at"),
                 "suggested_end_at": item.get("suggested_end_at"),
-                "xp_value": int(item.get("xp_value") or task.get("xp_value") or 0),
+                "xp_value": int(item.get("xp_value") or resolve_xp_value(task)),
             }
         )
         if len(output) >= max_items:
@@ -365,7 +379,7 @@ def _quest_response(task, quest):
         "task_type": task.get("task_type") or "",
         "status": task.get("status") or "",
         "estimated_minutes": int(task.get("estimated_minutes") or task.get("time") or 0),
-        "xp_value": int(quest.get("xp_value") or task.get("xp_value") or 0),
+        "xp_value": int(quest.get("xp_value") or resolve_xp_value(task)),
         "reason": quest.get("reason") or "",
         "suggested_start_at": quest.get("suggested_start_at"),
         "suggested_end_at": quest.get("suggested_end_at"),
