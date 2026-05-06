@@ -134,9 +134,14 @@ if (-not $needsBuild) {
     $buildTime = (Get-Item $buildIndex).LastWriteTimeUtc
     foreach ($path in $sourcePaths) {
         if (Test-Path $path) {
-            $latest = Get-ChildItem $path -Recurse -File -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTimeUtc -Descending |
-                Select-Object -First 1
+            try {
+                $latest = Get-ChildItem $path -Recurse -File -ErrorAction Stop |
+                    Sort-Object LastWriteTimeUtc -Descending |
+                    Select-Object -First 1
+            } catch {
+                $needsBuild = $true
+                break
+            }
             if ($latest -and $latest.LastWriteTimeUtc -gt $buildTime) {
                 $needsBuild = $true
                 break

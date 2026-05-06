@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import oracledb
@@ -33,6 +33,31 @@ def oracle_quests_today_response(date, user_id=1):
             return {"data": _frontend_quest_run(plan), "meta": {"request_id": str(uuid4())}}
         tasks = _candidate_tasks(cur, int(user_id), quest_date)
         return {"data": _build_ephemeral_run(tasks, quest_date), "meta": {"request_id": str(uuid4())}}
+    except oracledb.DatabaseError as exc:
+        raise HTTPException(status_code=503, detail="Quest storage is unavailable.") from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def oracle_quest_progress_response(date, user_id=1):
+    quest_date = _resolve_date(date)
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        completed_dates = quest_repository.list_completed_quest_dates(cur, int(user_id), quest_date)
+        completed_count = quest_repository.count_completed_quests(cur, int(user_id), quest_date)
+        return {
+            "data": {
+                "referenceDate": quest_date,
+                "completedQuestDates": completed_dates,
+                "completedQuestDays": len(completed_dates),
+                "completedQuestCount": completed_count,
+                "currentStreak": _streak_from_dates(completed_dates, quest_date),
+            },
+            "meta": {"request_id": str(uuid4())},
+        }
     except oracledb.DatabaseError as exc:
         raise HTTPException(status_code=503, detail="Quest storage is unavailable.") from exc
     finally:
@@ -363,3 +388,13 @@ def _frontend_plan_status(value):
         "NEEDS_UPDATE": "needs_update",
         "COMPLETED": "completed",
     }.get(text, text.lower())
+
+
+def _streak_from_dates(completed_dates, reference_date):
+    completed = {value for value in completed_dates if value}
+    streak = 0
+    cursor = reference_date
+    while cursor in completed:
+        streak += 1
+        cursor = (datetime.fromisoformat(f"{cursor}T00:00:00") - timedelta(days=1)).date().isoformat()
+    return streak
