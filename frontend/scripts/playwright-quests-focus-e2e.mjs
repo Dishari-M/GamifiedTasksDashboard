@@ -6,35 +6,27 @@ const rootDir = process.cwd();
 const artifactsDir = path.join(rootDir, "playwright-artifacts", "quests-focus-e2e");
 const reportPath = path.join(artifactsDir, "report.json");
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
+const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 const userHomeDir = process.env.USERPROFILE
   || process.env.HOME
   || (process.env.HOMEDRIVE && process.env.HOMEPATH ? `${process.env.HOMEDRIVE}${process.env.HOMEPATH}` : "");
-
-const currentUser = {
-  user_id: "1",
-  first_name: "Rahul",
-  last_name: "Kulkarni",
-};
 
 const resolveBrowserExecutable = async () => {
   if (process.env.PLAYWRIGHT_CHROME_PATH) {
     return process.env.PLAYWRIGHT_CHROME_PATH;
   }
 
+  const playwrightRoot = path.join(userHomeDir, "AppData", "Local", "ms-playwright");
   const candidatePaths = [
+    path.join(playwrightRoot, "chromium-1217", "chrome-win64", "chrome.exe"),
+    path.join(playwrightRoot, "chromium-1217", "chrome-win", "chrome.exe"),
+    path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win", "headless_shell.exe"),
+    path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win64", "headless_shell.exe"),
     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
     "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   ];
-
-  const playwrightRoot = path.join(userHomeDir, "AppData", "Local", "ms-playwright");
-  candidatePaths.push(
-    path.join(playwrightRoot, "chromium-1217", "chrome-win64", "chrome.exe"),
-    path.join(playwrightRoot, "chromium-1217", "chrome-win", "chrome.exe"),
-    path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win", "headless_shell.exe"),
-    path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win64", "headless_shell.exe"),
-  );
 
   for (const candidate of candidatePaths) {
     try {
@@ -51,8 +43,48 @@ const resolveBrowserExecutable = async () => {
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const buildTestAccount = () => {
+  const stamp = Date.now();
+  return {
+    first_name: "Playwright",
+    last_name: "Quest",
+    username: `pwquests${stamp}`,
+    email: `pwquests${stamp}@example.com`,
+    password: "password",
+    confirm_password: "password",
+  };
+};
+
+const registerAndLogin = async (account) => {
+  const registerResponse = await fetch(`${apiBaseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(account),
+  });
+
+  if (!registerResponse.ok) {
+    throw new Error(`Test user registration failed with HTTP ${registerResponse.status()}.`);
+  }
+
+  const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: account.username,
+      password: account.password,
+    }),
+  });
+
+  if (!loginResponse.ok) {
+    throw new Error(`Test user login failed with HTTP ${loginResponse.status()}.`);
+  }
+
+  return loginResponse.json();
+};
+
 const report = {
   baseUrl,
+  apiBaseUrl,
   startedAt: new Date().toISOString(),
   taskTitle: `E2E Quest Focus ${Date.now()}`,
   steps: [],
@@ -65,6 +97,13 @@ const addStep = (name, status, details = {}) => {
 };
 
 await fs.mkdir(artifactsDir, { recursive: true });
+
+const testAccount = buildTestAccount();
+const authPayload = await registerAndLogin(testAccount);
+const currentUser = authPayload?.data ?? authPayload;
+if (!currentUser?.user_id) {
+  throw new Error("Test auth did not return a usable current user profile.");
+}
 
 const browserExecutable = await resolveBrowserExecutable();
 const browser = await chromium.launch({ headless: true, executablePath: browserExecutable });

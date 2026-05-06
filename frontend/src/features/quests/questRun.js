@@ -36,14 +36,18 @@ const includesAllTaskIds = (sourceIds, candidateIds) => {
   return sourceIds.every((id) => candidateSet.has(id));
 };
 
+const questRank = (quest) => parseNumber(quest?.rank ?? quest?.rank_order, 0);
+
 const effectiveSourceTaskIds = (questRun) => {
   if (!questRun) return [];
   if (Array.isArray(questRun.sourceTaskIds) && questRun.sourceTaskIds.length) {
     return sortedStringIds(questRun.sourceTaskIds);
   }
   if (Array.isArray(questRun.quests) && questRun.quests.length) {
+    const activeQuestCount = questRun.quests.filter((quest) => questRank(quest) > 0 && questRank(quest) <= questRun.quests.length).length || questRun.quests.length;
     return sortedStringIds(
       questRun.quests
+        .filter((quest) => questRank(quest) > 0 && questRank(quest) <= activeQuestCount)
         .map((quest) => quest?.taskId)
         .filter(Boolean),
     );
@@ -125,7 +129,25 @@ export const isCurrentQuestRun = (questRun) => Boolean(questRun && questRun.work
 
 export const isQuestRunSynced = (tasks, questRun) => {
   if (!isCurrentQuestRun(questRun)) return false;
-  return includesAllTaskIds(effectiveSourceTaskIds(questRun), sortedStringIds(sortedTaskIds(workingTodayTasks(tasks))));
+  const sourceTaskIds = effectiveSourceTaskIds(questRun);
+  if (!sourceTaskIds.length) return false;
+
+  const currentWorkingIds = sortedStringIds(sortedTaskIds(workingTodayTasks(tasks)));
+  const sourceSet = new Set(sourceTaskIds);
+  const currentWorkingSet = new Set(currentWorkingIds);
+  const unresolvedQuestIds = new Set(
+    (questRun.quests || [])
+      .filter((quest) => quest.state !== "completed" && quest.state !== "skipped")
+      .map((quest) => String(quest.taskId)),
+  );
+
+  const hasNewWorkingTask = currentWorkingIds.some((taskId) => !sourceSet.has(taskId));
+  if (hasNewWorkingTask) return false;
+
+  const hasPendingQuestRemovedFromToday = [...unresolvedQuestIds].some((taskId) => !currentWorkingSet.has(taskId));
+  if (hasPendingQuestRemovedFromToday) return false;
+
+  return true;
 };
 
 export const deriveQuestProgress = (run, tasks, focusSessions = []) => {
@@ -230,13 +252,13 @@ export const questGeneratedLabel = (tasks, questRun, taskCount) => {
   return `Generated ${formatDateTime(questRun.generatedAt)} from ${taskCount} task${taskCount === 1 ? "" : "s"}`;
 };
 
-export const getQuestTask = (tasks, quest) => tasks.find((task) => task.id === quest?.taskId);
+export const getQuestTask = (tasks, quest) => tasks.find((task) => String(task.id) === String(quest?.taskId));
 
 export const getNextQuest = (questRun) => questRun?.quests?.find((quest) => quest.id === questRun.activeQuestId) || questRun?.quests?.find((quest) => quest.state === "queued");
 
-export const getQuestById = (questRun, questId) => questRun?.quests?.find((quest) => quest.id === questId);
+export const getQuestById = (questRun, questId) => questRun?.quests?.find((quest) => String(quest.id) === String(questId));
 
-export const getOpenQuestForTask = (questRun, taskId) => questRun?.quests?.find((quest) => quest.taskId === taskId && quest.state !== "completed" && quest.state !== "skipped");
+export const getOpenQuestForTask = (questRun, taskId) => questRun?.quests?.find((quest) => String(quest.taskId) === String(taskId) && quest.state !== "completed" && quest.state !== "skipped");
 
 export const questProgressSummary = (questRun) => {
   const quests = questRun?.quests || [];
