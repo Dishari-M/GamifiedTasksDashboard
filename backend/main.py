@@ -27,6 +27,7 @@ from routes.insights_routes import router as insights_router
 from routes.missions_routes import router as missions_router
 from routes.overview_routes import router as overview_router
 from routes.standup_routes import router as standup_router
+from routes.focus_routes import router as focus_router
 from routes.quests_routes import router as quests_router
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -96,6 +97,7 @@ app.include_router(standup_router)
 app.include_router(insights_router)
 app.include_router(missions_router)
 app.include_router(quests_router)
+app.include_router(focus_router)
 
 @app.get("/", tags=["Health"])
 def root(): return {"msg":"DevQuest Pro"}

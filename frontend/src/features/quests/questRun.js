@@ -28,8 +28,28 @@ export const workingTodayTasks = (tasks) => tasks.filter((task) => task.workingT
 export const defaultQuestOrder = (tasks) => [...workingTodayTasks(tasks)].sort(compareQuestTasks);
 
 const sortedTaskIds = (tasks) => tasks.map((task) => task.id).sort();
+const sortedStringIds = (ids) => ids.map((id) => String(id)).sort();
 
-const sameTaskIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
+const includesAllTaskIds = (sourceIds, candidateIds) => {
+  if (!sourceIds.length) return false;
+  const candidateSet = new Set(candidateIds);
+  return sourceIds.every((id) => candidateSet.has(id));
+};
+
+const effectiveSourceTaskIds = (questRun) => {
+  if (!questRun) return [];
+  if (Array.isArray(questRun.sourceTaskIds) && questRun.sourceTaskIds.length) {
+    return sortedStringIds(questRun.sourceTaskIds);
+  }
+  if (Array.isArray(questRun.quests) && questRun.quests.length) {
+    return sortedStringIds(
+      questRun.quests
+        .map((quest) => quest?.taskId)
+        .filter(Boolean),
+    );
+  }
+  return [];
+};
 
 const questIdForTask = (taskId) => `quest-${taskId}`;
 
@@ -105,7 +125,7 @@ export const isCurrentQuestRun = (questRun) => Boolean(questRun && questRun.work
 
 export const isQuestRunSynced = (tasks, questRun) => {
   if (!isCurrentQuestRun(questRun)) return false;
-  return sameTaskIds(questRun.sourceTaskIds || [], sortedTaskIds(workingTodayTasks(tasks)));
+  return includesAllTaskIds(effectiveSourceTaskIds(questRun), sortedStringIds(sortedTaskIds(workingTodayTasks(tasks))));
 };
 
 export const deriveQuestProgress = (run, tasks, focusSessions = []) => {

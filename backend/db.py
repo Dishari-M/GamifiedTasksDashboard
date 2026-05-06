@@ -9,10 +9,34 @@ DEFAULT_POOL_SIZE = 10
 
 _POOL = None
 _POOL_LOCK = Lock()
+_THICK_MODE_READY = False
+
+
+def _truthy(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _maybe_init_thick_mode(wallet_dir):
+    global _THICK_MODE_READY
+
+    if _THICK_MODE_READY or not _truthy(os.getenv("ORACLE_DB_THICK_MODE")):
+        return
+
+    client_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "").strip()
+    init_kwargs = {}
+    if client_dir:
+        init_kwargs["lib_dir"] = client_dir
+    if wallet_dir:
+        init_kwargs["config_dir"] = wallet_dir
+
+    oracledb.init_oracle_client(**init_kwargs)
+    _THICK_MODE_READY = True
 
 
 def _connection_args():
-    wallet_dir = os.getenv("DB_WALLET_DIR")
+    wallet_dir = os.getenv("DB_WALLET_DIR", "").strip()
+    _maybe_init_thick_mode(wallet_dir)
+
     args = {
         "user": os.getenv("DB_USER"),
         "password": os.getenv("DB_PASSWORD"),
@@ -22,7 +46,7 @@ def _connection_args():
     if wallet_dir:
         args["config_dir"] = wallet_dir
         args["wallet_location"] = wallet_dir
-        wallet_password = os.getenv("DB_WALLET_PASSWORD")
+        wallet_password = os.getenv("DB_WALLET_PASSWORD", "").strip()
         if wallet_password:
             args["wallet_password"] = wallet_password
     return args

@@ -80,6 +80,12 @@ export const tasksApi = {
 export const questsApi = {
   today: (params = {}) => api.get("/quests/today", { params }).then(unwrap),
   generate: (payload) => api.post("/quests/generate", payload).then(unwrap),
+  update: (questItemId, payload) => api.patch(`/quests/${questItemId}`, payload).then(unwrap),
+};
+
+export const focusApi = {
+  list: (params = {}) => api.get("/focus-sessions", { params }).then(unwrap),
+  create: (payload) => api.post("/focus-sessions", payload).then(unwrap),
 };
 
 export const insightsApi = {

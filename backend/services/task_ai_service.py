@@ -36,10 +36,7 @@ def enrich_task_with_ai(task):
     if provider != "oci_genai":
         raise HTTPException(status_code=500, detail=f"Unsupported DEVQUEST_AI_PROVIDER '{provider}'. Use 'oci_genai'.")
     if not get_oci_genai_model_id():
-        raise HTTPException(
-            status_code=501,
-            detail="DEVQUEST_AI_MODE=real requires OCI_GENAI_MODEL_ID before task enrichment can be called.",
-        )
+        return _fallback_enrichment(task)
 
     prompt = (
         "Enrich this task for prioritization and planning. "
@@ -49,7 +46,7 @@ def enrich_task_with_ai(task):
     try:
         parsed = oci_genai_client.generate_overview_json(TASK_ENRICHMENT_SYSTEM_PROMPT, prompt)
     except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return _fallback_enrichment(task)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"OCI task enrichment failed: {exc}") from exc
     return _normalize_enrichment(parsed, task)

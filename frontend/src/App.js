@@ -43,14 +43,14 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, insightsApi, overviewApi, standupApi, tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, overviewApi, questsApi, standupApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { CompletionMomentumNotice, NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
-import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
+import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
 import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusMinutesByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
-import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -784,6 +784,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       </label>
       <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
       <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
+      <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}><option value="XS">XS</option><option value="S">S</option><option value="M">M</option><option value="L">L</option><option value="XL">XL</option></select></label>
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
       <label className="checkbox-field"><input type="checkbox" checked={form.workingToday} onChange={(event) => update("workingToday", event.target.checked)} /> Working on this today</label>
@@ -1089,6 +1090,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, completionNotice, onGenera
   const activeSessionConflicts = Boolean(activeSession && nextQuest && activeSession.quest_id !== nextQuest.id);
   const summary = questProgressSummary(questRun);
   const questRows = (questRun?.quests || []).map((quest) => ({ quest, task: getQuestTask(tasks, quest) })).filter((item) => item.task);
+
   const startFocus = () => {
     if (!nextQuestTask) return;
     if (activeSessionMatchesNextQuest || activeSessionConflicts) {
@@ -1528,7 +1530,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [dashboardStatus, setDashboardStatus] = useState("loading");
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
-  const [questRun, setQuestRun] = useState(() => readQuestRun(readStoredTasks(), readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, [])));
+  const [questRun, setQuestRun] = useState(null);
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [completionNotice, setCompletionNotice] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1541,27 +1543,42 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     writeStoredJson(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
+  const loadTasks = async () => {
+    const loadedTasks = await tasksApi.list();
+    const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
+    setTasks(taskItems.map(normalizeTask));
+  };
+
+  const loadQuestRun = async (date = todayKey()) => {
+    const loadedRun = await questsApi.today({ date });
+    setQuestRun(loadedRun || null);
+    return loadedRun || null;
+  };
+
+  const loadFocusSessions = async () => {
+    const loadedSessions = await focusApi.list();
+    setFocusSessions(Array.isArray(loadedSessions) ? loadedSessions : []);
+  };
+
   useEffect(() => {
     let isActive = true;
     setTaskStatus("loading");
-    tasksApi.list()
-      .then((loadedTasks) => {
+    Promise.all([loadTasks(), loadQuestRun(), loadFocusSessions()])
+      .then(() => {
         if (!isActive) return;
-        const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
-        setTasks(taskItems.map(normalizeTask));
         setTaskLoadError("");
         setTaskStatus("live");
       })
       .catch((error) => {
         if (!isActive) return;
-        setTaskLoadError(error?.message || "Unable to load saved tasks.");
+        setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to load saved data.");
         setTaskStatus("fallback");
       });
 
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [currentUser?.user_id]);
 
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
@@ -1621,26 +1638,38 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     setTasks((items) => [normalizeTask(createdTask), ...items]);
   };
 
-  const updateQuestRun = (updater) => setQuestRun((run) => {
-    const nextRun = typeof updater === "function" ? updater(run) : updater;
-    saveQuestRun(nextRun);
-    return nextRun;
-  });
-
-  const handleGenerateQuests = () => updateQuestRun(generateQuestRun(tasks, focusSessions));
+  const handleGenerateQuests = async () => {
+    const candidateTaskIds = tasks
+      .filter((task) => task.workingToday && task.status !== "Done")
+      .map((task) => Number(task.id))
+      .filter((taskId) => Number.isFinite(taskId));
+    try {
+      const nextRun = await questsApi.generate({
+        quest_date: todayKey(),
+        candidate_task_ids: candidateTaskIds,
+        max_quests: Math.max(1, Math.min(candidateTaskIds.length || 5, 5)),
+      });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to generate quests.");
+    }
+  };
   const handleClearQuests = () => {
-    clearQuestRun();
     setQuestRun(null);
   };
-  const handleStartFocus = (task, questId) => {
+  const handleStartFocus = async (task, questId) => {
     const startedAt = nowIso();
     const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, task.id);
-    if (linkedQuest) {
-      updateQuestRun((run) => applyActiveQuest({
-        ...run,
-        activeQuestId: linkedQuest.id,
-        quests: (run?.quests || []).map((quest) => quest.id === linkedQuest.id ? { ...quest, state: "active", startedAt: quest.startedAt || startedAt } : quest),
-      }));
+    if (linkedQuest?.quest_item_id || linkedQuest?.id) {
+      try {
+        const nextRun = await questsApi.update(linkedQuest.quest_item_id || linkedQuest.id, { action: "activate" });
+        setQuestRun(nextRun);
+        setTaskLoadError("");
+      } catch (error) {
+        setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+        return;
+      }
     }
     setLastSavedFocus(null);
     setActiveSession({
@@ -1657,46 +1686,56 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       created_at: startedAt,
     });
   };
-  const handleStartQuestFocus = (task, questId) => {
-    updateQuestRun((run) => applyActiveQuest({
-      ...run,
-      activeQuestId: questId,
-      quests: (run?.quests || []).map((quest) => quest.id === questId ? { ...quest, state: "active", startedAt: quest.startedAt || nowIso() } : quest),
-    }));
-    handleStartFocus(task, questId);
+  const handleStartQuestFocus = async (task, questId) => {
+    await handleStartFocus(task, questId);
   };
-  const handleCompleteQuest = (questId) => {
+  const handleCompleteQuest = async (questId) => {
     const quest = questRun?.quests?.find((item) => item.id === questId);
     const task = tasks.find((item) => item.id === quest?.taskId);
     if (!quest || !task) return;
-    const completedAt = nowIso();
-    const reward = taskRewardDetailsFromSessions(task, focusSessions, todayKey());
-    setCompletionNotice({
-      questId,
-      taskId: task.id,
-      taskTitle: task.title,
-      ...reward,
-    });
-    setTasks((items) => items.map((item) => (item.id === task.id ? normalizeTask({ ...item, status: "Done", completedAt: item.completedAt || completedAt }) : item)));
-    updateQuestRun((run) => applyActiveQuest({
-      ...run,
-      quests: (run?.quests || []).map((item) => item.id === questId ? { ...item, ...reward, state: "completed", completedAt } : item),
-    }));
-    setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
+    try {
+      const nextRun = await questsApi.update(quest.quest_item_id || questId, { action: "complete" });
+      await loadTasks();
+      setQuestRun(nextRun);
+      const completedQuest = nextRun?.quests?.find((item) => item.id === questId || item.quest_item_id === quest.quest_item_id);
+      const reward = completedQuest ? {
+        baseXp: completedQuest.baseXp,
+        rewardXp: completedQuest.rewardXp,
+        focusBonusXp: completedQuest.focusBonusXp,
+        rewardMultiplier: completedQuest.rewardMultiplier,
+        hasFocusReward: completedQuest.hasFocusReward,
+        focusMinutes: completedQuest.focusMinutes,
+      } : taskRewardDetailsFromSessions(task, focusSessions, todayKey());
+      setCompletionNotice({
+        questId,
+        taskId: task.id,
+        taskTitle: task.title,
+        ...reward,
+      });
+      setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete quest.");
+    }
   };
-  const handleSkipQuest = (questId, skipReason) => updateQuestRun((run) => applyActiveQuest({
-    ...run,
-    quests: (run?.quests || []).map((quest) => quest.id === questId ? { ...quest, state: "skipped", skippedAt: nowIso(), skipReason } : quest),
-  }));
-  const handleActivateQuest = (questId) => updateQuestRun((run) => applyActiveQuest({
-    ...run,
-    activeQuestId: questId,
-    quests: (run?.quests || []).map((quest) => {
-      if (quest.id === questId) return { ...quest, state: "active", startedAt: quest.startedAt || nowIso(), skippedAt: null, skipReason: "" };
-      if (quest.state === "active") return { ...quest, state: "queued" };
-      return quest;
-    }),
-  }));
+  const handleSkipQuest = async (questId, skipReason) => {
+    try {
+      const nextRun = await questsApi.update(questId, { action: "skip", skip_reason: skipReason });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to skip quest.");
+    }
+  };
+  const handleActivateQuest = async (questId) => {
+    try {
+      const nextRun = await questsApi.update(questId, { action: "activate" });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+    }
+  };
   const handlePauseFocus = () => setActiveSession((session) => {
     if (!session || !session.isRunning) return session;
     return { ...session, accumulatedSeconds: activeFocusSeconds(session), isRunning: false, lastStartedAt: null };
@@ -1705,29 +1744,38 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     if (!session || session.isRunning) return session;
     return { ...session, isRunning: true, lastStartedAt: nowIso() };
   });
-  const handleStopFocus = ({ outcomeType, outcomeNote }) => setActiveSession((session) => {
-    if (!session) return null;
+  const handleStopFocus = async ({ outcomeType, outcomeNote }) => {
+    if (!activeSession) return;
     const endedAt = nowIso();
-    const durationSeconds = activeFocusSeconds(session);
+    const durationSeconds = activeFocusSeconds(activeSession);
     const savedSession = {
-      focus_session_id: session.focus_session_id,
-      task_id: session.task_id,
-      task_title: session.task_title,
-      task_source: session.task_source,
-      quest_id: session.quest_id || null,
-      work_date: session.work_date || todayKey(),
-      started_at: session.started_at,
+      focus_session_id: activeSession.focus_session_id,
+      task_id: activeSession.task_id,
+      task_title: activeSession.task_title,
+      task_source: activeSession.task_source,
+      quest_id: activeSession.quest_id || null,
+      work_date: activeSession.work_date || todayKey(),
+      started_at: activeSession.started_at,
       ended_at: endedAt,
       duration_seconds: durationSeconds,
       duration_minutes: Math.max(1, Math.ceil(durationSeconds / 60)),
       outcome_type: outcomeType || "Progress made",
       outcome_note: outcomeNote?.trim() || "",
-      created_at: session.created_at || endedAt,
+      created_at: activeSession.created_at || endedAt,
     };
-    setFocusSessions((items) => [savedSession, ...items]);
-    setLastSavedFocus(savedSession);
-    return null;
-  });
+    try {
+      const persistedSession = await focusApi.create(savedSession);
+      setFocusSessions((items) => [persistedSession, ...items.filter((item) => item.focus_session_id !== persistedSession.focus_session_id)]);
+      setLastSavedFocus(persistedSession);
+      setActiveSession(null);
+      if (savedSession.quest_id) {
+        await loadQuestRun(savedSession.work_date);
+      }
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to save focus session.");
+    }
+  };
 
   useEffect(() => {
     writeStoredJson(FOCUS_SESSIONS_STORAGE_KEY, focusSessions);
@@ -1737,17 +1785,6 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     if (activeSession) writeStoredJson(ACTIVE_FOCUS_STORAGE_KEY, activeSession);
     else removeStoredJson(ACTIVE_FOCUS_STORAGE_KEY);
   }, [activeSession]);
-
-  useEffect(() => {
-    setQuestRun((run) => {
-      const derived = deriveQuestProgress(run, tasks, focusSessions);
-      return JSON.stringify(derived) === JSON.stringify(run) ? run : derived;
-    });
-  }, [tasks, focusSessions]);
-
-  useEffect(() => {
-    saveQuestRun(questRun);
-  }, [questRun]);
 
   useEffect(() => {
     writeStoredJson(TASKS_STORAGE_KEY, tasks);
