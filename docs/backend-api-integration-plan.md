@@ -90,11 +90,12 @@ APP_ENV=dev
 API_PREFIX=/api/v1
 CORS_ORIGINS=http://localhost:3000
 
-ORACLE_DB_USER=DEVQUEST_APP
+ORACLE_DB_USER=ADMIN
 ORACLE_DB_PASSWORD=...
-ORACLE_DB_DSN=devquest_high
+ORACLE_DB_DSN=tasksdb_tp
 ORACLE_DB_WALLET_DIR=/opt/secrets/wallet
-ORACLE_DB_POOL_MIN=2
+ORACLE_DB_POOL_SIZE=10
+ORACLE_DB_POOL_MIN=10
 ORACLE_DB_POOL_MAX=10
 ORACLE_DB_POOL_INCREMENT=1
 ORACLE_DB_POOL_TIMEOUT_SECONDS=30
@@ -111,6 +112,32 @@ AI_CACHE_TTL_SECONDS=86400
 AI_REQUEST_TIMEOUT_SECONDS=45
 ```
 
+Oracle access rule for implementation:
+
+- All repositories and services must acquire DB connections through
+  `backend/db.py:connection_scope()` or, for lower-level code,
+  `backend/db.py:get_connection()`.
+- `connection_scope()` is the preferred request-path helper because it returns
+  pooled connections in a `finally` block even when SQL or mapping code raises.
+- `get_connection()` uses the shared process-local `python-oracledb` pool. If it
+  is used directly, the caller must call `conn.close()` in `finally`.
+- Closing a pooled connection returns it to the pool; it is not a per-request
+  physical disconnect.
+- Do not call `oracledb.connect()` directly in request paths.
+- Do not store pooled connections in module globals, cached objects, or
+  long-lived service instances. Acquire late and release immediately after the
+  SQL unit of work finishes.
+- User ownership is mandatory: every user-scoped API must resolve the caller
+  from `X-DevQuest-User-Id` and query/mutate with that resolved
+  `APP_USERS.USER_ID`. Do not hardcode `USER_ID = 1` in services,
+  repositories, dashboard/capacity reads, overview reads, AI runs, quests, or
+  task writes. The local app id format `user-<n>` maps to Oracle numeric
+  `APP_USERS.USER_ID = <n>`.
+- Default pool sizing is fixed (`DB_POOL_SIZE=10`, so min and max are both 10)
+  following Oracle python-oracledb guidance to avoid connection storms. Only use
+  different `DB_POOL_MIN` / `DB_POOL_MAX` values when the deployment owner
+  explicitly chooses a non-fixed pool.
+
 For local development, config-file authentication is acceptable. In OCI Compute, Functions, or Container Instances, prefer instance principals or workload identity over long-lived API keys.
 
 ## 4. Oracle Autonomous DB Schema
@@ -121,6 +148,7 @@ Recommended sequence setup:
 
 ```sql
 CREATE SEQUENCE APP_USERS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
+CREATE SEQUENCE USER_STATS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEMS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEM_WORK_DATES_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEM_EVENTS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
@@ -141,7 +169,8 @@ For inserts, omit the primary key column and fetch the generated ID with `RETURN
 CREATE TABLE APP_USERS (
   USER_ID NUMBER(19) DEFAULT APP_USERS_SEQ.NEXTVAL PRIMARY KEY,
   EXTERNAL_USER_ID VARCHAR2(200),
-  DISPLAY_NAME VARCHAR2(200) NOT NULL,
+  FIRST_NAME VARCHAR2(120) NOT NULL,
+  LAST_NAME VARCHAR2(120) NOT NULL,
   EMAIL VARCHAR2(320) NOT NULL UNIQUE,
   ROLE_NAME VARCHAR2(80),
   TIMEZONE VARCHAR2(80) DEFAULT 'Asia/Calcutta' NOT NULL,
@@ -154,7 +183,33 @@ CREATE TABLE APP_USERS (
 );
 ```
 
-### 4.2 Work Items
+### 4.2 User Stats
+
+Stores fast-read XP, level, and streak values for profile, sidebar, and dashboard surfaces. Keep `USER_ID` unique so each app user has one stats row.
+
+```sql
+CREATE TABLE USER_STATS (
+  USER_STATS_ID NUMBER(19) DEFAULT USER_STATS_SEQ.NEXTVAL PRIMARY KEY,
+  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+  TOTAL_XP NUMBER(10) DEFAULT 0 NOT NULL,
+  CURRENT_LEVEL NUMBER(5) DEFAULT 1 NOT NULL,
+  CURRENT_STREAK_DAYS NUMBER(6) DEFAULT 0 NOT NULL,
+  LAST_ACTIVITY_DATE DATE,
+  CURRENT_LEVEL_XP NUMBER(10) DEFAULT 0 NOT NULL,
+  NEXT_LEVEL_XP NUMBER(10) DEFAULT 100 NOT NULL,
+  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
+  CONSTRAINT USER_STATS_USER_UK UNIQUE (USER_ID),
+  CONSTRAINT USER_STATS_TOTAL_XP_CK CHECK (TOTAL_XP >= 0),
+  CONSTRAINT USER_STATS_LEVEL_CK CHECK (CURRENT_LEVEL >= 1),
+  CONSTRAINT USER_STATS_STREAK_CK CHECK (CURRENT_STREAK_DAYS >= 0),
+  CONSTRAINT USER_STATS_LEVEL_XP_CK CHECK (CURRENT_LEVEL_XP >= 0),
+  CONSTRAINT USER_STATS_NEXT_LEVEL_XP_CK CHECK (NEXT_LEVEL_XP > 0)
+);
+```
+
+### 4.3 Work Items
 
 This is the canonical task table for Jira, Microsoft To Do, Outlook-derived work, and custom tasks.
 
@@ -174,6 +229,10 @@ CREATE TABLE WORK_ITEMS (
   START_AT TIMESTAMP WITH TIME ZONE,
   ESTIMATED_MINUTES NUMBER(8),
   ACTUAL_MINUTES NUMBER(8),
+  RCA_TSHIRT_SIZE VARCHAR2(20),
+  RCA_FILE_CHANGE_COUNT NUMBER(8),
+  RCA_COMPLEXITY_SOURCE VARCHAR2(40),
+  RCA_COMPLEXITY_AT TIMESTAMP WITH TIME ZONE,
   XP_VALUE NUMBER(8),
   NOTES CLOB,
   LABELS_JSON CLOB CHECK (LABELS_JSON IS JSON),
@@ -191,12 +250,17 @@ CREATE TABLE WORK_ITEMS (
   ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do','In Progress','Blocked','Done','Cancelled','Upcoming')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Low','Medium','High','Critical')),
-  CONSTRAINT WORK_ITEMS_SOURCE_UK UNIQUE (USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL'))
 );
 
 CREATE INDEX WORK_ITEMS_USER_STATUS_IDX ON WORK_ITEMS(USER_ID, STATUS);
 CREATE INDEX WORK_ITEMS_USER_COMPLETED_IDX ON WORK_ITEMS(USER_ID, COMPLETED_AT);
 CREATE INDEX WORK_ITEMS_USER_UPDATED_IDX ON WORK_ITEMS(USER_ID, UPDATED_AT);
+CREATE UNIQUE INDEX WORK_ITEMS_SOURCE_EXT_UK ON WORK_ITEMS (
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN USER_ID END,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_SOURCE END,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_ID END
+);
 ```
 
 Rules:
@@ -204,7 +268,8 @@ Rules:
 - `COMPLETED_AT` is inserted when status becomes `Done`.
 - If a completed task is reopened, do not delete historical completion from overviews. Set `STATUS = 'In Progress'`, clear `COMPLETED_AT` only if product wants "current completion date" semantics, and insert an audit event either way.
 - `NOTES` is editable and should feed AI insights, standup generation, and daily/weekly overviews.
-- Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. Oracle allows multiple `NULL` values in a unique constraint, so custom tasks need only unique `TASK_ID`.
+- `RCA_*` columns store lightweight complexity evidence from the RCA/Jira analysis path at task insert or sync time. The RCA tool should estimate `RCA_TSHIRT_SIZE` from Jira priority and file-change count when available. Phase 12/13 AI should use that T-shirt size as an XP signal; if RCA data is missing, fall back to AI difficulty/effort/impact, then deterministic default XP.
+- Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. The function-based `WORK_ITEMS_SOURCE_EXT_UK` index enforces uniqueness only for synced rows with a non-null `EXTERNAL_ID`, so multiple custom tasks can coexist.
 
 ### 4.3 Work Item Work Dates
 
@@ -295,6 +360,7 @@ CREATE TABLE AI_RUNS (
   PROVIDER VARCHAR2(40) DEFAULT 'OCI' NOT NULL,
   MODEL_ID VARCHAR2(200),
   AGENT_ENDPOINT_ID VARCHAR2(255),
+  INPUT_HASH VARCHAR2(128),
   REQUEST_JSON CLOB CHECK (REQUEST_JSON IS JSON),
   RESPONSE_JSON CLOB CHECK (RESPONSE_JSON IS JSON),
   ERROR_CODE VARCHAR2(100),
@@ -306,6 +372,7 @@ CREATE TABLE AI_RUNS (
 );
 
 CREATE INDEX AI_RUNS_USER_TYPE_IDX ON AI_RUNS(USER_ID, RUN_TYPE, CREATED_AT);
+CREATE INDEX AI_RUNS_USER_HASH_IDX ON AI_RUNS(USER_ID, RUN_TYPE, INPUT_HASH);
 ```
 
 ### 4.7 Quest Plans
@@ -327,15 +394,17 @@ CREATE TABLE QUEST_PLANS (
 
 CREATE TABLE QUEST_ITEMS (
   QUEST_ITEM_ID NUMBER(19) DEFAULT QUEST_ITEMS_SEQ.NEXTVAL PRIMARY KEY,
+  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
   QUEST_PLAN_ID NUMBER(19) NOT NULL REFERENCES QUEST_PLANS(QUEST_PLAN_ID),
-  TASK_ID NUMBER(19) NOT NULL REFERENCES WORK_ITEMS(TASK_ID),
+  TASK_ID NUMBER(19) NOT NULL,
   RANK_ORDER NUMBER(5) NOT NULL,
   REASON CLOB,
   SUGGESTED_START_AT TIMESTAMP WITH TIME ZONE,
   SUGGESTED_END_AT TIMESTAMP WITH TIME ZONE,
   XP_VALUE NUMBER(8),
   CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-  CONSTRAINT QUEST_ITEMS_UK UNIQUE (QUEST_PLAN_ID, TASK_ID)
+  CONSTRAINT QUEST_ITEMS_TASK_FK FOREIGN KEY (USER_ID, TASK_ID) REFERENCES WORK_ITEMS(USER_ID, TASK_ID),
+  CONSTRAINT QUEST_ITEMS_UK UNIQUE (USER_ID, QUEST_PLAN_ID, TASK_ID)
 );
 ```
 
@@ -1127,11 +1196,17 @@ Insert/update behavior:
 
 OCI AI steps:
 
-1. Build compact input containing task title, priority, status, due date, estimated minutes, notes, AI scores, and available focus windows.
+1. Build compact input containing task title, priority, status, due date, estimated minutes, notes, RCA T-shirt size/file-change count, existing XP, AI scores, and available focus windows.
 2. Use OCI Generative AI Inference for deterministic JSON ranking.
 3. Temperature: `0.1` to `0.3`.
 4. Validate output against `QuestPlanSchema`.
 5. Store prompt and response in `AI_RUNS`.
+
+XP guidance:
+
+- Prefer existing `WORK_ITEMS.XP_VALUE` when already set by task enrichment or prior RCA/AI processing.
+- If `XP_VALUE` is missing and `RCA_TSHIRT_SIZE` exists, let AI infer quest XP from the T-shirt size plus priority, time available, time needed, and impact.
+- If both XP and RCA data are missing, fall back to deterministic default XP so the API never returns blank XP.
 
 ## 11. Calendar And Capacity APIs
 
@@ -1254,10 +1329,14 @@ Update implementation:
    - `priority_score` between 0 and 1
    - `effort_minutes` positive integer
    - `xp_value` positive integer
-6. Update `WORK_ITEMS` AI columns and `XP_VALUE`.
-7. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
-8. Mark `AI_RUNS` as `SUCCEEDED`.
-9. Commit.
+6. Resolve XP with this precedence:
+   - If the RCA tool stored `RCA_TSHIRT_SIZE`, allow AI to convert the T-shirt size and task context into `XP_VALUE`.
+   - If no RCA data exists, allow AI to infer XP from difficulty, effort, impact, and priority.
+   - If AI does not return valid XP, use the deterministic default XP mapping from the backend.
+7. Update `WORK_ITEMS` AI columns and `XP_VALUE`.
+8. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
+9. Mark `AI_RUNS` as `SUCCEEDED`.
+10. Commit.
 
 OCI GenAI prompt contract:
 
@@ -1406,10 +1485,11 @@ Response:
 
 OCI AI steps:
 
-1. Build context from tasks joined through `WORK_ITEM_WORK_DATES` for the selected date, task notes, completed tasks, and meeting schedule.
+1. Build context from tasks joined through `WORK_ITEM_WORK_DATES` for the selected date, task notes, completed tasks, meeting schedule, existing XP, and RCA T-shirt complexity signals.
 2. Use direct OCI GenAI for structured recommendations.
 3. Use OCI Agent only if the insight needs database-grounded question answering over historical data, for example "compare with last three Fridays".
 4. Store results in `AI_RUNS`.
+5. When insight cards need XP and `WORK_ITEMS.XP_VALUE` is empty, prefer RCA T-shirt size as the AI input for XP inference; otherwise use deterministic fallback XP.
 
 ## 14. Standup Note APIs
 
@@ -1934,7 +2014,38 @@ Daily overview output:
 
 ### 19.1 Database Pool
 
-Use `oracledb.create_pool_async()` at app startup:
+Current FastAPI code uses the synchronous `python-oracledb` pool exposed by
+`backend/db.py`. Request-path code should use `connection_scope()`:
+
+```python
+from db import connection_scope
+
+def fetch_rows(sql, binds):
+    with connection_scope() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchall()
+```
+
+Transaction pattern:
+
+```python
+from db import connection_scope
+
+def write_rows(insert_sql, binds, event_sql, event_binds):
+    with connection_scope() as conn:
+        try:
+            cur = conn.cursor()
+            cur.execute(insert_sql, binds)
+            cur.execute(event_sql, event_binds)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+```
+
+If a future refactor moves the backend to fully async DB access, use
+`oracledb.create_pool_async()` at app startup:
 
 ```python
 import oracledb
@@ -1954,7 +2065,7 @@ async def create_db_pool(settings):
     )
 ```
 
-Repository pattern:
+Async repository pattern:
 
 ```python
 async with pool.acquire() as conn:
@@ -1963,7 +2074,7 @@ async with pool.acquire() as conn:
         rows = await cur.fetchall()
 ```
 
-Transaction pattern:
+Async transaction pattern:
 
 ```python
 async with pool.acquire() as conn:
@@ -2035,6 +2146,14 @@ Use it for:
 ### 19.5 Performance
 
 - Dashboard endpoint should use bulk queries and avoid per-task database round trips.
+- Read-heavy dashboard startup calls may use short process-local caches. Current
+  local/demo cache policy is 30 seconds for `GET /api/v1/tasks` and
+  `GET /api/v1/dashboard/today`, keyed by user/date/filter inputs and
+  invalidated after task, working-today, completion, and quest-generation
+  writes.
+- Frontend dashboard startup should call `GET /api/v1/tasks?include_total=false`
+  when exact pagination totals are not needed so Oracle can skip the separate
+  `COUNT(*)` query.
 - AI generation endpoints should cache by `(user_id, run_type, date, input_hash)`.
 - Add indexes for `(USER_ID, STATUS)`, `(USER_ID, COMPLETED_AT)`, `(USER_ID, WORK_DATE)`, and calendar date ranges.
 - For long sync and bulk AI jobs, return `202 Accepted` and process in a background worker.

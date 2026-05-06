@@ -52,10 +52,11 @@ def _free_windows(workday_start, workday_end, busy_intervals):
     return [item for item in windows if item["duration_minutes"] > 0]
 
 
-def build_capacity(date=None):
+def build_capacity(date=None, user=None, events=None, user_id=None):
     work_date = resolve_work_date(date)
-    user = get_user()
-    events = get_calendar_events(work_date)
+    if user is None:
+        user = get_user(user_id)
+    events = events if events is not None else get_calendar_events(work_date)
 
     workday_start = _parse_iso(iso_at(work_date, user["workday_start_local"]))
     workday_end = _parse_iso(iso_at(work_date, user["workday_end_local"]))
@@ -89,8 +90,8 @@ def build_capacity(date=None):
     }
 
 
-def capacity_response(date=None):
+def capacity_response(date=None, user_id=None):
     return {
-        "data": build_capacity(date),
+        "data": build_capacity(date, user_id=user_id),
         "meta": {"request_id": str(uuid4())},
     }

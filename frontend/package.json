@@ -59,7 +59,9 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "ui:review": "node scripts/playwright-ui-review.mjs",
+    "ui:e2e:quests-focus": "node scripts/playwright-quests-focus-e2e.mjs"
   },
   "browserslist": {
     "production": [
@@ -85,6 +87,7 @@
     "eslint-plugin-react": "7.37.4",
     "eslint-plugin-react-hooks": "5.2.0",
     "globals": "15.15.0",
+    "playwright": "^1.59.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17"
   },

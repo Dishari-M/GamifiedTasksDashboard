@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import oracledb
 
 from db import get_connection
+from services.api_cache import invalidate_user_cache
 from repositories.work_dates_repository import (
     delete_work_date_if_present,
     fetch_work_item_for_update,
@@ -11,9 +12,6 @@ from repositories.work_dates_repository import (
     list_worked_dates,
     touch_work_item,
 )
-
-
-DEFAULT_USER_ID = 1
 
 
 class TaskNotFoundError(Exception):
@@ -32,7 +30,7 @@ def get_today_utc_date():
     return datetime.now(UTC).date().isoformat()
 
 
-def set_working_today(task_id, is_working_today, row_version, user_id=DEFAULT_USER_ID):
+def set_working_today(task_id, is_working_today, row_version, user_id):
     work_date = get_today_utc_date()
     conn = None
     try:
@@ -59,6 +57,7 @@ def set_working_today(task_id, is_working_today, row_version, user_id=DEFAULT_US
 
         worked_dates = list_worked_dates(cur, task_id, user_id)
         conn.commit()
+        invalidate_user_cache(user_id, ("task_list", "dashboard_today"))
         return {
             "task_id": task_id,
             "work_date": work_date,

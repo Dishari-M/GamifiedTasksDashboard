@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowClockwise,
@@ -25,7 +25,6 @@ import {
   Lightning,
   ListBullets,
   ListChecks,
-  MagnifyingGlass,
   Moon,
   PencilSimple,
   Play,
@@ -47,13 +46,14 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, jiraApi, overviewApi, syncApi, tasksApi } from "./api/client";
+import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, standupApi, syncApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
+import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { CompletionMomentumNotice, NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
-import { applyActiveQuest, clearQuestRun, compareQuestTasks, deriveQuestProgress, generateQuestRun, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, readQuestRun, saveQuestRun, skipReasons } from "./features/quests/questRun";
+import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
 import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusMinutesByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
-import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, readStoredTasks, schedule, sources, statuses, TASKS_STORAGE_KEY, taskTypes } from "./features/tasks/taskModel";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -97,6 +97,12 @@ const profileInitials = (user) => {
   const first = profileFirstName(user).charAt(0);
   const last = profileLastName(user).charAt(0);
   return `${first}${last || ""}`.toUpperCase();
+};
+const greetingForDate = (date = new Date()) => {
+  const hour = date.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 };
 
 const readCurrentUser = () => {
@@ -338,8 +344,14 @@ const Sidebar = ({ open, onClose, levelProgress }) => (
 const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThemeToggle }) => {
   const location = useLocation();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const title = location.pathname === "/" ? `Good morning, ${profileFirstName(currentUser)}` : location.pathname.startsWith("/jira/") ? "Jira RCA" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
-  const subtitle = location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCurrentDate(new Date()), 60000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+  const localGreeting = greetingForDate(currentDate);
+  const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname.startsWith("/jira/") ? "Jira RCA" : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const subtitle = location.pathname === "/focus/analytics" ? "Review focus trends, XP, streaks, and consistency." : location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
   const isLight = theme === "light";
 
   return (
@@ -349,17 +361,10 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
         <h1 data-testid="page-title">{title}</h1>
         <p data-testid="page-subtitle">{subtitle}</p>
       </div>
-      <label className="search-box" data-testid="search-label">
-        <MagnifyingGlass size={22} weight="duotone" aria-hidden="true" />
-        <input data-testid="global-search-input" aria-label="Search tasks" placeholder="Search tasks..." />
-      </label>
       <button className="theme-toggle" type="button" onClick={onThemeToggle} aria-label={`Switch to ${isLight ? "dark" : "light"} theme`} aria-pressed={isLight} data-testid="theme-toggle-button">
-        {isLight ? <Moon size={22} weight="duotone" aria-hidden="true" /> : <SunDim size={22} weight="duotone" aria-hidden="true" />}
-        <span className="toggle-knob">{isLight ? <SunDim size={18} weight="fill" aria-hidden="true" /> : <Moon size={18} weight="fill" aria-hidden="true" />}</span>
-      </button>
-      <button className="bell-button" aria-label="View notifications" data-testid="notifications-button">
-        <Bell size={28} weight="duotone" />
-        <span data-testid="notification-count">3</span>
+        <span className="toggle-knob" aria-hidden="true" />
+        <Moon className="theme-toggle-icon theme-toggle-icon-moon" size={18} weight={isLight ? "duotone" : "fill"} aria-hidden="true" />
+        <SunDim className="theme-toggle-icon theme-toggle-icon-sun" size={18} weight={isLight ? "fill" : "duotone"} aria-hidden="true" />
       </button>
       <div className="profile-cluster">
         <button
@@ -393,17 +398,23 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
   );
 };
 
-const StatCard = ({ label, value, detail, icon, tone, trend, down, progress, testId }) => (
-  <section className="stat-card surface" data-testid={testId}>
-    <div className="stat-head"><span>{label}</span><IconBadge icon={icon} tone={tone} testId={`${testId}-icon`} /></div>
-    <div className="stat-value" data-testid={`${testId}-value`}>{value}</div>
-    {typeof progress === "number" && <div className="progress-track" data-testid={`${testId}-progress-track`} aria-label={`${label} progress`}><span className="progress-fill" style={{ width: `${progress}%` }} data-testid={`${testId}-progress-fill`} /></div>}
-    <div className={`stat-detail ${down ? "negative" : "positive"}`} data-testid={`${testId}-detail`}>
-      {trend && (down ? <TrendDown size={17} weight="bold" aria-hidden="true" /> : <TrendUp size={17} weight="bold" aria-hidden="true" />)}
-      {detail}
-    </div>
-  </section>
-);
+const StatCard = ({ label, value, detail, detailInsight, icon, tone, trend, down, progress, testId }) => {
+  const insightDirection = detailInsight?.direction;
+  const direction = insightDirection || (down ? "down" : "up");
+  const showTrend = trend || insightDirection === "up" || insightDirection === "down";
+  const detailText = detailInsight?.label || detail;
+  return (
+    <section className="stat-card surface" data-testid={testId}>
+      <div className="stat-head"><span>{label}</span><IconBadge icon={icon} tone={tone} testId={`${testId}-icon`} /></div>
+      <div className="stat-value" data-testid={`${testId}-value`}>{value}</div>
+      {typeof progress === "number" && <div className="progress-track" data-testid={`${testId}-progress-track`} aria-label={`${label} progress`}><span className="progress-fill" style={{ width: `${progress}%` }} data-testid={`${testId}-progress-fill`} /></div>}
+      <div className={`stat-detail stat-detail-chip ${direction === "down" ? "negative" : direction === "neutral" ? "neutral" : "positive"}`} data-testid={`${testId}-detail`}>
+        {showTrend && (direction === "down" ? <TrendDown size={17} weight="bold" aria-hidden="true" /> : <TrendUp size={17} weight="bold" aria-hidden="true" />)}
+        {detailText}
+      </div>
+    </section>
+  );
+};
 
 const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
@@ -567,6 +578,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   const todaySessions = sessionsForDay(focusSessions);
   const focusedToday = focusMinutesForSessions(todaySessions);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  const activeTask = activeSession ? tasks.find((task) => task.id === activeSession.task_id) || selectedTask : null;
   const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
   const selectedTaskFocusedToday = focusMinutesForSessions(selectedTaskSessions);
   const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id ? questContext.quest : null;
@@ -588,6 +600,30 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
     setOutcomeNote("");
     setOutcomeType("Progress made");
   };
+
+  if (activeSession) {
+    const activeTaskTitle = activeSession.task_title || activeTask?.title || "Current focus task";
+    const activeTaskContext = activeTask?.source ? `${activeTask.source}${activeTask.priority ? ` - ${activeTask.priority}` : ""}` : "Focus session";
+
+    return (
+      <section className="surface focus-widget focus-widget-active" data-testid="focus-widget" aria-label="Active focus session">
+        <div className="focus-hero-grid focus-hero-grid-active">
+          <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
+            <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+          </div>
+        </div>
+        <article className="focus-active-task-card" data-testid="focus-active-task">
+          <span>{activeTaskContext}</span>
+          <strong>{activeTaskTitle}</strong>
+        </article>
+        <div className="focus-actions focus-active-actions">
+          {activeSession.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
+          {!activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
+          <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={`surface focus-widget ${compact ? "focus-compact" : ""}`} data-testid="focus-widget">
@@ -638,7 +674,6 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
         {activeSession && !activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
         {activeSession && <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>}
       </div>
-      {activeSession && <p className="focus-active-copy" data-testid="focus-active-copy">Focusing on <strong>{activeSession.task_title}</strong>.</p>}
     </section>
   );
 };
@@ -785,6 +820,8 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [isFetchingJiraFields, setIsFetchingJiraFields] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
@@ -792,11 +829,26 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     setIsFetchingJiraFields(false);
     setIsSubmitting(false);
     setSubmitError("");
+    setFieldErrors({});
+    submitInFlightRef.current = false;
   }, [task]);
 
   const update = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
     if (field === "externalId" && value.trim()) setBanner("");
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+    setSubmitError("");
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!form.title.trim()) errors.title = "Title is required.";
+    if (!form.type) errors.type = "Type is required.";
+    if (!form.source) errors.source = "Source is required.";
+    if (!form.priority) errors.priority = "Priority is required.";
+    if (!form.status) errors.status = "Status is required.";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const fetchJiraFields = async () => {
@@ -848,7 +900,9 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!form.title.trim()) return;
+    if (submitInFlightRef.current) return;
+    if (!validate()) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setSubmitError("");
     try {
@@ -856,21 +910,35 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       if (mode === "create") {
         setForm(emptyTaskForm);
         setBanner("");
+        setFieldErrors({});
       }
     } catch (error) {
       setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   return (
-    <form className="task-editor-form" onSubmit={submit} data-testid={`${mode}-task-form`}>
+    <form className="task-editor-form" onSubmit={submit} noValidate data-testid={`${mode}-task-form`}>
       {banner && <div className="form-banner form-banner-error" role="alert" data-testid={`${mode}-ai-error-banner`}>{banner}</div>}
-      <label>Title<input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" data-testid={`${mode}-task-title-input`} /></label>
+      <label>
+        Title
+        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
+        {fieldErrors.title && <span className="field-error" id={`${mode}-task-title-error`}>{fieldErrors.title}</span>}
+      </label>
       <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
-      <label>Type<select value={form.type} onChange={(event) => update("type", event.target.value)}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>Source<select value={form.source} onChange={(event) => update("source", event.target.value)}>{sources.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>
+        Type
+        <select value={form.type} onChange={(event) => update("type", event.target.value)} aria-invalid={Boolean(fieldErrors.type)} aria-describedby={fieldErrors.type ? `${mode}-task-type-error` : undefined}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.type && <span className="field-error" id={`${mode}-task-type-error`}>{fieldErrors.type}</span>}
+      </label>
+      <label>
+        Source
+        <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
+      </label>
       <label>
         <span className="field-label-row">
           <span>External ID</span>
@@ -879,10 +947,19 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" />
       </label>
       <label>Project key<input value={form.projectKey} onChange={(event) => update("projectKey", event.target.value)} placeholder="PAY" /></label>
-      <label>Priority<select value={form.priority} onChange={(event) => update("priority", event.target.value)}>{priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>Status<select value={form.status} onChange={(event) => update("status", event.target.value)}>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>
+        Priority
+        <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.priority && <span className="field-error" id={`${mode}-task-priority-error`}>{fieldErrors.priority}</span>}
+      </label>
+      <label>
+        Status
+        <select value={form.status} onChange={(event) => update("status", event.target.value)} aria-invalid={Boolean(fieldErrors.status)} aria-describedby={fieldErrors.status ? `${mode}-task-status-error` : undefined}>{statuses.map((item) => <option key={item}>{item}</option>)}</select>
+        {fieldErrors.status && <span className="field-error" id={`${mode}-task-status-error`}>{fieldErrors.status}</span>}
+      </label>
       <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
       <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
+      <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}><option value="XS">XS</option><option value="S">S</option><option value="M">M</option><option value="L">L</option><option value="XL">XL</option></select></label>
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
       <label className="checkbox-field"><input type="checkbox" checked={form.workingToday} onChange={(event) => update("workingToday", event.target.checked)} /> Working on this today</label>
@@ -949,7 +1026,41 @@ const generateStandupNote = (tasks) => {
   };
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
+const normalizeStandupNote = (note, fallback) => {
+  if (!note) return fallback;
+  const sentences = Array.isArray(note.sentences) ? note.sentences : [];
+  const fullNote = note.full_note || note.fullNote || sentences.join(" ") || fallback.fullNote;
+  return {
+    accomplished: note.accomplished || fallback.accomplished,
+    inProgress: note.in_progress || note.inProgress || fallback.inProgress,
+    blockers: note.blockers || fallback.blockers,
+    nextSteps: note.next_steps || note.nextSteps || fallback.nextSteps,
+    fullNote,
+    mode: note.mode,
+    modelId: note.model_id || note.modelId,
+    generatedAt: note.generated_at || note.generatedAt,
+  };
+};
+
+const PageLoader = ({ title = "Loading", detail = "Getting the latest data ready.", steps = ["Tasks", "Capacity", "AI"] }) => (
+  <main className="page-stack page-loading-shell" data-testid="page-loader" aria-live="polite" aria-busy="true">
+    <section className="surface page-loader-card" role="status">
+      <div className="page-loader-visual" aria-hidden="true">
+        <span className="page-loader-orbit" />
+        <span className="page-loader-core">
+          <Hourglass size={34} weight="duotone" />
+        </span>
+      </div>
+      <strong>{title}</strong>
+      <p>{detail}</p>
+      <div className="page-loader-steps" aria-hidden="true">
+        {steps.map((step) => <span key={step}>{step}</span>)}
+      </div>
+    </section>
+  </main>
+);
+
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
@@ -968,14 +1079,18 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedQuestTasks.length ? orderedQuestTasks : [...tasks].sort(compareQuestTasks);
   const topMissions = uniqueTasksById([...missionSourceTasks.slice(0, 3), ...completedToday]);
 
+  if (isLoading) {
+    return <PageLoader title="Loading dashboard" detail="Fetching tasks, capacity, calendar, and AI insight data." steps={["Tasks", "Calendar", "AI"]} />;
+  }
+
   return (
     <main className="dashboard-page" data-testid="dashboard-page">
       <section className="stats-grid" aria-label="Daily productivity metrics">
-        <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
-        <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
-        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" detailInsight={dashboardStatInsights?.total_xp} icon={Trophy} tone="violet" trend testId="stat-total-xp" />
+        <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" detailInsight={dashboardStatInsights?.tasks_completed} icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
+        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" detailInsight={dashboardStatInsights?.working_today} icon={Flag} tone="gold" testId="stat-working-today" />
+        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} detailInsight={dashboardStatInsights?.focus_minutes} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
@@ -988,7 +1103,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   );
 };
 
-const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
@@ -996,6 +1111,10 @@ const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, on
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
+
+  if (isLoading) {
+    return <PageLoader title="Loading tasks" detail="Reading your saved work items from the backend." steps={["Work items", "Dates", "Stats"]} />;
+  }
 
   return (
     <main className="page-stack" data-testid="tasks-page">
@@ -1114,10 +1233,16 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
   const nextQuestTask = getQuestTask(tasks, nextQuest);
 
   return (
-    <main className="focus-page" data-testid="focus-page">
+    <main className={`focus-page ${activeSession ? "focus-page-active" : ""}`} data-testid="focus-page">
       <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
-      <section className="surface focus-log-panel" data-testid="focus-guidance-card">
-        <div className="section-heading focus-log-heading"><h2><Lightning size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Focus</h2><span>{todayKey()}</span></div>
+      {!activeSession && <section className="surface focus-log-panel" data-testid="focus-guidance-card">
+        <div className="section-heading focus-log-heading">
+          <h2><Lightning size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Focus</h2>
+          <div className="focus-log-actions">
+            <span>{todayKey()}</span>
+            <NavLink className="ghost-button" to="/focus/analytics" data-testid="view-focus-analytics-button"><TrendUp size={18} weight="duotone" aria-hidden="true" /> View Focus Analytics</NavLink>
+          </div>
+        </div>
         <CompletionMomentumNotice completion={completionNotice} nextQuestTitle={nextQuestTask?.title} summary={summary} />
         {!activeSession && <FocusSavedQuestPanel savedQuest={savedQuest} savedQuestTask={savedQuestTask} onStartFocus={onStartFocus} />}
         <div className="focus-calm-summary" data-testid="focus-calm-summary">
@@ -1136,7 +1261,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
           {todaySessions.slice(0, 4).map((session) => <article className="focus-session-row" key={session.focus_session_id}><div><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {session.outcome_type}</span></div><em>{formatMinutes(sessionMinutes(session))}</em>{session.outcome_note && <p>{session.outcome_note}</p>}</article>)}
           {!todaySessions.length && <p className="empty-state">No focus sessions captured today.</p>}
         </div>
-      </section>
+      </section>}
     </main>
   );
 };
@@ -1155,6 +1280,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, completionNotice, onGenera
   const activeSessionConflicts = Boolean(activeSession && nextQuest && activeSession.quest_id !== nextQuest.id);
   const summary = questProgressSummary(questRun);
   const questRows = (questRun?.quests || []).map((quest) => ({ quest, task: getQuestTask(tasks, quest) })).filter((item) => item.task);
+
   const startFocus = () => {
     if (!nextQuestTask) return;
     if (activeSessionMatchesNextQuest || activeSessionConflicts) {
@@ -1209,50 +1335,165 @@ const QuestsPage = ({ tasks, questRun, activeSession, completionNotice, onGenera
 };
 
 const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
-  const [standupNote, setStandupNote] = useState(() => generateStandupNote(tasks));
+  const fallbackStandupNote = useMemo(() => generateStandupNote(tasks), [tasks]);
+  const [standupNote, setStandupNote] = useState(() => fallbackStandupNote);
+  const [standupStatus, setStandupStatus] = useState("loading");
+  const [isGeneratingStandup, setIsGeneratingStandup] = useState(false);
+  const [todayInsight, setTodayInsight] = useState(null);
+  const [insightStatus, setInsightStatus] = useState("loading");
+  const [insightError, setInsightError] = useState("");
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const todayTasks = tasks.filter((task) => task.workingToday);
   const completed = completedTodayTasks(tasks);
   const completedXp = earnedXpForTasks(completed, focusSessions);
   const topPriority = [...todayTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))[0];
+  const backendTaskInsights = todayInsight?.task_insights || [];
+  const displayedInsights = backendTaskInsights.length ? backendTaskInsights : todayTasks.map((task) => ({
+    task_id: task.taskId || task.id,
+    title: task.title,
+    priority_score: task.priorityScore || 0,
+    xp_value: task.xp,
+    effort_minutes: task.time,
+    insight: task.aiInsight,
+  }));
+
+  useEffect(() => {
+    let cancelled = false;
+    setInsightStatus("loading");
+    insightsApi.today({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setTodayInsight(data);
+        setInsightStatus("live");
+        setInsightError("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setTodayInsight(null);
+        setInsightStatus("fallback");
+        setInsightError(error?.response?.data?.detail?.message || error?.message || "AI insights are using local fallback data.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStandupStatus("loading");
+    standupApi.get({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        setStandupNote(normalizeStandupNote(data, fallbackStandupNote));
+        setStandupStatus("live");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStandupNote(fallbackStandupNote);
+        setStandupStatus("fallback");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fallbackStandupNote]);
 
   const refresh = () => {
     onRefreshInsights();
-    setStandupNote(generateStandupNote(tasks));
+    setStandupNote(fallbackStandupNote);
+    setStandupStatus("fallback");
   };
+
+  const generateStandup = async () => {
+    setIsGeneratingStandup(true);
+    try {
+      const data = await standupApi.generate({ date: todayKey(), force: true });
+      setStandupNote(normalizeStandupNote(data, fallbackStandupNote));
+      setStandupStatus("live");
+    } catch {
+      setStandupNote(fallbackStandupNote);
+      setStandupStatus("fallback");
+    } finally {
+      setIsGeneratingStandup(false);
+    }
+  };
+
+  const generateInsight = async () => {
+    setIsGeneratingInsight(true);
+    setInsightError("");
+    try {
+      const data = await insightsApi.generateToday({
+        date: todayKey(),
+        include_tasks: true,
+        include_calendar: true,
+        include_notes: true,
+        force: true,
+      });
+      setTodayInsight(data);
+      setInsightStatus("live");
+    } catch (error) {
+      setInsightStatus("fallback");
+      setInsightError(error?.response?.data?.detail?.message || error?.message || "Unable to generate AI insight.");
+    } finally {
+      setIsGeneratingInsight(false);
+    }
+  };
+
+  if (insightStatus === "loading" || standupStatus === "loading") {
+    return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
+  }
 
   return (
     <main className="page-stack" data-testid="insights-page">
       <section className="surface insight-detail-card" data-testid="capacity-analysis-card">
-        <div className="section-heading"><h2><Sparkle size={26} weight="duotone" aria-hidden="true" /> AI Task Insights</h2><button className="ghost-button" onClick={refresh} data-testid="refresh-insights-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button></div>
+        <div className="section-heading">
+          <h2><Sparkle size={26} weight="duotone" aria-hidden="true" /> AI Task Insights</h2>
+          <div className="editor-actions">
+            <button className="ghost-button" onClick={refresh} data-testid="refresh-insights-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="primary-action" onClick={generateInsight} disabled={isGeneratingInsight} data-testid="generate-ai-insight-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingInsight ? "Generating..." : "AI"}</button>
+          </div>
+        </div>
         <div className="capacity-grid">
           <StatCard label="Top Priority" value={topPriority?.priority || "None"} detail={topPriority?.title || "Mark a task for today"} icon={Flag} tone="red" testId="capacity-top-priority-stat" />
-          <StatCard label="Planned Effort" value={formatMinutes(todayTasks.reduce((sum, task) => sum + task.time, 0))} detail="Working-today tasks" icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
-          <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} icon={Trophy} tone="green" testId="capacity-xp-stat" />
+          <StatCard label="Focus Capacity" value={formatMinutes(todayInsight?.capacity?.available_focus_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} detail={insightStatus === "live" ? "From insights API" : "Working-today effort"} detailInsight={todayInsight?.stat_insights?.focus_minutes} icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
+          <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} detailInsight={todayInsight?.stat_insights?.total_xp} icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
+        <article className="insight-copy" data-testid="daily-ai-insight">
+          <strong>Daily Insight</strong>
+          <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
+          {insightError && <p className="form-error" role="alert">{insightError}</p>}
+        </article>
+        {(todayInsight?.risks?.length > 0 || todayInsight?.recommendations?.length > 0) && (
+          <div className="insight-grid" data-testid="ai-risk-recommendation-grid">
+            <span><strong>Risks </strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
+            <span><strong>Recommendations </strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
+          </div>
+        )}
         <div className="insight-list">
-          {todayTasks.map((task) => {
-            const jiraKey = jiraKeyForTask(task);
+          {displayedInsights.map((insight) => {
+            const localTask = todayTasks.find((task) => String(task.taskId || task.id) === String(insight.task_id));
+            const jiraKey = jiraKeyForTask(localTask);
             const content = (
               <>
-                <strong>{task.title}</strong>
-                <span>{Math.round((task.priorityScore || 0) * 100)} priority - {task.xp} XP - {task.time} min effort</span>
-                <p>{task.aiInsight}</p>
+                <strong>{insight.title}</strong>
+                <span>{Math.round((insight.priority_score || 0) * 100)} priority - {insight.xp_value} XP - {insight.effort_minutes} min effort</span>
+                <p>{insight.insight}</p>
               </>
             );
 
             return jiraKey ? (
-              <NavLink className="insight-task-link" key={task.id} to={`/jira/${jiraKey}/rca`} data-testid={`insight-jira-task-${slug(task.id)}`}>
+              <NavLink className="insight-task-link" key={insight.task_id} to={`/jira/${jiraKey}/rca`} data-testid={`insight-jira-task-${slug(insight.task_id)}`}>
                 {content}
               </NavLink>
             ) : (
-              <article key={task.id}>{content}</article>
+              <article key={insight.task_id}>{content}</article>
             );
           })}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
-        <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={() => setStandupNote(generateStandupNote(tasks))} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> Generate</button></div>
+        <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
+        <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
         <div className="insight-grid">
           <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
           <span><strong>In Progress</strong>{standupNote.inProgress}</span>
@@ -1544,14 +1785,24 @@ const JiraRcaPage = ({ tasks }) => {
 };
 
 const toList = (value) => Array.isArray(value) ? value : String(value || "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+const listToDraftText = (value) => toList(value).join("\n");
+const reflectionDraftFrom = (source = {}, fallback = {}) => ({
+  newLearnings: listToDraftText(source.new_learnings ?? fallback.newLearnings),
+  wentWell: listToDraftText(source.went_well ?? fallback.wentWell),
+  wentWrong: listToDraftText(source.went_wrong ?? fallback.wentWrong),
+});
 
 const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
+  const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
   const [overviewStatus, setOverviewStatus] = useState("loading");
+  const [weeklyStatus, setWeeklyStatus] = useState("loading");
   const [generating, setGenerating] = useState(null);
+  const dailyRequestIdRef = useRef(0);
+  const weeklyRequestIdRef = useRef(0);
 
   const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
   const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
@@ -1570,24 +1821,28 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = dailyRequestIdRef.current + 1;
+    dailyRequestIdRef.current = requestId;
     setOverviewStatus("loading");
     overviewApi.daily({ date: selectedDate })
       .then((data) => {
-        if (cancelled) return;
+        if (cancelled || requestId !== dailyRequestIdRef.current) return;
         setDailyData(data);
+        setDailyReflectionDraft(reflectionDraftFrom(data, overview));
         setOverviewStatus("live");
         onOverviewChange((current) => ({
           ...current,
           meetingMinutes: data.meeting_minutes ?? current.meetingMinutes,
           focusMinutes: data.focus_minutes ?? current.focusMinutes,
-          newLearnings: toList(data.new_learnings).join("\n") || current.newLearnings,
-          wentWell: toList(data.went_well).join("\n") || current.wentWell,
-          wentWrong: toList(data.went_wrong).join("\n") || current.wentWrong,
+          newLearnings: listToDraftText(data.new_learnings) || current.newLearnings,
+          wentWell: listToDraftText(data.went_well) || current.wentWell,
+          wentWrong: listToDraftText(data.went_wrong) || current.wentWrong,
         }));
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled || requestId !== dailyRequestIdRef.current) return;
         setDailyData(null);
+        setDailyReflectionDraft(reflectionDraftFrom({}, overview));
         setOverviewStatus("fallback");
       });
     return () => {
@@ -1597,12 +1852,21 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = weeklyRequestIdRef.current + 1;
+    weeklyRequestIdRef.current = requestId;
+    setWeeklyStatus("loading");
     overviewApi.weekly({ week_start: selectedWeek })
       .then((data) => {
-        if (!cancelled) setWeeklyData(data);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) {
+          setWeeklyData(data);
+          setWeeklyStatus("live");
+        }
       })
       .catch(() => {
-        if (!cancelled) setWeeklyData(null);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) {
+          setWeeklyData(null);
+          setWeeklyStatus("fallback");
+        }
       });
     return () => {
       cancelled = true;
@@ -1610,36 +1874,58 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   }, [selectedWeek]);
 
   const generateDaily = async () => {
+    const requestId = dailyRequestIdRef.current + 1;
+    dailyRequestIdRef.current = requestId;
     setGenerating("daily");
     try {
-      const data = await overviewApi.generateDaily({ date: selectedDate, include_task_notes: true, include_meetings: true, force: true });
+      const data = await overviewApi.generateDaily({ date: selectedDate, include_daily_overviews: true, include_task_notes: true, include_meetings: true, force: true });
+      if (requestId !== dailyRequestIdRef.current) return;
       setDailyData(data);
+      setDailyReflectionDraft(reflectionDraftFrom(data, overview));
       setOverviewStatus("live");
     } catch {
-      setOverviewStatus("fallback");
+      if (requestId === dailyRequestIdRef.current) setOverviewStatus("fallback");
     } finally {
-      setGenerating(null);
+      if (requestId === dailyRequestIdRef.current) setGenerating(null);
+    }
+  };
+
+  const updateReflectionDraft = (field, value) => {
+    setDailyReflectionDraft((current) => ({ ...current, [field]: value }));
+    onOverviewChange((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateDailyMetric = (field, value) => {
+    onOverviewChange((current) => ({ ...current, [field]: value }));
+    if (field === "meetingMinutes") {
+      setDailyData((current) => current ? {
+        ...current,
+        meeting_minutes: value,
+        meeting_summary: {
+          ...(current.meeting_summary || {}),
+          meeting_minutes: value,
+        },
+      } : current);
     }
   };
 
   const generateWeekly = async () => {
+    const requestId = weeklyRequestIdRef.current + 1;
+    weeklyRequestIdRef.current = requestId;
     setGenerating("weekly");
     try {
       const data = await overviewApi.generateWeekly({ week_start: selectedWeek, include_daily_overviews: true, include_task_notes: true, force: true });
+      if (requestId !== weeklyRequestIdRef.current) return;
       setWeeklyData(data);
     } finally {
-      setGenerating(null);
+      if (requestId === weeklyRequestIdRef.current) setGenerating(null);
     }
   };
 
   const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
   const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
-  const update = (field, value) => onOverviewChange({ ...overview, [field]: value });
   const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
   const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
-  const dailyLearnings = toList(dailyData?.new_learnings ?? overview.newLearnings);
-  const dailyWentWell = toList(dailyData?.went_well ?? overview.wentWell);
-  const dailyWentWrong = toList(dailyData?.went_wrong ?? overview.wentWrong);
   const dailyThemes = toList(dailyData?.themes);
   const dailyTaskCount = dailyData?.tasks_completed ?? fallbackCompletedDay.length;
   const dailyXp = dailyData?.xp_earned ?? fallbackDailyXp;
@@ -1647,6 +1933,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const dailyFocusMinutes = dailyData?.focus_minutes ?? fallbackDailyFocusMinutes;
   const weeklyThemes = toList(weeklyData?.themes).length ? toList(weeklyData?.themes) : [...new Set(fallbackCompletedWeek.flatMap((task) => task.labels || []))].slice(0, 5);
   const topAccomplishments = toList(weeklyData?.top_accomplishments);
+
+  if ((overviewStatus === "loading" || weeklyStatus === "loading") && !dailyData && !weeklyData) {
+    return <PageLoader title="Loading overview" detail="Fetching daily and weekly overview data." steps={["Daily", "Weekly", "Summary"]} />;
+  }
 
   return (
     <main className="page-stack" data-testid="overview-page">
@@ -1666,11 +1956,11 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
           <StatCard label="Focus Time" value={formatMinutes(dailyFocusMinutes)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
-          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => update("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
+          <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => updateDailyMetric("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
           <label>Focus minutes<input type="number" min="0" value={dailyFocusMinutes} readOnly /></label>
-          <label>New learnings<textarea value={dailyLearnings.join("\n")} onChange={(event) => update("newLearnings", event.target.value)} /></label>
-          <label>Went well<textarea value={dailyWentWell.join("\n")} onChange={(event) => update("wentWell", event.target.value)} /></label>
-          <label>Went wrong<textarea value={dailyWentWrong.join("\n")} onChange={(event) => update("wentWrong", event.target.value)} /></label>
+          <label className="reflection-field">New learnings<textarea rows={5} value={dailyReflectionDraft.newLearnings} onChange={(event) => updateReflectionDraft("newLearnings", event.target.value)} placeholder="One learning per line..." data-testid="daily-new-learnings-input" /></label>
+          <label className="reflection-field">Went well<textarea rows={5} value={dailyReflectionDraft.wentWell} onChange={(event) => updateReflectionDraft("wentWell", event.target.value)} placeholder="Capture wins, useful patterns, or smooth handoffs..." data-testid="daily-went-well-input" /></label>
+          <label className="reflection-field">Went wrong<textarea rows={5} value={dailyReflectionDraft.wentWrong} onChange={(event) => updateReflectionDraft("wentWrong", event.target.value)} placeholder="Capture blockers, friction, delays, or risks..." data-testid="daily-went-wrong-input" /></label>
         </div>
         {!!dailyThemes.length && <div className="theme-list" data-testid="daily-theme-list">{dailyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
@@ -1764,51 +2054,73 @@ const SyncPage = ({ syncRun, syncingSource, onRunSync }) => (
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value={formatFocusMultiplier(FOCUS_XP_MULTIPLIER)} readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
 const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
+  const location = useLocation();
   const [tasks, setTasks] = useState([]);
+  const [taskStatus, setTaskStatus] = useState("loading");
   const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
   const [calendarSchedule, setCalendarSchedule] = useState(schedule);
   const [removedCalendarEvents, setRemovedCalendarEvents] = useState([]);
   const [calendarDate, setCalendarDate] = useState(todayKey());
   const [isFetchingCalendarDate, setIsFetchingCalendarDate] = useState(false);
   const [dashboardInsight, setDashboardInsight] = useState(null);
-  const [dashboardStatus, setDashboardStatus] = useState("fallback");
+  const [dashboardStatus, setDashboardStatus] = useState("loading");
   const [syncRun, setSyncRun] = useState(null);
   const [syncingSource, setSyncingSource] = useState("");
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
-  const [questRun, setQuestRun] = useState(() => readQuestRun(readStoredTasks(), readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, [])));
+  const [questRun, setQuestRun] = useState(null);
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [completionNotice, setCompletionNotice] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(readInitialTheme);
   const levelProgress = levelProgressFromXp(dashboardStats?.total_xp ?? earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions));
+  const isDistractionFreeFocus = location.pathname === "/focus" && Boolean(activeSession);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     writeStoredJson(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
+  const loadTasks = async () => {
+    const loadedTasks = await tasksApi.list();
+    const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
+    setTasks(taskItems.map(normalizeTask));
+  };
+
+  const loadQuestRun = async (date = todayKey()) => {
+    const loadedRun = await questsApi.today({ date });
+    setQuestRun(loadedRun || null);
+    return loadedRun || null;
+  };
+
+  const loadFocusSessions = async () => {
+    const loadedSessions = await focusApi.list();
+    setFocusSessions(Array.isArray(loadedSessions) ? loadedSessions : []);
+  };
+
   useEffect(() => {
     let isActive = true;
-    tasksApi.list()
-      .then((loadedTasks) => {
+    setTaskStatus("loading");
+    Promise.all([loadTasks(), loadQuestRun(), loadFocusSessions()])
+      .then(() => {
         if (!isActive) return;
-        const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
-        setTasks(taskItems.map(normalizeTask));
         setTaskLoadError("");
+        setTaskStatus("live");
       })
       .catch((error) => {
         if (!isActive) return;
-        setTaskLoadError(error?.message || "Unable to load saved tasks.");
+        setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to load saved data.");
+        setTaskStatus("fallback");
       });
 
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [currentUser?.user_id]);
 
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
@@ -2007,26 +2319,38 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     }
   };
 
-  const updateQuestRun = (updater) => setQuestRun((run) => {
-    const nextRun = typeof updater === "function" ? updater(run) : updater;
-    saveQuestRun(nextRun);
-    return nextRun;
-  });
-
-  const handleGenerateQuests = () => updateQuestRun(generateQuestRun(tasks, focusSessions));
+  const handleGenerateQuests = async () => {
+    const candidateTaskIds = tasks
+      .filter((task) => task.workingToday && task.status !== "Done")
+      .map((task) => Number(task.id))
+      .filter((taskId) => Number.isFinite(taskId));
+    try {
+      const nextRun = await questsApi.generate({
+        quest_date: todayKey(),
+        candidate_task_ids: candidateTaskIds,
+        max_quests: Math.max(1, Math.min(candidateTaskIds.length || 5, 5)),
+      });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to generate quests.");
+    }
+  };
   const handleClearQuests = () => {
-    clearQuestRun();
     setQuestRun(null);
   };
-  const handleStartFocus = (task, questId) => {
+  const handleStartFocus = async (task, questId) => {
     const startedAt = nowIso();
     const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, task.id);
-    if (linkedQuest) {
-      updateQuestRun((run) => applyActiveQuest({
-        ...run,
-        activeQuestId: linkedQuest.id,
-        quests: (run?.quests || []).map((quest) => quest.id === linkedQuest.id ? { ...quest, state: "active", startedAt: quest.startedAt || startedAt } : quest),
-      }));
+    if (linkedQuest?.quest_item_id || linkedQuest?.id) {
+      try {
+        const nextRun = await questsApi.update(linkedQuest.quest_item_id || linkedQuest.id, { action: "activate" });
+        setQuestRun(nextRun);
+        setTaskLoadError("");
+      } catch (error) {
+        setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+        return;
+      }
     }
     setLastSavedFocus(null);
     setActiveSession({
@@ -2043,46 +2367,56 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       created_at: startedAt,
     });
   };
-  const handleStartQuestFocus = (task, questId) => {
-    updateQuestRun((run) => applyActiveQuest({
-      ...run,
-      activeQuestId: questId,
-      quests: (run?.quests || []).map((quest) => quest.id === questId ? { ...quest, state: "active", startedAt: quest.startedAt || nowIso() } : quest),
-    }));
-    handleStartFocus(task, questId);
+  const handleStartQuestFocus = async (task, questId) => {
+    await handleStartFocus(task, questId);
   };
-  const handleCompleteQuest = (questId) => {
+  const handleCompleteQuest = async (questId) => {
     const quest = questRun?.quests?.find((item) => item.id === questId);
     const task = tasks.find((item) => item.id === quest?.taskId);
     if (!quest || !task) return;
-    const completedAt = nowIso();
-    const reward = taskRewardDetailsFromSessions(task, focusSessions, todayKey());
-    setCompletionNotice({
-      questId,
-      taskId: task.id,
-      taskTitle: task.title,
-      ...reward,
-    });
-    setTasks((items) => items.map((item) => (item.id === task.id ? normalizeTask({ ...item, status: "Done", completedAt: item.completedAt || completedAt }) : item)));
-    updateQuestRun((run) => applyActiveQuest({
-      ...run,
-      quests: (run?.quests || []).map((item) => item.id === questId ? { ...item, ...reward, state: "completed", completedAt } : item),
-    }));
-    setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
+    try {
+      const nextRun = await questsApi.update(quest.quest_item_id || questId, { action: "complete" });
+      await loadTasks();
+      setQuestRun(nextRun);
+      const completedQuest = nextRun?.quests?.find((item) => item.id === questId || item.quest_item_id === quest.quest_item_id);
+      const reward = completedQuest ? {
+        baseXp: completedQuest.baseXp,
+        rewardXp: completedQuest.rewardXp,
+        focusBonusXp: completedQuest.focusBonusXp,
+        rewardMultiplier: completedQuest.rewardMultiplier,
+        hasFocusReward: completedQuest.hasFocusReward,
+        focusMinutes: completedQuest.focusMinutes,
+      } : taskRewardDetailsFromSessions(task, focusSessions, todayKey());
+      setCompletionNotice({
+        questId,
+        taskId: task.id,
+        taskTitle: task.title,
+        ...reward,
+      });
+      setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete quest.");
+    }
   };
-  const handleSkipQuest = (questId, skipReason) => updateQuestRun((run) => applyActiveQuest({
-    ...run,
-    quests: (run?.quests || []).map((quest) => quest.id === questId ? { ...quest, state: "skipped", skippedAt: nowIso(), skipReason } : quest),
-  }));
-  const handleActivateQuest = (questId) => updateQuestRun((run) => applyActiveQuest({
-    ...run,
-    activeQuestId: questId,
-    quests: (run?.quests || []).map((quest) => {
-      if (quest.id === questId) return { ...quest, state: "active", startedAt: quest.startedAt || nowIso(), skippedAt: null, skipReason: "" };
-      if (quest.state === "active") return { ...quest, state: "queued" };
-      return quest;
-    }),
-  }));
+  const handleSkipQuest = async (questId, skipReason) => {
+    try {
+      const nextRun = await questsApi.update(questId, { action: "skip", skip_reason: skipReason });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to skip quest.");
+    }
+  };
+  const handleActivateQuest = async (questId) => {
+    try {
+      const nextRun = await questsApi.update(questId, { action: "activate" });
+      setQuestRun(nextRun);
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+    }
+  };
   const handlePauseFocus = () => setActiveSession((session) => {
     if (!session || !session.isRunning) return session;
     return { ...session, accumulatedSeconds: activeFocusSeconds(session), isRunning: false, lastStartedAt: null };
@@ -2091,29 +2425,38 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     if (!session || session.isRunning) return session;
     return { ...session, isRunning: true, lastStartedAt: nowIso() };
   });
-  const handleStopFocus = ({ outcomeType, outcomeNote }) => setActiveSession((session) => {
-    if (!session) return null;
+  const handleStopFocus = async ({ outcomeType, outcomeNote }) => {
+    if (!activeSession) return;
     const endedAt = nowIso();
-    const durationSeconds = activeFocusSeconds(session);
+    const durationSeconds = activeFocusSeconds(activeSession);
     const savedSession = {
-      focus_session_id: session.focus_session_id,
-      task_id: session.task_id,
-      task_title: session.task_title,
-      task_source: session.task_source,
-      quest_id: session.quest_id || null,
-      work_date: session.work_date || todayKey(),
-      started_at: session.started_at,
+      focus_session_id: activeSession.focus_session_id,
+      task_id: activeSession.task_id,
+      task_title: activeSession.task_title,
+      task_source: activeSession.task_source,
+      quest_id: activeSession.quest_id || null,
+      work_date: activeSession.work_date || todayKey(),
+      started_at: activeSession.started_at,
       ended_at: endedAt,
       duration_seconds: durationSeconds,
       duration_minutes: Math.max(1, Math.ceil(durationSeconds / 60)),
       outcome_type: outcomeType || "Progress made",
       outcome_note: outcomeNote?.trim() || "",
-      created_at: session.created_at || endedAt,
+      created_at: activeSession.created_at || endedAt,
     };
-    setFocusSessions((items) => [savedSession, ...items]);
-    setLastSavedFocus(savedSession);
-    return null;
-  });
+    try {
+      const persistedSession = await focusApi.create(savedSession);
+      setFocusSessions((items) => [persistedSession, ...items.filter((item) => item.focus_session_id !== persistedSession.focus_session_id)]);
+      setLastSavedFocus(persistedSession);
+      setActiveSession(null);
+      if (savedSession.quest_id) {
+        await loadQuestRun(savedSession.work_date);
+      }
+      setTaskLoadError("");
+    } catch (error) {
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to save focus session.");
+    }
+  };
 
   useEffect(() => {
     writeStoredJson(FOCUS_SESSIONS_STORAGE_KEY, focusSessions);
@@ -2125,26 +2468,19 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   }, [activeSession]);
 
   useEffect(() => {
-    setQuestRun((run) => {
-      const derived = deriveQuestProgress(run, tasks, focusSessions);
-      return JSON.stringify(derived) === JSON.stringify(run) ? run : derived;
-    });
-  }, [tasks, focusSessions]);
-
-  useEffect(() => {
-    saveQuestRun(questRun);
-  }, [questRun]);
-
-  useEffect(() => {
     writeStoredJson(TASKS_STORAGE_KEY, tasks);
   }, [tasks]);
 
   useEffect(() => {
+    if (location.pathname !== "/") return undefined;
+
     let cancelled = false;
+    setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
       .then((data) => {
         if (cancelled) return;
         setDashboardStats(data.stats || null);
+        setDashboardStatInsights(data.stat_insights || null);
         setDashboardSchedule(normalizeApiSchedule(data.schedule || []));
         setDashboardInsight(data.ai_insight || null);
         setDashboardStatus("live");
@@ -2159,11 +2495,12 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       .catch(() => {
         if (cancelled) return;
         setDashboardStatus("fallback");
+        setDashboardStatInsights(null);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2187,17 +2524,18 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   }, []);
 
   return (
-    <div className="app-shell" data-theme={theme} data-testid="app-shell">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} />
-      <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />
-      <div className="workspace" data-testid="workspace">
-        <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />
-         {taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
+    <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""}`} data-theme={theme} data-testid="app-shell">
+      {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} />}
+      {!isDistractionFreeFocus && <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />}
+      <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""}`} data-testid="workspace">
+        {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
+         {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} selectedDate={calendarDate} onDateChange={handleCalendarDateChange} onFetchDate={handleFetchCalendarDate} isFetchingDate={isFetchingCalendarDate} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionNotice={completionNotice} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
+          <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} completionNotice={completionNotice} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/jira/:jiraKey/rca" element={<JiraRcaPage tasks={tasks} />} />

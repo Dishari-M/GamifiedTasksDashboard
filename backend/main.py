@@ -11,24 +11,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
+from routes.focus_routes import router as focus_router
+from routes.insights_routes import router as insights_router
+from routes.missions_routes import router as missions_router
 from routes.overview_routes import router as overview_router
+from routes.quests_routes import router as quests_router
+from routes.standup_routes import router as standup_router
 from services.ai_service import enrich_task
-from services.filesystem_task_service import (
-    complete_filesystem_task,
-    create_filesystem_task,
-    get_filesystem_task,
-    list_filesystem_tasks,
-    update_filesystem_task,
-    update_filesystem_task_notes,
-    update_filesystem_task_status,
-    update_filesystem_task_today,
-)
-from services.filesystem_user_service import (
+from services.oracle_user_service import (
     get_user_profile,
     login_user,
     logout_user,
     register_user,
-    require_user_id,
+)
+from services.oracle_task_service import (
+    complete_oracle_task,
+    create_oracle_task,
+    get_oracle_task,
+    list_oracle_tasks,
+    update_oracle_task,
+    update_oracle_task_notes,
+    update_oracle_task_status,
+    update_oracle_task_today,
 )
 from services.phase8_capacity_service import capacity_response
 from services.phase8_dashboard_service import dashboard_today_response
@@ -44,6 +48,7 @@ from services.sync_service import (
     update_calendar_event,
 )
 from services.task_service import complete_task, create_task, get_tasks
+from services.user_context import current_local_user_id, current_oracle_user_id
 
 
 SERVICE_DIR = Path(__file__).resolve().parent
@@ -132,7 +137,6 @@ class JiraSsoLoginResponse(BaseModel):
     message: str
     process_id: int | None = None
 
-
 class TaskCreate(BaseModel):
     title: str = Field(..., examples=["Fix payment gateway timeout issue"])
     description: str = Field(..., examples=["Users face timeout while making payments on checkout."])
@@ -157,12 +161,16 @@ tags_metadata = [
         "description": "Fetch Jira details through MCP and run Codex-powered root cause analysis.",
     },
     {
+        "name": "Missions",
+        "description": "Generate AI mission recommendations without mutating working-today state.",
+    },
+    {
         "name": "Auth",
-        "description": "Local filesystem login and profile creation.",
+        "description": "Oracle-backed login and profile creation.",
     },
     {
         "name": "Users",
-        "description": "Read local user profile details.",
+        "description": "Read Oracle-backed user profile details.",
     },
     {
         "name": "Dashboard",
@@ -171,6 +179,10 @@ tags_metadata = [
     {
         "name": "Overviews",
         "description": "Daily and weekly productivity overviews with AI-generated insights.",
+    },
+    {
+        "name": "Insights",
+        "description": "AI-generated daily risks, recommendations, and task insights.",
     },
 ]
 
@@ -191,6 +203,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(overview_router)
+app.include_router(standup_router)
+app.include_router(insights_router)
+app.include_router(missions_router)
+app.include_router(quests_router)
+app.include_router(focus_router)
 
 
 def verify_api_key(x_api_key: str | None) -> None:
@@ -217,35 +234,35 @@ async def jira_rca_healthcheck() -> dict[str, str]:
 
 
 @app.get("/tasks", tags=["Tasks"])
-def tasks():
-    return get_tasks()
+def tasks(user_id: int = Depends(current_oracle_user_id)):
+    return get_tasks(user_id)
 
 
 @app.get("/quests", tags=["Quests"])
-def quests():
-    return get_quests()
+def quests(user_id: int = Depends(current_oracle_user_id)):
+    return get_quests(user_id)
 
 
 @app.get("/api/v1/capacity", tags=["Dashboard"])
-def capacity(date: str | None = None):
-    return capacity_response(date)
+def capacity(date: str | None = None, user_id: int = Depends(current_oracle_user_id)):
+    return capacity_response(date, user_id)
 
 
 @app.get("/api/v1/dashboard/today", tags=["Dashboard"])
-def dashboard_today(date: str | None = None):
-    return dashboard_today_response(date)
+def dashboard_today(date: str | None = None, user_id: int = Depends(current_oracle_user_id)):
+    return dashboard_today_response(date, user_id)
 
 
 @app.post("/tasks", tags=["Tasks"])
-async def add_task(task: TaskCreate):
+async def add_task(task: TaskCreate, user_id: int = Depends(current_oracle_user_id)):
     task_payload = task.model_dump()
     ai = await enrich_task(task_payload["title"], task_payload["description"])
-    return create_task(task_payload, ai)
+    return create_task(task_payload, ai, user_id)
 
 
 @app.post("/tasks/{task_id}/complete", tags=["Tasks"])
-def mark_complete(task_id: str):
-    return complete_task(task_id)
+def mark_complete(task_id: str, user_id: int = Depends(current_oracle_user_id)):
+    return complete_task(task_id, user_id)
 
 
 @app.post("/api/jira/rca", response_model=JiraRcaResponse, tags=["Jira RCA"])
@@ -424,8 +441,7 @@ async def jira_sso_login(req: JiraSsoLoginRequest, x_api_key: str | None = Heade
     )
 
 
-def current_user_id(x_devquest_user_id: str | None = Header(default=None, alias="X-DevQuest-User-Id")):
-    return require_user_id(x_devquest_user_id)
+current_user_id = current_local_user_id
 
 
 @app.get("/api/v1/calendar/events", tags=["Calendar"])
@@ -457,32 +473,31 @@ async def fetch_filesystem_calendar_events(payload: dict, user_id: str = Depends
 
 
 @app.post("/api/v1/auth/register", tags=["Auth"])
-def register_filesystem_user(payload: dict):
+def register_oracle_user(payload: dict):
     return register_user(payload)
 
 
 @app.post("/api/v1/auth/login", tags=["Auth"])
-def login_filesystem_user(payload: dict):
+def login_oracle_user(payload: dict):
     return login_user(payload)
 
 
 @app.post("/api/v1/auth/logout", tags=["Auth"])
-def logout_filesystem_user(user_id: str = Depends(current_user_id)):
+def logout_oracle_user(user_id: str = Depends(current_local_user_id)):
     return logout_user(user_id)
 
 
 @app.get("/api/v1/users/profile", tags=["Users"])
-def filesystem_user_profile(identifier: str):
+def oracle_user_profile(identifier: str):
     return get_user_profile(identifier)
 
-
 @app.post("/api/v1/tasks", tags=["Tasks"])
-def add_filesystem_task(task: dict, user_id: str = Depends(current_user_id)):
-    return create_filesystem_task(task, user_id)
+def add_oracle_task(task: dict, user_id: int = Depends(current_oracle_user_id)):
+    return create_oracle_task(task, user_id)
 
 
 @app.get("/api/v1/tasks", tags=["Tasks"])
-def filesystem_tasks(
+def oracle_tasks(
     status: str | None = None,
     source: str | None = None,
     external_source: str | None = None,
@@ -494,11 +509,12 @@ def filesystem_tasks(
     completed_to: str | None = None,
     search: str | None = None,
     q: str | None = None,
+    include_total: bool = True,
     page: int = 1,
     page_size: int = 50,
-    user_id: str = Depends(current_user_id),
+    user_id: int = Depends(current_oracle_user_id),
 ):
-    return list_filesystem_tasks(
+    return list_oracle_tasks(
         {
             "status": status,
             "source": source,
@@ -511,6 +527,7 @@ def filesystem_tasks(
             "completed_to": completed_to,
             "search": search,
             "q": q,
+            "include_total": include_total,
             "page": page,
             "page_size": page_size,
         },
@@ -519,33 +536,33 @@ def filesystem_tasks(
 
 
 @app.get("/api/v1/tasks/{task_id}", tags=["Tasks"])
-def filesystem_task_detail(task_id: str, user_id: str = Depends(current_user_id)):
-    return get_filesystem_task(task_id, user_id)
+def oracle_task_detail(task_id: str, user_id: int = Depends(current_oracle_user_id)):
+    return get_oracle_task(task_id, user_id)
 
 
 @app.patch("/api/v1/tasks/{task_id}", tags=["Tasks"])
-def patch_filesystem_task(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
-    return update_filesystem_task(task_id, payload, user_id)
+def patch_oracle_task(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return update_oracle_task(task_id, payload, user_id)
 
 
 @app.put("/api/v1/tasks/{task_id}/notes", tags=["Tasks"])
-def update_filesystem_notes(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
-    return update_filesystem_task_notes(task_id, payload, user_id)
+def update_oracle_notes(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return update_oracle_task_notes(task_id, payload, user_id)
 
 
 @app.patch("/api/v1/tasks/{task_id}/status", tags=["Tasks"])
-def patch_filesystem_status(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
-    return update_filesystem_task_status(task_id, payload, user_id)
+def patch_oracle_status(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return update_oracle_task_status(task_id, payload, user_id)
 
 
 @app.post("/api/v1/tasks/{task_id}/complete", tags=["Tasks"])
-def complete_filesystem_status(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
-    return complete_filesystem_task(task_id, payload, user_id)
+def complete_oracle_status(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return complete_oracle_task(task_id, payload, user_id)
 
 
 @app.put("/api/v1/tasks/{task_id}/today", tags=["Tasks"])
-def update_filesystem_today(task_id: str, payload: dict, user_id: str = Depends(current_user_id)):
-    return update_filesystem_task_today(task_id, payload, user_id)
+def update_oracle_today(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return update_oracle_task_today(task_id, payload, user_id)
 
 
 @app.post("/api/v1/sync/run", tags=["Sync"])

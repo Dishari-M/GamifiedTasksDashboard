@@ -5,20 +5,20 @@ def get_data_mode():
     """Return the shared data-source mode for backend services.
 
     DEVQUEST_DATA_MODE controls where API services read data from:
-    - mock: local deterministic Python data, used by default for hackathon dev.
-    - oracle: Oracle ADB repositories, enabled later when schema/credentials exist.
+    - oracle: Oracle ADB repositories, used by default for the integrated app.
+    - mock: local deterministic Python data, available only when explicitly selected.
     """
-    return os.getenv("DEVQUEST_DATA_MODE", "mock").strip().lower()
+    return os.getenv("DEVQUEST_DATA_MODE", "oracle").strip().lower()
 
 
 def get_ai_mode():
     """Return whether AI calls should be mocked or sent to a real provider.
 
     DEVQUEST_AI_MODE controls AI execution:
+    - real: call the configured approved AI provider, used by default.
     - mock: return deterministic fallback insights without calling external AI.
-    - real: call the configured approved AI provider.
     """
-    return os.getenv("DEVQUEST_AI_MODE", "mock").strip().lower()
+    return os.getenv("DEVQUEST_AI_MODE", "real").strip().lower()
 
 
 def get_ai_provider():

@@ -1,9 +1,6 @@
 import json
 
 
-DEFAULT_USER_ID = 1
-
-
 def fetch_daily_overview_row(cur, user_id, overview_date):
     cur.execute(
         """
@@ -38,7 +35,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
         "new_learnings": _json_list(row[6]),
         "went_well": _json_list(row[7]),
         "went_wrong": _json_list(row[8]),
-        "summary": row[9],
+        "summary": _text(row[9]),
         "updated_at": row[10].isoformat() if row[10] else None,
     }
 
@@ -58,6 +55,8 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
             TOP_ACCOMPLISHMENTS,
             NEW_LEARNINGS,
             THEMES,
+            WENT_WELL,
+            WENT_WRONG,
             SUMMARY,
             UPDATED_AT
         FROM WEEKLY_OVERVIEWS
@@ -81,8 +80,10 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
         "top_accomplishments": _json_list(row[8]),
         "new_learnings": _json_list(row[9]),
         "themes": _json_list(row[10]),
-        "summary": row[11],
-        "updated_at": row[12].isoformat() if row[12] else None,
+        "went_well": _json_list(row[11]),
+        "went_wrong": _json_list(row[12]),
+        "summary": _text(row[13]),
+        "updated_at": row[14].isoformat() if row[14] else None,
     }
 
 
@@ -151,6 +152,8 @@ def fetch_worked_tasks(cur, user_id, start_date, end_date):
 
 
 def fetch_calendar_events(cur, user_id, start_date, end_date):
+    if not table_exists(cur, "CALENDAR_EVENTS"):
+        return []
     cur.execute(
         """
         SELECT
@@ -188,6 +191,8 @@ def fetch_calendar_events(cur, user_id, start_date, end_date):
 
 
 def fetch_focus_sessions(cur, user_id, start_date, end_date):
+    if not table_exists(cur, "FOCUS_SESSIONS"):
+        return []
     cur.execute(
         """
         SELECT
@@ -231,7 +236,9 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
     ]
 
 
-def fetch_daily_overviews_for_week(cur, user_id, week_start, week_end):
+def fetch_daily_overviews(cur, user_id, start_date, end_date):
+    if not table_exists(cur, "DAILY_OVERVIEWS"):
+        return []
     cur.execute(
         """
         SELECT
@@ -243,14 +250,15 @@ def fetch_daily_overviews_for_week(cur, user_id, week_start, week_end):
             NEW_LEARNINGS,
             WENT_WELL,
             WENT_WRONG,
-            SUMMARY
+            SUMMARY,
+            UPDATED_AT
         FROM DAILY_OVERVIEWS
         WHERE USER_ID = :user_id
-          AND OVERVIEW_DATE BETWEEN TO_DATE(:week_start, 'YYYY-MM-DD')
-                                AND TO_DATE(:week_end, 'YYYY-MM-DD')
+          AND OVERVIEW_DATE BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD')
+                                AND TO_DATE(:end_date, 'YYYY-MM-DD')
         ORDER BY OVERVIEW_DATE
         """,
-        {"user_id": user_id, "week_start": week_start, "week_end": week_end},
+        {"user_id": user_id, "start_date": start_date, "end_date": end_date},
     )
     return [
         {
@@ -262,13 +270,20 @@ def fetch_daily_overviews_for_week(cur, user_id, week_start, week_end):
             "new_learnings": _json_list(row[5]),
             "went_well": _json_list(row[6]),
             "went_wrong": _json_list(row[7]),
-            "summary": row[8] or "",
+            "summary": _text(row[8]),
+            "updated_at": row[9].isoformat() if row[9] else None,
         }
         for row in cur.fetchall()
     ]
 
 
+def fetch_daily_overviews_for_week(cur, user_id, week_start, week_end):
+    return fetch_daily_overviews(cur, user_id, week_start, week_end)
+
+
 def insert_ai_run(cur, user_id, run_type, model_id, request_payload):
+    if not table_exists(cur, "AI_RUNS"):
+        return None
     ai_run_id = cur.var(int)
     cur.execute(
         """
@@ -309,6 +324,8 @@ def insert_ai_run(cur, user_id, run_type, model_id, request_payload):
 
 
 def update_ai_run(cur, ai_run_id, status, response_payload=None, error_code=None, error_message=None):
+    if not ai_run_id or not table_exists(cur, "AI_RUNS"):
+        return
     cur.execute(
         """
         UPDATE AI_RUNS
@@ -394,6 +411,8 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
     binds["week_end"] = week_end
     binds["top_accomplishments"] = _json(overview.get("top_accomplishments", []))
     binds["themes"] = _json(overview.get("themes", []))
+    binds["went_well"] = _json(overview.get("went_well", []))
+    binds["went_wrong"] = _json(overview.get("went_wrong", []))
     cur.execute(
         """
         MERGE INTO WEEKLY_OVERVIEWS target
@@ -412,6 +431,8 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             TOP_ACCOMPLISHMENTS = :top_accomplishments,
             NEW_LEARNINGS = :new_learnings,
             THEMES = :themes,
+            WENT_WELL = :went_well,
+            WENT_WRONG = :went_wrong,
             SUMMARY = :summary,
             UPDATED_AT = SYSTIMESTAMP,
             ROW_VERSION = ROW_VERSION + 1
@@ -428,6 +449,8 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             TOP_ACCOMPLISHMENTS,
             NEW_LEARNINGS,
             THEMES,
+            WENT_WELL,
+            WENT_WRONG,
             SUMMARY,
             CREATED_AT,
             UPDATED_AT,
@@ -446,6 +469,8 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             :top_accomplishments,
             :new_learnings,
             :themes,
+            :went_well,
+            :went_wrong,
             :summary,
             SYSTIMESTAMP,
             SYSTIMESTAMP,
@@ -460,17 +485,17 @@ def _task_row(row, work_date=None, planned_minutes=None):
     return {
         "task_id": row[0],
         "title": row[1],
-        "description": row[2] or "",
+        "description": _text(row[2]),
         "task_type": row[3],
         "priority": row[4],
         "status": row[5],
         "estimated_minutes": row[6] or 0,
         "actual_minutes": row[7] or 0,
         "xp_value": row[8] or 0,
-        "notes": row[9] or "",
+        "notes": _text(row[9]),
         "labels": _json_list(row[10]),
         "ai_category": row[11],
-        "ai_insight": row[12] or "",
+        "ai_insight": _text(row[12]),
         "completed_at": row[13].isoformat() if row[13] else None,
         "work_date": work_date,
         "planned_minutes": planned_minutes,
@@ -482,6 +507,7 @@ def _json(value):
 
 
 def _json_list(value):
+    value = _text(value)
     if not value:
         return []
     if isinstance(value, list):
@@ -491,6 +517,22 @@ def _json_list(value):
         return parsed if isinstance(parsed, list) else [str(parsed)]
     except (TypeError, ValueError):
         return [item.strip() for item in str(value).splitlines() if item.strip()]
+
+
+def _text(value):
+    if value is None:
+        return ""
+    if hasattr(value, "read"):
+        return value.read()
+    return str(value)
+
+
+def table_exists(cur, table_name):
+    cur.execute(
+        "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name",
+        {"table_name": table_name.upper()},
+    )
+    return cur.fetchone()[0] > 0
 
 
 def _overview_binds(user_id, overview_date, ai_run_id, overview):

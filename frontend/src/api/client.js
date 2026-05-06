@@ -63,7 +63,38 @@ const phase8Api = axios.create({
   },
 });
 
+phase8Api.interceptors.request.use((config) => {
+  const user = readStoredUser();
+  if (user?.user_id) {
+    config.headers["X-DevQuest-User-Id"] = user.user_id;
+  }
+  return config;
+});
+
 const unwrap = (response) => response.data?.data ?? response.data;
+const inFlightGetRequests = new Map();
+
+const getKey = (scope, params = {}) => {
+  const entries = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .sort(([left], [right]) => left.localeCompare(right));
+  const query = new URLSearchParams(entries).toString();
+  return query ? `${scope}:${query}` : scope;
+};
+
+const dedupeGet = (key, requestFactory) => {
+  if (inFlightGetRequests.has(key)) {
+    return inFlightGetRequests.get(key);
+  }
+  let request;
+  request = requestFactory().finally(() => {
+    if (inFlightGetRequests.get(key) === request) {
+      inFlightGetRequests.delete(key);
+    }
+  });
+  inFlightGetRequests.set(key, request);
+  return request;
+};
 
 export const authApi = {
   register: (payload) => api.post("/auth/register", payload).then(unwrap),
@@ -73,7 +104,10 @@ export const authApi = {
 };
 
 export const tasksApi = {
-  list: (params = {}) => api.get("/tasks", { params }).then(unwrap),
+  list: (params = {}) => dedupeGet(
+    getKey("tasks:list", params),
+    () => api.get("/tasks", { params }).then(unwrap),
+  ),
   create: (payload) => api.post("/tasks", payload).then(unwrap),
   update: (taskId, payload) => api.patch(`/tasks/${taskId}`, payload).then(unwrap),
   updateNotes: (taskId, payload) => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap),
@@ -86,6 +120,12 @@ export const tasksApi = {
 export const questsApi = {
   today: (params = {}) => api.get("/quests/today", { params }).then(unwrap),
   generate: (payload) => api.post("/quests/generate", payload).then(unwrap),
+  update: (questItemId, payload) => api.patch(`/quests/${questItemId}`, payload).then(unwrap),
+};
+
+export const focusApi = {
+  list: (params = {}) => api.get("/focus-sessions", { params }).then(unwrap),
+  create: (payload) => api.post("/focus-sessions", payload).then(unwrap),
 };
 
 export const insightsApi = {
@@ -99,10 +139,23 @@ export const standupApi = {
 };
 
 export const overviewApi = {
-  daily: (params = {}) => phase8Api.get("/overviews/daily", { params }).then(unwrap),
-  generateDaily: (payload) => phase8Api.post("/overviews/daily/generate", payload).then(unwrap),
-  weekly: (params = {}) => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
-  generateWeekly: (payload) => phase8Api.post("/overviews/weekly/generate", payload).then(unwrap),
+  daily: (params = {}) => dedupeGet(
+    `overviews:daily:${params.date || ""}`,
+    () => phase8Api.get("/overviews/daily", { params }).then(unwrap),
+  ),
+  saveDaily: (payload) => phase8Api.put("/overviews/daily", payload).then(unwrap),
+  generateDaily: (payload) => {
+    inFlightGetRequests.delete(`overviews:daily:${payload.date || ""}`);
+    return phase8Api.post("/overviews/daily/generate", payload).then(unwrap);
+  },
+  weekly: (params = {}) => dedupeGet(
+    `overviews:weekly:${params.week_start || ""}`,
+    () => phase8Api.get("/overviews/weekly", { params }).then(unwrap),
+  ),
+  generateWeekly: (payload) => {
+    inFlightGetRequests.delete(`overviews:weekly:${payload.week_start || ""}`);
+    return phase8Api.post("/overviews/weekly/generate", payload).then(unwrap);
+  },
 };
 
 export const calendarApi = {
@@ -114,11 +167,17 @@ export const calendarApi = {
 };
 
 export const dashboardApi = {
-  today: (params = {}) => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+  today: (params = {}) => dedupeGet(
+    getKey("dashboard:today", params),
+    () => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+  ),
 };
 
 export const capacityApi = {
-  get: (params = {}) => phase8Api.get("/capacity", { params }).then(unwrap),
+  get: (params = {}) => dedupeGet(
+    getKey("capacity", params),
+    () => phase8Api.get("/capacity", { params }).then(unwrap),
+  ),
 };
 
 export const syncApi = {

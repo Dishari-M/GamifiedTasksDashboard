@@ -1,0 +1,4 @@
+INFO:     127.0.0.1:51103 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56143 - "GET /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56158 - "GET /api/v1/overviews/daily?date=2026-05-05 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56161 - "GET /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
