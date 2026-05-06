@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import logging
 import os
+import re
+from decimal import Decimal, InvalidOperation
 from threading import Lock
 
 import oracledb
@@ -19,6 +21,8 @@ _AUTH_SCHEMA_READY = False
 _AUTH_SCHEMA_LOCK = Lock()
 _APP_USERS_IDENTITY_COLUMN = None
 _APP_USERS_COLUMNS = set()
+TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+MAX_FOCUS_XP_MULTIPLIER = Decimal("999.99")
 
 
 def register_user(payload):
@@ -167,6 +171,69 @@ def get_user_profile(identifier):
             conn.close()
 
 
+def get_user_settings(user_id):
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        settings = _fetch_user_settings(cur, user_id)
+        if settings is None:
+            raise HTTPException(status_code=404, detail={"code": "USER_NOT_FOUND", "message": "User profile was not found."})
+        return settings
+    except HTTPException:
+        raise
+    except oracledb.DatabaseError as exc:
+        logger.exception("Oracle user settings lookup failed for user_id=%s", user_id)
+        raise HTTPException(status_code=503, detail={"code": "SETTINGS_STORAGE_UNAVAILABLE", "message": "Settings storage is unavailable."}) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_user_settings(payload, user_id):
+    data = _normalize_settings_payload(payload)
+    _validate_settings_payload(data)
+
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE APP_USERS
+            SET WORKDAY_START_LOCAL = :workday_start_local,
+                WORKDAY_END_LOCAL = :workday_end_local,
+                FOCUS_XP_MULTIPLIER = :focus_xp_multiplier,
+                UPDATED_AT = SYSTIMESTAMP,
+                ROW_VERSION = ROW_VERSION + 1
+            WHERE USER_ID = :user_id
+            """,
+            {
+                "workday_start_local": data["working_hours_start"],
+                "workday_end_local": data["working_hours_end"],
+                "focus_xp_multiplier": data["focus_xp_multiplier"],
+                "user_id": user_id,
+            },
+        )
+        if cur.rowcount != 1:
+            raise HTTPException(status_code=404, detail={"code": "USER_NOT_FOUND", "message": "User profile was not found."})
+        settings = _fetch_user_settings(cur, user_id)
+        conn.commit()
+        return settings
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        logger.exception("Oracle user settings update failed for user_id=%s", user_id)
+        raise HTTPException(status_code=503, detail={"code": "SETTINGS_STORAGE_UNAVAILABLE", "message": "Settings storage is unavailable."}) from exc
+    finally:
+        if conn:
+            conn.close()
+
+
 def require_user_id(user_id):
     numeric_user_id = parse_oracle_user_id(user_id)
 
@@ -249,6 +316,35 @@ def _validate_register_payload(data):
         _validation_error("Password and confirm password must match.", {"field": "confirm_password"})
 
 
+def _normalize_settings_payload(payload):
+    data = dict(payload or {})
+    multiplier = data.get("focus_xp_multiplier")
+    if isinstance(multiplier, str):
+        multiplier = multiplier.strip().removesuffix("x").removesuffix("X").strip()
+    return {
+        "working_hours_start": _clean_string(data.get("working_hours_start")),
+        "working_hours_end": _clean_string(data.get("working_hours_end")),
+        "focus_xp_multiplier": _parse_decimal(multiplier, "focus_xp_multiplier"),
+    }
+
+
+def _validate_settings_payload(data):
+    start_minutes = _parse_time_minutes(data["working_hours_start"], "working_hours_start")
+    end_minutes = _parse_time_minutes(data["working_hours_end"], "working_hours_end")
+    if end_minutes <= start_minutes:
+        _validation_error("Working hours end time must be after start time.", {"field": "working_hours_end"})
+
+    multiplier = data["focus_xp_multiplier"]
+    if not multiplier.is_finite():
+        _validation_error("Focus XP multiplier must be a positive number.", {"field": "focus_xp_multiplier"})
+    if multiplier <= 0:
+        _validation_error("Focus XP multiplier must be a positive number.", {"field": "focus_xp_multiplier"})
+    if multiplier > MAX_FOCUS_XP_MULTIPLIER:
+        _validation_error("Focus XP multiplier must be 999.99 or less.", {"field": "focus_xp_multiplier"})
+    if abs(multiplier.as_tuple().exponent) > 2:
+        _validation_error("Focus XP multiplier can use at most 2 decimal places.", {"field": "focus_xp_multiplier"})
+
+
 def _validate_unique_user(cur, data):
     cur.execute(
         f"""
@@ -290,6 +386,25 @@ def _fetch_user_profile(cur, identifier=None, user_id=None):
         cur.execute(sql, binds)
     row = cur.fetchone()
     return _profile_response_from_row(row) if row else None
+
+
+def _fetch_user_settings(cur, user_id):
+    cur.execute(
+        """
+        SELECT WORKDAY_START_LOCAL, WORKDAY_END_LOCAL, FOCUS_XP_MULTIPLIER
+        FROM APP_USERS
+        WHERE USER_ID = :user_id
+        """,
+        {"user_id": user_id},
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "working_hours_start": row[0],
+        "working_hours_end": row[1],
+        "focus_xp_multiplier": float(row[2]),
+    }
 
 
 def _fetch_user_with_credentials(cur, identifier):
@@ -517,6 +632,25 @@ def _clean_string(value):
     if value is None:
         return None
     return str(value).strip()
+
+
+def _parse_decimal(value, field):
+    if value in (None, ""):
+        _validation_error("Focus XP multiplier is required.", {"field": field})
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        _validation_error("Focus XP multiplier must be a positive number.", {"field": field})
+        raise exc
+
+
+def _parse_time_minutes(value, field):
+    if not value or not TIME_RE.match(value):
+        _validation_error("Working hours must use HH:MM format.", {"field": field})
+    hours, minutes = [int(part) for part in value.split(":", 1)]
+    if hours > 23 or minutes > 59:
+        _validation_error("Working hours must be valid 24-hour times.", {"field": field})
+    return hours * 60 + minutes
 
 
 def _validation_error(message, details):

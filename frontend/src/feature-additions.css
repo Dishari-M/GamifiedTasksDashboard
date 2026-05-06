@@ -311,6 +311,128 @@
   font-weight: 800;
 }
 
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.settings-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  color: var(--green);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.settings-card button:disabled,
+.settings-card input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.settings-card input[aria-invalid="true"] {
+  border-color: rgba(255, 59, 48, 0.72);
+}
+
+.settings-slider-row {
+  gap: 12px;
+}
+
+.settings-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.settings-slider-value {
+  min-width: 68px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 11px;
+  color: #fff;
+  background: rgba(0, 122, 255, 0.18);
+  border: 1px solid rgba(0, 122, 255, 0.36);
+  font-weight: 900;
+}
+
+.settings-card input[type="range"] {
+  width: 100%;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--blue-soft);
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--blue);
+}
+
+.settings-card input[type="range"]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.34);
+}
+
+.settings-card input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  border: 1px solid rgba(98, 111, 153, 0.24);
+}
+
+.settings-card input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--blue);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+}
+
+.settings-card input[type="range"]::-moz-range-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  border: 1px solid rgba(98, 111, 153, 0.24);
+}
+
+.settings-card input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--blue);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+}
+
+.settings-card input[type="time"] {
+  color-scheme: dark;
+}
+
+.settings-card input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.settings-card input[type="time"]:disabled::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
 .task-editor-form input[aria-invalid="true"],
 .task-editor-form select[aria-invalid="true"],
 .task-editor-form textarea[aria-invalid="true"] {
@@ -3186,9 +3308,50 @@ html[data-theme="light"] .quest-focus-warning {
 
 html[data-theme="light"] .success-action,
 html[data-theme="light"] .today-toggle.active,
+html[data-theme="light"] .settings-success,
 html[data-theme="light"] .sync-source,
 html[data-theme="light"] .sync-source svg {
   color: var(--a11y-success);
+}
+
+html[data-theme="light"] .settings-card input[type="time"] {
+  color-scheme: light;
+}
+
+html[data-theme="light"] .settings-card input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+html[data-theme="light"] .settings-slider-value {
+  color: var(--text);
+  background: #eaf3f0;
+  border-color: rgba(76, 128, 116, 0.42);
+}
+
+html[data-theme="light"] .settings-card input[type="range"]::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #5f9f93, #5b86b8);
+  border-color: rgba(147, 128, 98, 0.36);
+}
+
+html[data-theme="light"] .settings-card input[type="range"]::-moz-range-track {
+  background: linear-gradient(90deg, #5f9f93, #5b86b8);
+  border-color: rgba(147, 128, 98, 0.36);
+}
+
+@media (max-width: 760px) {
+  .settings-time-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .settings-actions .ghost-button,
+  .settings-actions .primary-action {
+    flex: 1 1 160px;
+  }
 }
 
 html[data-theme="light"] .pill-critical,
