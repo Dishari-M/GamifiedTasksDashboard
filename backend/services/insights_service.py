@@ -7,6 +7,7 @@ from services.insights_ai_service import TODAY_INSIGHT_SYSTEM_PROMPT, build_toda
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import get_calendar_events, resolve_work_date
 from services.stat_insight_service import build_stat_insights, previous_date_key
+from services.xp_service import resolve_xp_value
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -76,7 +77,7 @@ def _context(work_date, user_id):
         key=lambda task: (
             -float(task.get("priority_score") or 0),
             -_priority_weight(task.get("priority")),
-            -int(task.get("xp_value") or 0),
+            -resolve_xp_value(task),
             int(task.get("estimated_minutes") or 0),
         ),
     )
@@ -87,7 +88,7 @@ def _context(work_date, user_id):
         "task_count": len(tasks),
         "working_today_count": len(worked_tasks),
         "completed_count": len(completed_tasks),
-        "xp_earned": sum(int(task.get("xp_value") or 0) for task in completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
         "meeting_minutes": capacity.get("meeting_minutes", 0),
         "available_focus_minutes": capacity.get("available_focus_minutes", 0),
     }
@@ -95,7 +96,7 @@ def _context(work_date, user_id):
         "task_count": len(tasks),
         "working_today_count": len(previous_worked_tasks),
         "completed_count": len(previous_completed_tasks),
-        "xp_earned": sum(int(task.get("xp_value") or 0) for task in previous_completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in previous_completed_tasks),
         "meeting_minutes": previous_capacity.get("meeting_minutes", 0),
         "available_focus_minutes": previous_capacity.get("available_focus_minutes", 0),
     }
@@ -150,6 +151,7 @@ def _fallback_ai(context):
 
 
 def _task_insight(task):
+    xp_value = resolve_xp_value(task)
     return {
         "task_id": task["task_id"],
         "title": task["title"],
@@ -158,12 +160,24 @@ def _task_insight(task):
         "task_type": task.get("task_type"),
         "priority_score": float(task.get("priority_score") or 0),
         "effort_minutes": int(task.get("estimated_minutes") or 0),
-        "xp_value": int(task.get("xp_value") or 0),
+        "xp_value": xp_value,
+        "xp_source": _xp_source(task),
+        "rca_tshirt_size": task.get("rca_tshirt_size") or task.get("rcaTshirtSize"),
+        "rca_file_change_count": task.get("rca_file_change_count") or task.get("rcaFileChangeCount"),
+        "rca_complexity_source": task.get("rca_complexity_source") or task.get("rcaComplexitySource"),
         "impact_score": float(task.get("impact") or 0),
         "insight": task.get("ai_insight") or "",
         "notes": task.get("notes") or "",
         "labels": task.get("labels") or [],
     }
+
+
+def _xp_source(task):
+    if task.get("xp_value") not in (None, "") or task.get("xp") not in (None, ""):
+        return "explicit"
+    if task.get("rca_tshirt_size") or task.get("rcaTshirtSize"):
+        return "rca_tshirt_size"
+    return "default"
 
 
 def _response_task(task, work_date):

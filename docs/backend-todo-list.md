@@ -185,6 +185,10 @@ Use this as the execution checklist for building the production backend. The det
 | `START_DATE` | `DATE` | task form start date |
 | `ESTIMATED_MINUTES` | `NUMBER(8)` | effort column |
 | `ACTUAL_MINUTES` | `NUMBER(8)` | completion/overview |
+| `RCA_TSHIRT_SIZE` | `VARCHAR2(20)` | RCA/Jira complexity estimate: `XS`, `S`, `M`, `L`, `XL` |
+| `RCA_FILE_CHANGE_COUNT` | `NUMBER(8)` | file-change count used by RCA tool |
+| `RCA_COMPLEXITY_SOURCE` | `VARCHAR2(40)` | `RCA`, `Jira`, `Manual`, or similar source marker |
+| `RCA_COMPLEXITY_AT` | `TIMESTAMP WITH TIME ZONE` | when RCA complexity was calculated |
 | `XP_VALUE` | `NUMBER(8)` | task table, XP cards |
 | `LABELS_JSON` | `CLOB` | JSON array for labels/themes |
 | `NOTES` | `CLOB` | inline notes, AI context, standup, overview |
@@ -828,6 +832,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert `AI_RUNS`.
   - [ ] Call OCI GenAI.
   - [ ] Validate difficulty, impact, priority score, effort, category, XP, insight.
+  - [ ] For XP, prefer RCA T-shirt sizing when present; otherwise infer from AI difficulty/effort/impact; otherwise use deterministic default XP.
   - [ ] Update `WORK_ITEMS` AI fields.
   - [ ] Update `XP_VALUE`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
@@ -852,6 +857,7 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Implement `POST /api/v1/missions/generate`.
   - [ ] Read candidate tasks from `WORK_ITEMS`.
+  - [ ] Include `RCA_TSHIRT_SIZE`, `RCA_FILE_CHANGE_COUNT`, and existing `XP_VALUE` in AI context.
   - [ ] Exclude completed and cancelled tasks.
   - [ ] Read calendar capacity from `CALENDAR_EVENTS`.
   - [ ] Use `APP_USERS` timezone and workday settings.
@@ -900,6 +906,7 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Implement `POST /api/v1/insights/today/generate`.
   - [ ] Read tasks joined through `WORK_ITEM_WORK_DATES` for the selected date.
+  - [ ] Include RCA T-shirt sizing and existing XP in task insight context.
   - [ ] Read task notes.
   - [ ] Read completed tasks.
   - [ ] Read meeting schedule.

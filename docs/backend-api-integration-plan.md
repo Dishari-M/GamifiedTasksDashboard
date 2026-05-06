@@ -121,6 +121,7 @@ Recommended sequence setup:
 
 ```sql
 CREATE SEQUENCE APP_USERS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
+CREATE SEQUENCE USER_STATS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEMS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEM_WORK_DATES_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 CREATE SEQUENCE WORK_ITEM_EVENTS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
@@ -155,7 +156,33 @@ CREATE TABLE APP_USERS (
 );
 ```
 
-### 4.2 Work Items
+### 4.2 User Stats
+
+Stores fast-read XP, level, and streak values for profile, sidebar, and dashboard surfaces. Keep `USER_ID` unique so each app user has one stats row.
+
+```sql
+CREATE TABLE USER_STATS (
+  USER_STATS_ID NUMBER(19) DEFAULT USER_STATS_SEQ.NEXTVAL PRIMARY KEY,
+  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+  TOTAL_XP NUMBER(10) DEFAULT 0 NOT NULL,
+  CURRENT_LEVEL NUMBER(5) DEFAULT 1 NOT NULL,
+  CURRENT_STREAK_DAYS NUMBER(6) DEFAULT 0 NOT NULL,
+  LAST_ACTIVITY_DATE DATE,
+  CURRENT_LEVEL_XP NUMBER(10) DEFAULT 0 NOT NULL,
+  NEXT_LEVEL_XP NUMBER(10) DEFAULT 100 NOT NULL,
+  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
+  CONSTRAINT USER_STATS_USER_UK UNIQUE (USER_ID),
+  CONSTRAINT USER_STATS_TOTAL_XP_CK CHECK (TOTAL_XP >= 0),
+  CONSTRAINT USER_STATS_LEVEL_CK CHECK (CURRENT_LEVEL >= 1),
+  CONSTRAINT USER_STATS_STREAK_CK CHECK (CURRENT_STREAK_DAYS >= 0),
+  CONSTRAINT USER_STATS_LEVEL_XP_CK CHECK (CURRENT_LEVEL_XP >= 0),
+  CONSTRAINT USER_STATS_NEXT_LEVEL_XP_CK CHECK (NEXT_LEVEL_XP > 0)
+);
+```
+
+### 4.3 Work Items
 
 This is the canonical task table for Jira, Microsoft To Do, Outlook-derived work, and custom tasks.
 
@@ -175,6 +202,10 @@ CREATE TABLE WORK_ITEMS (
   START_AT TIMESTAMP WITH TIME ZONE,
   ESTIMATED_MINUTES NUMBER(8),
   ACTUAL_MINUTES NUMBER(8),
+  RCA_TSHIRT_SIZE VARCHAR2(20),
+  RCA_FILE_CHANGE_COUNT NUMBER(8),
+  RCA_COMPLEXITY_SOURCE VARCHAR2(40),
+  RCA_COMPLEXITY_AT TIMESTAMP WITH TIME ZONE,
   XP_VALUE NUMBER(8),
   NOTES CLOB,
   LABELS_JSON CLOB CHECK (LABELS_JSON IS JSON),
@@ -192,6 +223,7 @@ CREATE TABLE WORK_ITEMS (
   ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do','In Progress','Blocked','Done','Cancelled','Upcoming')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Low','Medium','High','Critical')),
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL')),
   CONSTRAINT WORK_ITEMS_SOURCE_UK UNIQUE (USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)
 );
 
@@ -205,6 +237,7 @@ Rules:
 - `COMPLETED_AT` is inserted when status becomes `Done`.
 - If a completed task is reopened, do not delete historical completion from overviews. Set `STATUS = 'In Progress'`, clear `COMPLETED_AT` only if product wants "current completion date" semantics, and insert an audit event either way.
 - `NOTES` is editable and should feed AI insights, standup generation, and daily/weekly overviews.
+- `RCA_*` columns store lightweight complexity evidence from the RCA/Jira analysis path at task insert or sync time. The RCA tool should estimate `RCA_TSHIRT_SIZE` from Jira priority and file-change count when available. Phase 12/13 AI should use that T-shirt size as an XP signal; if RCA data is missing, fall back to AI difficulty/effort/impact, then deterministic default XP.
 - Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. Oracle allows multiple `NULL` values in a unique constraint, so custom tasks need only unique `TASK_ID`.
 
 ### 4.3 Work Item Work Dates
@@ -296,6 +329,7 @@ CREATE TABLE AI_RUNS (
   PROVIDER VARCHAR2(40) DEFAULT 'OCI' NOT NULL,
   MODEL_ID VARCHAR2(200),
   AGENT_ENDPOINT_ID VARCHAR2(255),
+  INPUT_HASH VARCHAR2(128),
   REQUEST_JSON CLOB CHECK (REQUEST_JSON IS JSON),
   RESPONSE_JSON CLOB CHECK (RESPONSE_JSON IS JSON),
   ERROR_CODE VARCHAR2(100),
@@ -307,6 +341,7 @@ CREATE TABLE AI_RUNS (
 );
 
 CREATE INDEX AI_RUNS_USER_TYPE_IDX ON AI_RUNS(USER_ID, RUN_TYPE, CREATED_AT);
+CREATE INDEX AI_RUNS_USER_HASH_IDX ON AI_RUNS(USER_ID, RUN_TYPE, INPUT_HASH);
 ```
 
 ### 4.7 Quest Plans
@@ -1128,11 +1163,17 @@ Insert/update behavior:
 
 OCI AI steps:
 
-1. Build compact input containing task title, priority, status, due date, estimated minutes, notes, AI scores, and available focus windows.
+1. Build compact input containing task title, priority, status, due date, estimated minutes, notes, RCA T-shirt size/file-change count, existing XP, AI scores, and available focus windows.
 2. Use OCI Generative AI Inference for deterministic JSON ranking.
 3. Temperature: `0.1` to `0.3`.
 4. Validate output against `QuestPlanSchema`.
 5. Store prompt and response in `AI_RUNS`.
+
+XP guidance:
+
+- Prefer existing `WORK_ITEMS.XP_VALUE` when already set by task enrichment or prior RCA/AI processing.
+- If `XP_VALUE` is missing and `RCA_TSHIRT_SIZE` exists, let AI infer quest XP from the T-shirt size plus priority, time available, time needed, and impact.
+- If both XP and RCA data are missing, fall back to deterministic default XP so the API never returns blank XP.
 
 ## 11. Calendar And Capacity APIs
 
@@ -1255,10 +1296,14 @@ Update implementation:
    - `priority_score` between 0 and 1
    - `effort_minutes` positive integer
    - `xp_value` positive integer
-6. Update `WORK_ITEMS` AI columns and `XP_VALUE`.
-7. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
-8. Mark `AI_RUNS` as `SUCCEEDED`.
-9. Commit.
+6. Resolve XP with this precedence:
+   - If the RCA tool stored `RCA_TSHIRT_SIZE`, allow AI to convert the T-shirt size and task context into `XP_VALUE`.
+   - If no RCA data exists, allow AI to infer XP from difficulty, effort, impact, and priority.
+   - If AI does not return valid XP, use the deterministic default XP mapping from the backend.
+7. Update `WORK_ITEMS` AI columns and `XP_VALUE`.
+8. Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
+9. Mark `AI_RUNS` as `SUCCEEDED`.
+10. Commit.
 
 OCI GenAI prompt contract:
 
@@ -1407,10 +1452,11 @@ Response:
 
 OCI AI steps:
 
-1. Build context from tasks joined through `WORK_ITEM_WORK_DATES` for the selected date, task notes, completed tasks, and meeting schedule.
+1. Build context from tasks joined through `WORK_ITEM_WORK_DATES` for the selected date, task notes, completed tasks, meeting schedule, existing XP, and RCA T-shirt complexity signals.
 2. Use direct OCI GenAI for structured recommendations.
 3. Use OCI Agent only if the insight needs database-grounded question answering over historical data, for example "compare with last three Fridays".
 4. Store results in `AI_RUNS`.
+5. When insight cards need XP and `WORK_ITEMS.XP_VALUE` is empty, prefer RCA T-shirt size as the AI input for XP inference; otherwise use deterministic fallback XP.
 
 ## 14. Standup Note APIs
 
