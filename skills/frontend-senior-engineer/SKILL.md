@@ -60,6 +60,7 @@ Act like a senior product-minded frontend engineer. Optimize for a UI that is us
 - Preserve user-entered form data when a save fails.
 - Add retry affordances where recovery is realistic.
 - Never show raw stack traces, SQL errors, secrets, tokens, or provider payloads in the UI.
+- Make sure remounting and rendering doesn't happen. Duplicate API calls doesn't happen.
 
 ## Data And State
 

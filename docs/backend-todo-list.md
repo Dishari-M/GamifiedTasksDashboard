@@ -185,7 +185,7 @@ Use this as the execution checklist for building the production backend. The det
 | `START_DATE` | `DATE` | task form start date |
 | `ESTIMATED_MINUTES` | `NUMBER(8)` | effort column |
 | `ACTUAL_MINUTES` | `NUMBER(8)` | completion/overview |
-| `RCA_TSHIRT_SIZE` | `VARCHAR2(20)` | RCA/Jira complexity estimate: `XS`, `S`, `M`, `L`, `XL` |
+| `RCA_TSHIRT_SIZE` | `VARCHAR2(20)` | RCA/Jira complexity estimate: `XS`, `S`, `M`, `L`, `XL`, or `NA` when not applicable |
 | `RCA_FILE_CHANGE_COUNT` | `NUMBER(8)` | file-change count used by RCA tool |
 | `RCA_COMPLEXITY_SOURCE` | `VARCHAR2(40)` | `RCA`, `Jira`, `Manual`, or similar source marker |
 | `RCA_COMPLEXITY_AT` | `TIMESTAMP WITH TIME ZONE` | when RCA complexity was calculated |
@@ -831,7 +831,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert `AI_RUNS`.
   - [ ] Call OCI GenAI.
   - [ ] Validate difficulty, impact, priority score, effort, category, XP, insight.
-  - [ ] For XP, prefer RCA T-shirt sizing when present; otherwise infer from AI difficulty/effort/impact; otherwise use deterministic default XP.
+  - [ ] For XP, prefer applicable RCA T-shirt sizing (`XS`-`XL`) when present; treat `NA` as no RCA size; otherwise infer from AI difficulty/effort/impact; otherwise use deterministic default XP.
   - [ ] Update `WORK_ITEMS` AI fields.
   - [ ] Update `XP_VALUE`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
@@ -1317,7 +1317,7 @@ CREATE TABLE WORK_ITEMS (
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Critical', 'High', 'Medium', 'Low')),
   CONSTRAINT WORK_ITEMS_TYPE_CK CHECK (TASK_TYPE IN ('Task', 'Bug', 'Epic', 'Review', 'Meeting')),
   CONSTRAINT WORK_ITEMS_SOURCE_CK CHECK (EXTERNAL_SOURCE IN ('Custom', 'Jira', 'Outlook', 'Microsoft To Do')),
-  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS', 'S', 'M', 'L', 'XL'))
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS', 'S', 'M', 'L', 'XL', 'NA'))
 );
 
 CREATE INDEX WORK_ITEMS_USER_STATUS_IX ON WORK_ITEMS (USER_ID, STATUS);
