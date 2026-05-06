@@ -31,6 +31,10 @@ ALIASES = {
     "runAiEnrichment": "run_ai_enrichment",
     "rowVersion": "row_version",
     "completedAt": "completed_at",
+    "rcaTshirtSize": "rca_tshirt_size",
+    "rcaFileChangeCount": "rca_file_change_count",
+    "rcaComplexitySource": "rca_complexity_source",
+    "rcaComplexityAt": "rca_complexity_at",
 }
 
 
@@ -299,6 +303,10 @@ def _normalize_payload(payload):
     data["start_at"] = _parse_datetime(data.get("start_at"))
     data["estimated_minutes"] = _optional_number(data.get("estimated_minutes"), "estimated_minutes")
     data["actual_minutes"] = _optional_number(data.get("actual_minutes"), "actual_minutes")
+    data["rca_tshirt_size"] = _normalize_tshirt_size(data.get("rca_tshirt_size"))
+    data["rca_file_change_count"] = _optional_number(data.get("rca_file_change_count"), "rca_file_change_count")
+    data["rca_complexity_source"] = _empty_to_none(data.get("rca_complexity_source"))
+    data["rca_complexity_at"] = _parse_datetime(data.get("rca_complexity_at"))
     data["xp_value"] = _optional_number(data.get("xp_value"), "xp_value")
     data["notes"] = str(data.get("notes") or "")
     data["labels"] = _labels(data.get("labels"))
@@ -327,6 +335,10 @@ def _normalize_update_payload(payload):
         "start_at",
         "estimated_minutes",
         "actual_minutes",
+        "rca_tshirt_size",
+        "rca_file_change_count",
+        "rca_complexity_source",
+        "rca_complexity_at",
         "xp_value",
         "notes",
         "labels",
@@ -343,12 +355,14 @@ def _normalize_update_payload(payload):
     for field in ("external_source", "task_type", "priority", "status", "project_key", "external_id"):
         if field in data:
             data[field] = _empty_to_none(data[field]) if field in {"project_key", "external_id"} else _clean(data[field])
-    for field in ("due_at", "start_at", "completed_at"):
+    for field in ("due_at", "start_at", "completed_at", "rca_complexity_at"):
         if field in data:
             data[field] = _parse_datetime(data[field])
-    for field in ("estimated_minutes", "actual_minutes", "xp_value"):
+    for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         if field in data:
             data[field] = _optional_number(data[field], field)
+    if "rca_tshirt_size" in data:
+        data["rca_tshirt_size"] = _normalize_tshirt_size(data["rca_tshirt_size"])
     if "labels" in data:
         data["labels"] = _labels(data["labels"])
     if "worked_dates" in data:
@@ -373,6 +387,10 @@ def _update_fields(data):
         "start_at": "START_DATE",
         "estimated_minutes": "ESTIMATED_MINUTES",
         "actual_minutes": "ACTUAL_MINUTES",
+        "rca_tshirt_size": "RCA_TSHIRT_SIZE",
+        "rca_file_change_count": "RCA_FILE_CHANGE_COUNT",
+        "rca_complexity_source": "RCA_COMPLEXITY_SOURCE",
+        "rca_complexity_at": "RCA_COMPLEXITY_AT",
         "xp_value": "XP_VALUE",
         "notes": "NOTES",
         "labels": "LABELS_JSON",
@@ -415,9 +433,11 @@ def _validate_update_data(data):
         _validation_error("Invalid priority.", {"field": "priority", "allowed": sorted(VALID_PRIORITIES), "received": data["priority"]})
     if data.get("status") and data["status"] not in VALID_STATUSES:
         _validation_error("Invalid status.", {"field": "status", "allowed": sorted(VALID_STATUSES), "received": data["status"]})
-    for field in ("estimated_minutes", "actual_minutes", "xp_value"):
+    for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         if data.get(field) is not None and data[field] < 0:
             _validation_error(f"{field} cannot be negative.", {"field": field})
+    if "rca_tshirt_size" in data and data.get("rca_tshirt_size") is None:
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
 
 
 def _validate_unique_external_identity(cur, user_id, task):
@@ -454,6 +474,15 @@ def _normalize_aliases(payload):
     if "is_working_today" in data and "working_today" not in data:
         data["working_today"] = data["is_working_today"]
     return data
+
+
+def _normalize_tshirt_size(value):
+    if value in (None, ""):
+        return None
+    size = str(value).strip().upper()
+    if size not in {"XS", "S", "M", "L", "XL"}:
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+    return size
 
 
 def _labels(value):

@@ -456,7 +456,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `WORK_ITEMS(USER_ID, STATUS)`
   - [ ] `WORK_ITEMS(USER_ID, COMPLETED_AT)`
   - [ ] `WORK_ITEMS(USER_ID, UPDATED_AT)`
-  - [ ] `WORK_ITEMS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for non-null external IDs.
+  - [ ] `WORK_ITEMS` function-based unique index for non-null external IDs only, for example `WORK_ITEMS_SOURCE_EXT_UK` on `CASE WHEN EXTERNAL_ID IS NOT NULL THEN USER_ID/EXTERNAL_SOURCE/EXTERNAL_ID END`.
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, WORK_DATE)`
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, TASK_ID, WORK_DATE)` unique.
   - [ ] `CALENDAR_EVENTS(USER_ID, START_AT)`

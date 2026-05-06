@@ -223,13 +223,17 @@ CREATE TABLE WORK_ITEMS (
   ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do','In Progress','Blocked','Done','Cancelled','Upcoming')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Low','Medium','High','Critical')),
-  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL')),
-  CONSTRAINT WORK_ITEMS_SOURCE_UK UNIQUE (USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL'))
 );
 
 CREATE INDEX WORK_ITEMS_USER_STATUS_IDX ON WORK_ITEMS(USER_ID, STATUS);
 CREATE INDEX WORK_ITEMS_USER_COMPLETED_IDX ON WORK_ITEMS(USER_ID, COMPLETED_AT);
 CREATE INDEX WORK_ITEMS_USER_UPDATED_IDX ON WORK_ITEMS(USER_ID, UPDATED_AT);
+CREATE UNIQUE INDEX WORK_ITEMS_SOURCE_EXT_UK ON WORK_ITEMS (
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN USER_ID END,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_SOURCE END,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_ID END
+);
 ```
 
 Rules:
@@ -238,7 +242,7 @@ Rules:
 - If a completed task is reopened, do not delete historical completion from overviews. Set `STATUS = 'In Progress'`, clear `COMPLETED_AT` only if product wants "current completion date" semantics, and insert an audit event either way.
 - `NOTES` is editable and should feed AI insights, standup generation, and daily/weekly overviews.
 - `RCA_*` columns store lightweight complexity evidence from the RCA/Jira analysis path at task insert or sync time. The RCA tool should estimate `RCA_TSHIRT_SIZE` from Jira priority and file-change count when available. Phase 12/13 AI should use that T-shirt size as an XP signal; if RCA data is missing, fall back to AI difficulty/effort/impact, then deterministic default XP.
-- Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. Oracle allows multiple `NULL` values in a unique constraint, so custom tasks need only unique `TASK_ID`.
+- Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. The function-based `WORK_ITEMS_SOURCE_EXT_UK` index enforces uniqueness only for synced rows with a non-null `EXTERNAL_ID`, so multiple custom tasks can coexist.
 
 ### 4.3 Work Item Work Dates
 
