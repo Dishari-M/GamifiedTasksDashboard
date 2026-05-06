@@ -45,6 +45,14 @@ phase8Api.interceptors.request.use((config) => {
 const unwrap = (response) => response.data?.data ?? response.data;
 const inFlightGetRequests = new Map();
 
+const getKey = (scope, params = {}) => {
+  const entries = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .sort(([left], [right]) => left.localeCompare(right));
+  const query = new URLSearchParams(entries).toString();
+  return query ? `${scope}:${query}` : scope;
+};
+
 const dedupeGet = (key, requestFactory) => {
   if (inFlightGetRequests.has(key)) {
     return inFlightGetRequests.get(key);
@@ -67,7 +75,10 @@ export const authApi = {
 };
 
 export const tasksApi = {
-  list: (params = {}) => api.get("/tasks", { params }).then(unwrap),
+  list: (params = {}) => dedupeGet(
+    getKey("tasks:list", params),
+    () => api.get("/tasks", { params }).then(unwrap),
+  ),
   create: (payload) => api.post("/tasks", payload).then(unwrap),
   update: (taskId, payload) => api.patch(`/tasks/${taskId}`, payload).then(unwrap),
   updateNotes: (taskId, payload) => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap),
@@ -123,11 +134,17 @@ export const calendarApi = {
 };
 
 export const dashboardApi = {
-  today: (params = {}) => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+  today: (params = {}) => dedupeGet(
+    getKey("dashboard:today", params),
+    () => phase8Api.get("/dashboard/today", { params }).then(unwrap),
+  ),
 };
 
 export const capacityApi = {
-  get: (params = {}) => phase8Api.get("/capacity", { params }).then(unwrap),
+  get: (params = {}) => dedupeGet(
+    getKey("capacity", params),
+    () => phase8Api.get("/capacity", { params }).then(unwrap),
+  ),
 };
 
 export const syncApi = {

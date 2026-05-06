@@ -710,11 +710,13 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
     setFieldErrors({});
     setSubmitError("");
+    submitInFlightRef.current = false;
   }, [task]);
 
   const update = (field, value) => {
@@ -736,7 +738,9 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (submitInFlightRef.current) return;
     if (!validate()) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setSubmitError("");
     try {
@@ -748,6 +752,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     } catch (error) {
       setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1274,8 +1279,8 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
         </article>
         {(todayInsight?.risks?.length > 0 || todayInsight?.recommendations?.length > 0) && (
           <div className="insight-grid" data-testid="ai-risk-recommendation-grid">
-            <span><strong>Risks</strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
-            <span><strong>Recommendations</strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
+            <span><strong>Risks </strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
+            <span><strong>Recommendations </strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
           </div>
         )}
         <div className="insight-list">
@@ -1791,6 +1796,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   }, [tasks]);
 
   useEffect(() => {
+    if (location.pathname !== "/") return undefined;
+
     let cancelled = false;
     setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
@@ -1817,7 +1824,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   return (
     <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""}`} data-theme={theme} data-testid="app-shell">

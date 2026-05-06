@@ -1,8 +1,8 @@
 from uuid import uuid4
-from datetime import datetime, timezone
 
 from config import get_data_mode
 from repositories import phase8_oracle_repository
+from services.api_cache import canonical_cache_key, get_cached_response, invalidate_namespace, set_cached_response
 from services.phase8_ai_insight_service import build_ai_insight
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import (
@@ -14,8 +14,8 @@ from services.phase8_data_provider import (
 from services.stat_insight_service import build_stat_insights, previous_date_key
 
 
-DASHBOARD_CACHE_TTL_SECONDS = 15
-_DASHBOARD_CACHE = {}
+DASHBOARD_CACHE_TTL_SECONDS = 30
+DASHBOARD_CACHE_NAMESPACE = "dashboard_today"
 
 
 def _task_response(task, working_today=False, rank_order=None, planned_minutes=None):
@@ -160,17 +160,20 @@ def build_dashboard(date=None, user_id=None):
 
 def dashboard_today_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
-    cache_key = (get_data_mode(), user_id, work_date)
-    cached = _DASHBOARD_CACHE.get(cache_key)
-    now = datetime.now(timezone.utc).timestamp()
-    if cached and now - cached["cached_at"] <= DASHBOARD_CACHE_TTL_SECONDS:
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "date": work_date})
+    cached = get_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, DASHBOARD_CACHE_TTL_SECONDS)
+    if cached:
         return {
-            "data": cached["data"],
+            "data": cached,
             "meta": {"request_id": str(uuid4()), "cache": "hit"},
         }
     data = build_dashboard(work_date, user_id)
-    _DASHBOARD_CACHE[cache_key] = {"cached_at": now, "data": data}
+    set_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, data, user_id=user_id)
     return {
         "data": data,
         "meta": {"request_id": str(uuid4()), "cache": "miss"},
     }
+
+
+def invalidate_dashboard_cache(user_id=None):
+    invalidate_namespace(DASHBOARD_CACHE_NAMESPACE, user_id=user_id)

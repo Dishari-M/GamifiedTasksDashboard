@@ -178,6 +178,19 @@ through to Oracle queries. The frontend sends this header from the logged-in
 profile, and backend helpers map local ids like `user-1` to
 `APP_USERS.USER_ID = 1`. Do not hardcode `USER_ID = 1` in new API code.
 
+For local/demo responsiveness, the backend uses short process-local caches for
+read-heavy dashboard data:
+
+| API | Cache key | TTL | Invalidated by |
+| --- | --- | --- | --- |
+| `GET /api/v1/tasks` | user id, work date, filters | 30 seconds | task create/update/status/complete/working-today writes |
+| `GET /api/v1/dashboard/today` | user id, date, data mode | 30 seconds | same task writes and quest generation when it changes working-today rows |
+
+The React app calls `/api/v1/tasks?include_total=false` during initial load so
+the task list query can skip the separate `COUNT(*)` round-trip. Keep the
+default `include_total=true` behavior for clients/tests that need exact paging
+totals.
+
 Later, when OCI Generative AI access is available:
 
 ```powershell

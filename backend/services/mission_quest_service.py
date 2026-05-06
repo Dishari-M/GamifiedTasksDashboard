@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from config import get_data_mode, get_oci_genai_model_id
 from db import get_connection
 from repositories import ai_run_repository, quest_repository, task_repository
+from services.api_cache import invalidate_user_cache
 from services.filesystem_store import read_records, with_store_lock, write_records
 from services.mission_quest_ai_service import (
     MISSION_SYSTEM_PROMPT,
@@ -292,6 +293,7 @@ def _oracle_generate_quests(quest_date, request_payload, user_id):
 
         ai_run_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload=ai)
         conn.commit()
+        invalidate_user_cache(user_id, ("task_list", "dashboard_today"))
         task_by_id = {task["task_id"]: task for task in _oracle_user_tasks(cur, user_id, quest_date)}
         return {
             "quest_plan_id": quest_plan_id,

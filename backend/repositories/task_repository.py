@@ -60,28 +60,35 @@ TASK_SELECT = """
 def list_tasks(cur, user_id, filters, work_date):
     filters = filters or {}
     where, binds = _task_filters(user_id, filters, work_date)
-    total_sql = f"SELECT COUNT(*) FROM WORK_ITEMS w WHERE {' AND '.join(where)}"
-    total_binds = _binds_used_by_sql(total_sql, binds)
-    cur.execute(total_sql, total_binds)
-    total = cur.fetchone()[0]
+    include_total = _truthy(filters.get("include_total"), default=True)
+    total = None
+    if include_total:
+        total_sql = f"SELECT COUNT(*) FROM WORK_ITEMS w WHERE {' AND '.join(where)}"
+        total_binds = _binds_used_by_sql(total_sql, binds)
+        cur.execute(total_sql, total_binds)
+        total = cur.fetchone()[0]
 
     page = max(1, int(filters.get("page") or 1))
     page_size = min(100, max(1, int(filters.get("page_size") or 50)))
     offset = (page - 1) * page_size
+    fetch_size = page_size if include_total else page_size + 1
     rows_sql = f"""
         {TASK_SELECT}
         WHERE {' AND '.join(where)}
         ORDER BY w.UPDATED_AT DESC, w.CREATED_AT DESC, w.TASK_ID DESC
-        OFFSET :offset ROWS FETCH NEXT :page_size ROWS ONLY
+        OFFSET :offset ROWS FETCH NEXT :fetch_size ROWS ONLY
     """
-    row_binds = {**binds, "offset": offset, "page_size": page_size}
+    row_binds = {**binds, "offset": offset, "fetch_size": fetch_size}
     cur.execute(rows_sql, row_binds)
+    rows = cur.fetchall()
+    has_next = offset + page_size < total if include_total else len(rows) > page_size
+    rows = rows[:page_size]
     return {
-        "items": [_task_row(row) for row in cur.fetchall()],
+        "items": [_task_row(row) for row in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
-        "has_next": offset + page_size < total,
+        "has_next": has_next,
     }
 
 
@@ -440,6 +447,14 @@ def _filter_values(value):
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _truthy(value, default=False):
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _task_binds(user_id, task, ai):
