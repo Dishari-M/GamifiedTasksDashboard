@@ -2146,6 +2146,14 @@ Use it for:
 ### 19.5 Performance
 
 - Dashboard endpoint should use bulk queries and avoid per-task database round trips.
+- Read-heavy dashboard startup calls may use short process-local caches. Current
+  local/demo cache policy is 30 seconds for `GET /api/v1/tasks` and
+  `GET /api/v1/dashboard/today`, keyed by user/date/filter inputs and
+  invalidated after task, working-today, completion, and quest-generation
+  writes.
+- Frontend dashboard startup should call `GET /api/v1/tasks?include_total=false`
+  when exact pagination totals are not needed so Oracle can skip the separate
+  `COUNT(*)` query.
 - AI generation endpoints should cache by `(user_id, run_type, date, input_hash)`.
 - Add indexes for `(USER_ID, STATUS)`, `(USER_ID, COMPLETED_AT)`, `(USER_ID, WORK_DATE)`, and calendar date ranges.
 - For long sync and bulk AI jobs, return `202 Accepted` and process in a background worker.

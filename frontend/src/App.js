@@ -1549,7 +1549,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   useEffect(() => {
     let isActive = true;
     setTaskStatus("loading");
-    tasksApi.list()
+    tasksApi.list({ include_total: false })
       .then((loadedTasks) => {
         if (!isActive) return;
         const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
