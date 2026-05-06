@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, Header
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
@@ -9,7 +9,6 @@ from services.filesystem_user_service import (
     login_user,
     logout_user,
     register_user,
-    require_user_id,
 )
 from services.oracle_task_service import (
     complete_oracle_task,
@@ -23,6 +22,7 @@ from services.oracle_task_service import (
 )
 from services.phase8_capacity_service import capacity_response
 from services.phase8_dashboard_service import dashboard_today_response
+from services.user_context import current_local_user_id, current_oracle_user_id
 from routes.insights_routes import router as insights_router
 from routes.missions_routes import router as missions_router
 from routes.overview_routes import router as overview_router
@@ -105,36 +105,26 @@ def swagger_redirect():
     return RedirectResponse(url="/docs")
 
 @app.get("/tasks", tags=["Tasks"])
-def tasks(): return get_tasks()
+def tasks(user_id: int = Depends(current_oracle_user_id)): return get_tasks(user_id)
 
 @app.get("/quests", tags=["Quests"])
-def quests(): return get_quests()
+def quests(user_id: int = Depends(current_oracle_user_id)): return get_quests(user_id)
 
 @app.get("/api/v1/capacity", tags=["Dashboard"])
-def capacity(date: str | None = None): return capacity_response(date)
+def capacity(date: str | None = None, user_id: int = Depends(current_oracle_user_id)): return capacity_response(date, user_id)
 
 @app.get("/api/v1/dashboard/today", tags=["Dashboard"])
-def dashboard_today(date: str | None = None): return dashboard_today_response(date)
+def dashboard_today(date: str | None = None, user_id: int = Depends(current_oracle_user_id)): return dashboard_today_response(date, user_id)
 
 @app.post("/tasks", tags=["Tasks"])
-async def add_task(task:TaskCreate):
+async def add_task(task:TaskCreate, user_id: int = Depends(current_oracle_user_id)):
     task_payload=task.model_dump()
     ai=await enrich_task(task_payload["title"],task_payload["description"])
-    return create_task(task_payload,ai)
+    return create_task(task_payload,ai,user_id)
 
 @app.post("/tasks/{task_id}/complete", tags=["Tasks"])
-def mark_complete(task_id: str):
-    return complete_task(task_id)
-
-def current_user_id(x_devquest_user_id: str | None = Header(default=None, alias="X-DevQuest-User-Id")):
-    return require_user_id(x_devquest_user_id)
-
-
-def current_oracle_user_id(x_devquest_user_id: str | None = Header(default=None, alias="X-DevQuest-User-Id")):
-    try:
-        return int(x_devquest_user_id) if x_devquest_user_id else 1
-    except (TypeError, ValueError):
-        return 1
+def mark_complete(task_id: str, user_id: int = Depends(current_oracle_user_id)):
+    return complete_task(task_id,user_id)
 
 @app.post("/api/v1/auth/register", tags=["Auth"])
 def register_filesystem_user(payload: dict):
@@ -145,7 +135,7 @@ def login_filesystem_user(payload: dict):
     return login_user(payload)
 
 @app.post("/api/v1/auth/logout", tags=["Auth"])
-def logout_filesystem_user(user_id: str = Depends(current_user_id)):
+def logout_filesystem_user(user_id: str = Depends(current_local_user_id)):
     return logout_user(user_id)
 
 @app.get("/api/v1/users/profile", tags=["Users"])

@@ -5,7 +5,7 @@ def calculate_xp(est, diff, impact):
     m={"easy":1,"medium":1.3,"hard":1.6}
     return int((est/2)*m.get(diff,1.3)*(1+impact/10))
 
-def create_task(task, ai):
+def create_task(task, ai, user_id):
     xp=calculate_xp(ai["estimated"],ai["difficulty"],ai["impact"])
     with connection_scope() as conn:
         cur=conn.cursor()
@@ -18,7 +18,7 @@ def create_task(task, ai):
                 ROW_VERSION
             )
             VALUES (
-                WORK_ITEMS_SEQ.NEXTVAL, 1, :title, :description, :priority,
+                WORK_ITEMS_SEQ.NEXTVAL, :user_id, :title, :description, :priority,
                 :estimated_minutes, :xp_value, 'To Do', 'Custom', 'Task',
                 SYSTIMESTAMP, SYSTIMESTAMP, 1
             )
@@ -26,6 +26,7 @@ def create_task(task, ai):
             """,
             {
                 "title": task["title"],
+                "user_id": user_id,
                 "description": task["description"],
                 "priority": task["priority"],
                 "estimated_minutes": ai["estimated"],
@@ -38,17 +39,23 @@ def create_task(task, ai):
     tid = value[0] if isinstance(value, list) else value
     return {"id":tid,"xp":xp}
 
-def get_tasks():
+def get_tasks(user_id):
     with connection_scope() as conn:
         cur=conn.cursor()
-        cur.execute("SELECT TASK_ID,TITLE,DESCRIPTION,PRIORITY,ESTIMATED_MINUTES,XP_VALUE,STATUS FROM WORK_ITEMS")
+        cur.execute(
+            "SELECT TASK_ID,TITLE,DESCRIPTION,PRIORITY,ESTIMATED_MINUTES,XP_VALUE,STATUS FROM WORK_ITEMS WHERE USER_ID=:user_id",
+            {"user_id": user_id},
+        )
         rows=cur.fetchall()
     return [{"id":r[0],"title":r[1],"desc":_text(r[2]),"priority":r[3],"time":r[4],"xp":r[5],"status":r[6]} for r in rows]
 
-def complete_task(task_id):
+def complete_task(task_id, user_id):
     with connection_scope() as conn:
         cur=conn.cursor()
-        cur.execute("UPDATE WORK_ITEMS SET STATUS='Done', UPDATED_AT=SYSTIMESTAMP, ROW_VERSION=ROW_VERSION+1 WHERE TASK_ID=:1", (task_id,))
+        cur.execute(
+            "UPDATE WORK_ITEMS SET STATUS='Done', UPDATED_AT=SYSTIMESTAMP, ROW_VERSION=ROW_VERSION+1 WHERE TASK_ID=:task_id AND USER_ID=:user_id",
+            {"task_id": task_id, "user_id": user_id},
+        )
         conn.commit()
         updated=cur.rowcount
     return {"id":task_id,"status":"done","updated":updated}

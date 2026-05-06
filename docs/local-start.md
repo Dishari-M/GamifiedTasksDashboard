@@ -173,6 +173,11 @@ If `get_connection()` is used directly, close it in a `finally` block. Do not
 create standalone `oracledb.connect()` connections in API request paths, and do
 not keep pooled connections in globals, caches, or long-lived service objects.
 
+All user-scoped APIs must pass the current user from `X-DevQuest-User-Id`
+through to Oracle queries. The frontend sends this header from the logged-in
+profile, and backend helpers map local ids like `user-1` to
+`APP_USERS.USER_ID = 1`. Do not hardcode `USER_ID = 1` in new API code.
+
 Later, when OCI Generative AI access is available:
 
 ```powershell

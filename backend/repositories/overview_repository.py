@@ -1,9 +1,6 @@
 import json
 
 
-DEFAULT_USER_ID = 1
-
-
 def fetch_daily_overview_row(cur, user_id, overview_date):
     cur.execute(
         """

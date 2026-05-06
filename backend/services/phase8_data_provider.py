@@ -45,41 +45,41 @@ def iso_at(work_date, local_time):
     return phase8_mock_data.iso_at(work_date, local_time)
 
 
-def get_user():
+def get_user(user_id=None):
     """Return user/workday settings from the active data source."""
     mode = _mode()
     if mode == "mock":
         return phase8_mock_data.get_mock_user()
     if mode == "oracle":
-        return _oracle_call(phase8_oracle_repository.get_user)
+        return _oracle_call(phase8_oracle_repository.get_user, user_id)
     raise _unsupported_mode_error(mode)
 
 
-def get_work_items():
+def get_work_items(user_id=None):
     """Return dashboard/task work items from the active data source."""
     mode = _mode()
     if mode == "mock":
         return phase8_mock_data.get_mock_work_items()
     if mode == "oracle":
-        return _oracle_call(phase8_oracle_repository.get_work_items)
+        return _oracle_call(phase8_oracle_repository.get_work_items, user_id)
     raise _unsupported_mode_error(mode)
 
 
-def get_daily_work_items(work_date):
+def get_daily_work_items(work_date, user_id=None):
     """Return working-today rows for the requested work date."""
     mode = _mode()
     if mode == "mock":
         return phase8_mock_data.get_mock_daily_work_items(work_date)
     if mode == "oracle":
-        return _oracle_call(phase8_oracle_repository.get_daily_work_items, work_date)
+        return _oracle_call(phase8_oracle_repository.get_daily_work_items, work_date, user_id)
     raise _unsupported_mode_error(mode)
 
 
-def get_calendar_events(work_date):
+def get_calendar_events(work_date, user_id=None):
     """Return calendar meetings and focus blocks for the requested work date."""
     mode = _mode()
     if mode == "mock":
         return phase8_mock_data.get_mock_calendar_events(work_date)
     if mode == "oracle":
-        return _oracle_call(phase8_oracle_repository.get_calendar_events, work_date)
+        return _oracle_call(phase8_oracle_repository.get_calendar_events, work_date, user_id)
     raise _unsupported_mode_error(mode)

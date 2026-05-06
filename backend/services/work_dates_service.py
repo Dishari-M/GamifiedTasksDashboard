@@ -13,9 +13,6 @@ from repositories.work_dates_repository import (
 )
 
 
-DEFAULT_USER_ID = 1
-
-
 class TaskNotFoundError(Exception):
     pass
 
@@ -32,7 +29,7 @@ def get_today_utc_date():
     return datetime.now(UTC).date().isoformat()
 
 
-def set_working_today(task_id, is_working_today, row_version, user_id=DEFAULT_USER_ID):
+def set_working_today(task_id, is_working_today, row_version, user_id):
     work_date = get_today_utc_date()
     conn = None
     try:
