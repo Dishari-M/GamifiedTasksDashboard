@@ -90,7 +90,7 @@ APP_ENV=dev
 API_PREFIX=/api/v1
 CORS_ORIGINS=http://localhost:3000
 
-ORACLE_DB_USER=ADMIN
+ORACLE_DB_USER=DEVQUEST_APP
 ORACLE_DB_PASSWORD=...
 ORACLE_DB_DSN=tasksdb_tp
 ORACLE_DB_WALLET_DIR=/opt/secrets/wallet
@@ -114,6 +114,9 @@ AI_REQUEST_TIMEOUT_SECONDS=45
 
 Oracle access rule for implementation:
 
+- The team runtime schema is `DEVQUEST_APP`. Use it for local app runs and
+  backend smoke tests. Do not use `ADMIN` for normal app traffic unless the team
+  explicitly confirms the schema and seed data are synced.
 - All repositories and services must acquire DB connections through
   `backend/db.py:connection_scope()` or, for lower-level code,
   `backend/db.py:get_connection()`.
@@ -250,7 +253,7 @@ CREATE TABLE WORK_ITEMS (
   ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do','In Progress','Blocked','Done','Cancelled','Upcoming')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Low','Medium','High','Critical')),
-  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL'))
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS','S','M','L','XL','NA'))
 );
 
 CREATE INDEX WORK_ITEMS_USER_STATUS_IDX ON WORK_ITEMS(USER_ID, STATUS);
@@ -268,7 +271,7 @@ Rules:
 - `COMPLETED_AT` is inserted when status becomes `Done`.
 - If a completed task is reopened, do not delete historical completion from overviews. Set `STATUS = 'In Progress'`, clear `COMPLETED_AT` only if product wants "current completion date" semantics, and insert an audit event either way.
 - `NOTES` is editable and should feed AI insights, standup generation, and daily/weekly overviews.
-- `RCA_*` columns store lightweight complexity evidence from the RCA/Jira analysis path at task insert or sync time. The RCA tool should estimate `RCA_TSHIRT_SIZE` from Jira priority and file-change count when available. Phase 12/13 AI should use that T-shirt size as an XP signal; if RCA data is missing, fall back to AI difficulty/effort/impact, then deterministic default XP.
+- `RCA_*` columns store lightweight complexity evidence from the RCA/Jira analysis path at task insert or sync time. The RCA tool should estimate `RCA_TSHIRT_SIZE` from Jira priority and file-change count when available. Use `NA` when RCA sizing is intentionally not applicable for the task. Phase 12/13 AI should use applicable T-shirt sizes as an XP signal; if RCA data is missing or `NA`, fall back to AI difficulty/effort/impact, then deterministic default XP.
 - Use `EXTERNAL_SOURCE = 'CUSTOM'` and `EXTERNAL_ID = NULL` for user-created tasks. The function-based `WORK_ITEMS_SOURCE_EXT_UK` index enforces uniqueness only for synced rows with a non-null `EXTERNAL_ID`, so multiple custom tasks can coexist.
 
 ### 4.3 Work Item Work Dates
@@ -1205,7 +1208,7 @@ OCI AI steps:
 XP guidance:
 
 - Prefer existing `WORK_ITEMS.XP_VALUE` when already set by task enrichment or prior RCA/AI processing.
-- If `XP_VALUE` is missing and `RCA_TSHIRT_SIZE` exists, let AI infer quest XP from the T-shirt size plus priority, time available, time needed, and impact.
+- If `XP_VALUE` is missing and `RCA_TSHIRT_SIZE` has an applicable size (`XS`-`XL`), let AI infer quest XP from the T-shirt size plus priority, time available, time needed, and impact.
 - If both XP and RCA data are missing, fall back to deterministic default XP so the API never returns blank XP.
 
 ## 11. Calendar And Capacity APIs
@@ -1330,7 +1333,7 @@ Update implementation:
    - `effort_minutes` positive integer
    - `xp_value` positive integer
 6. Resolve XP with this precedence:
-   - If the RCA tool stored `RCA_TSHIRT_SIZE`, allow AI to convert the T-shirt size and task context into `XP_VALUE`.
+   - If the RCA tool stored an applicable `RCA_TSHIRT_SIZE` (`XS`-`XL`), allow AI to convert the T-shirt size and task context into `XP_VALUE`.
    - If no RCA data exists, allow AI to infer XP from difficulty, effort, impact, and priority.
    - If AI does not return valid XP, use the deterministic default XP mapping from the backend.
 7. Update `WORK_ITEMS` AI columns and `XP_VALUE`.
@@ -1489,7 +1492,7 @@ OCI AI steps:
 2. Use direct OCI GenAI for structured recommendations.
 3. Use OCI Agent only if the insight needs database-grounded question answering over historical data, for example "compare with last three Fridays".
 4. Store results in `AI_RUNS`.
-5. When insight cards need XP and `WORK_ITEMS.XP_VALUE` is empty, prefer RCA T-shirt size as the AI input for XP inference; otherwise use deterministic fallback XP.
+5. When insight cards need XP and `WORK_ITEMS.XP_VALUE` is empty, prefer applicable RCA T-shirt size (`XS`-`XL`) as the AI input for XP inference; treat `NA` as no RCA size and otherwise use deterministic fallback XP.
 
 ## 14. Standup Note APIs
 

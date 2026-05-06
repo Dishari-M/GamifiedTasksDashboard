@@ -9,6 +9,14 @@ export const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
 export const priorities = ["Critical", "High", "Medium", "Low"];
 export const statuses = ["To Do", "In Progress", "Blocked", "Done", "Upcoming"];
 export const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
+export const rcaTshirtSizes = [
+  { value: "NA", label: "Not Applicable" },
+  { value: "XS", label: "XS" },
+  { value: "S", label: "S" },
+  { value: "M", label: "M" },
+  { value: "L", label: "L" },
+  { value: "XL", label: "XL" },
+];
 
 export const iconForType = (type) => {
   if (type === "Bug") return Bug;
@@ -58,6 +66,7 @@ export const normalizeTask = (task) => {
     priorityScore: ai.priorityScore,
     aiInsight: ai.aiInsight,
     notes: task.notes || "",
+    rcaTshirtSize: task.rcaTshirtSize || "NA",
     labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
     workingToday: Boolean(task.workingToday),
     icon: iconForType(task.type || "Task"),
@@ -203,6 +212,10 @@ export const normalizeApiTask = (task) =>
     priorityScore: task.ai?.priority_score,
     difficulty: task.ai?.difficulty,
     aiInsight: task.ai?.insight,
+    rcaTshirtSize: task.rca_tshirt_size || "NA",
+    rcaFileChangeCount: task.rca_file_change_count,
+    rcaComplexitySource: task.rca_complexity_source,
+    rcaComplexityAt: task.rca_complexity_at,
     notes: task.notes || "",
     workedDates: task.worked_dates || [],
     labels: [],
@@ -231,7 +244,7 @@ export const emptyTaskForm = {
   startDate: "",
   estimatedMinutes: 60,
   actualMinutes: 0,
-  rcaTshirtSize: "Select",
+  rcaTshirtSize: "NA",
   xp: 60,
   labels: "",
   notes: "",
@@ -252,7 +265,7 @@ export const formFromTask = (task) => ({
   startDate: task.startDate || "",
   estimatedMinutes: task.time || 60,
   actualMinutes: task.actualMinutes || 0,
-  rcaTshirtSize: task.rcaTshirtSize || "Select",
+  rcaTshirtSize: task.rcaTshirtSize || "NA",
   xp: task.xp || 60,
   labels: (task.labels || []).join(", "),
   notes: task.notes || "",
@@ -278,7 +291,7 @@ export const taskFromForm = (form, existingTask) => {
     startDate: form.startDate,
     time: parseNumber(form.estimatedMinutes, 60),
     actualMinutes: parseNumber(form.actualMinutes, 0),
-    rcaTshirtSize: form.rcaTshirtSize || "Select",
+    rcaTshirtSize: form.rcaTshirtSize || "NA",
     xp: parseNumber(form.xp, 60),
     labels: form.labels,
     notes: form.notes,

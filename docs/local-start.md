@@ -116,7 +116,7 @@ If port `8000` is already in use, either stop the existing backend process or st
 DB-backed endpoints require Oracle connection environment variables:
 
 ```powershell
-$env:DB_USER="ADMIN"
+$env:DB_USER="DEVQUEST_APP"
 $env:DB_PASSWORD="<shared_database_user_password>"
 $env:DB_DSN="tasksdb_tp"
 $env:DB_WALLET_DIR="$env:USERPROFILE\.oracle\wallet_tasksdb"
@@ -129,7 +129,7 @@ Set these before starting the backend if you want to use endpoints such as `/tas
 macOS/Linux equivalent:
 
 ```bash
-export DB_USER="ADMIN"
+export DB_USER="DEVQUEST_APP"
 export DB_PASSWORD="<shared_database_user_password>"
 export DB_DSN="tasksdb_tp"
 export DB_WALLET_DIR="$USERPROFILE\\.oracle\\wallet_tasksdb"
@@ -138,6 +138,16 @@ export DB_POOL_SIZE="10"
 ```
 
 Without these DB variables, the root endpoint `/` can still run, but DB-backed endpoints may fail when they try to connect to Oracle.
+
+Current team ADB default:
+
+```text
+DB_USER=DEVQUEST_APP
+```
+
+Use `DEVQUEST_APP` for local app runs going forward. The `ADMIN` schema may
+contain older or partial table shapes and seed data; do not switch the app back
+to `ADMIN` unless the team explicitly confirms the schemas have been synced.
 
 ## Backend AI Environment
 
@@ -149,7 +159,7 @@ Set these in the same PowerShell window before starting the backend. These are p
 $env:DEVQUEST_AI_MODE="mock"
 $env:DEVQUEST_DATA_MODE="oracle"
 $env:DEVQUEST_AI_PROVIDER="oci_genai"
-$env:DB_USER="ADMIN"
+$env:DB_USER="DEVQUEST_APP"
 $env:DB_PASSWORD="<shared_database_user_password>"
 $env:DB_DSN="tasksdb_tp"
 $env:DB_WALLET_DIR="$env:USERPROFILE\.oracle\wallet_tasksdb"
