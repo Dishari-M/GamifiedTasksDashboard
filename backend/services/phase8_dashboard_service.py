@@ -1,5 +1,8 @@
 from uuid import uuid4
+from datetime import datetime, timezone
 
+from config import get_data_mode
+from repositories import phase8_oracle_repository
 from services.phase8_ai_insight_service import build_ai_insight
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import (
@@ -9,6 +12,10 @@ from services.phase8_data_provider import (
     resolve_work_date,
 )
 from services.stat_insight_service import build_stat_insights, previous_date_key
+
+
+DASHBOARD_CACHE_TTL_SECONDS = 15
+_DASHBOARD_CACHE = {}
 
 
 def _task_response(task, working_today=False, rank_order=None, planned_minutes=None):
@@ -71,12 +78,21 @@ def _completed_on_date(task, work_date):
 def build_dashboard(date=None):
     work_date = resolve_work_date(date)
     previous_date = previous_date_key(work_date)
-    tasks = get_work_items()
-    daily_work_items = [item for item in get_daily_work_items(work_date) if item["is_working_today"]]
-    previous_daily_work_items = [item for item in get_daily_work_items(previous_date) if item["is_working_today"]]
-    events = get_calendar_events(work_date)
-    capacity = build_capacity(work_date)
-    previous_capacity = build_capacity(previous_date)
+    if get_data_mode() == "oracle":
+        snapshot = phase8_oracle_repository.get_dashboard_snapshot(work_date, previous_date)
+        tasks = snapshot["tasks"]
+        daily_work_items = [item for item in snapshot["daily_work_items"] if item["is_working_today"]]
+        previous_daily_work_items = [item for item in snapshot["previous_daily_work_items"] if item["is_working_today"]]
+        events = snapshot["events"]
+        capacity = build_capacity(work_date, user=snapshot["user"], events=events)
+        previous_capacity = build_capacity(previous_date, user=snapshot["user"], events=snapshot["previous_events"])
+    else:
+        tasks = get_work_items()
+        daily_work_items = [item for item in get_daily_work_items(work_date) if item["is_working_today"]]
+        previous_daily_work_items = [item for item in get_daily_work_items(previous_date) if item["is_working_today"]]
+        events = get_calendar_events(work_date)
+        capacity = build_capacity(work_date)
+        previous_capacity = build_capacity(previous_date)
 
     task_by_id = {task["task_id"]: task for task in tasks}
     daily_by_task_id = {item["task_id"]: item for item in daily_work_items}
@@ -143,7 +159,18 @@ def build_dashboard(date=None):
 
 
 def dashboard_today_response(date=None):
+    work_date = resolve_work_date(date)
+    cache_key = (get_data_mode(), work_date)
+    cached = _DASHBOARD_CACHE.get(cache_key)
+    now = datetime.now(timezone.utc).timestamp()
+    if cached and now - cached["cached_at"] <= DASHBOARD_CACHE_TTL_SECONDS:
+        return {
+            "data": cached["data"],
+            "meta": {"request_id": str(uuid4()), "cache": "hit"},
+        }
+    data = build_dashboard(work_date)
+    _DASHBOARD_CACHE[cache_key] = {"cached_at": now, "data": data}
     return {
-        "data": build_dashboard(date),
-        "meta": {"request_id": str(uuid4())},
+        "data": data,
+        "meta": {"request_id": str(uuid4()), "cache": "miss"},
     }

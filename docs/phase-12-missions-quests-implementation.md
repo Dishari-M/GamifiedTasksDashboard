@@ -1,6 +1,6 @@
 # Phase 12 Missions And Quests Implementation
 
-Phase 12 adds AI-assisted mission ranking and quest-plan generation. Missions are recommendations only. Quests are persisted locally so the Quests page/backend can return the generated plan for the selected date.
+Phase 12 adds AI-assisted mission ranking and quest-plan generation. Missions are recommendations only. In Oracle mode, quests are persisted in `QUEST_PLANS` and `QUEST_ITEMS` so the Quests page/backend can return the generated plan for the selected date.
 
 ## Scope
 
@@ -8,9 +8,9 @@ Phase 12 adds AI-assisted mission ranking and quest-plan generation. Missions ar
 | --- | --- | --- |
 | `POST /api/v1/missions/generate` | Implemented | Generates ranked mission recommendations from candidate tasks and capacity context. Does not mutate Working Today data. |
 | `GET /api/v1/quests/today` | Implemented | Returns the generated quest plan when present, otherwise returns a fallback view of Working Today tasks. |
-| `POST /api/v1/quests/generate` | Implemented | Generates a ranked quest plan, stores local quest plan/items, and marks selected tasks as worked on the quest date. |
+| `POST /api/v1/quests/generate` | Implemented | Generates a ranked quest plan, stores Oracle quest plan/items, and marks selected tasks as worked on the quest date. |
 | Real OCI GenAI | Implemented behind switch | Uses `DEVQUEST_AI_MODE=real` and `DEVQUEST_AI_PROVIDER=oci_genai`. |
-| Oracle table persistence | Pending | Current implementation uses local JSON stores for hackathon/local dev. Production target remains `QUEST_PLANS`, `QUEST_ITEMS`, and `AI_RUNS`. |
+| Oracle table persistence | Implemented | With `DEVQUEST_DATA_MODE=oracle`, Phase 12 reads from Oracle `WORK_ITEMS` / `WORK_ITEM_WORK_DATES`, stores AI runs in `AI_RUNS`, and persists quest plans/items in `QUEST_PLANS` / `QUEST_ITEMS`. |
 
 ## API Quick Reference
 
@@ -18,7 +18,7 @@ Phase 12 adds AI-assisted mission ranking and quest-plan generation. Missions ar
 | --- | --- | --- | --- | --- |
 | Generate mission recommendations | `POST /api/v1/missions/generate` | `X-DevQuest-User-Id: user-1` | `date`, optional `candidate_task_ids`, `max_missions`, `include_ai_reasoning`, `force` | Creates an `AI_RUNS` row with `run_type=MISSION_RECOMMENDATIONS`. Does not update `WORK_ITEM_WORK_DATES` or task state. |
 | Fetch today's quests | `GET /api/v1/quests/today?date=YYYY-MM-DD` | `X-DevQuest-User-Id: user-1` | None | Reads local `quest_plans.json` and `quest_items.json` when a plan exists. Otherwise derives a fallback from Working Today tasks. |
-| Generate quest plan | `POST /api/v1/quests/generate` | `X-DevQuest-User-Id: user-1` | `quest_date`, optional `candidate_task_ids`, `max_quests`, `respect_working_today`, `from_missions`, `include_ai_reasoning`, `force` | Creates an `AI_RUNS` row with `run_type=QUEST_PLAN`, upserts local quest plan/items, and inserts the quest date into selected tasks' worked dates. |
+| Generate quest plan | `POST /api/v1/quests/generate` | `X-DevQuest-User-Id: user-1` | `quest_date`, optional `candidate_task_ids`, `max_quests`, `respect_working_today`, `from_missions`, `include_ai_reasoning`, `force` | Creates an `AI_RUNS` row with `run_type=QUEST_PLAN`, upserts Oracle quest plan/items, and inserts the quest date into selected tasks' worked dates. |
 
 ## Mission Generate Request
 
@@ -148,6 +148,7 @@ X-DevQuest-User-Id: user-1
 
 - Do not mark tasks Working Today from `POST /api/v1/missions/generate`.
 - `POST /api/v1/quests/generate` may mark selected tasks as worked for the quest date because quest generation commits the selected quest plan.
+- In Oracle mode, `respect_working_today=true` means only tasks already present in `WORK_ITEM_WORK_DATES` for `quest_date` are eligible. Set it to `false` when generating from all open candidate tasks.
 - Keep mock mode as the safe default for teammates without OCI setup.
 - Do not commit local generated `backend/data/quest_plans.json`, `backend/data/quest_items.json`, or `backend/data/ai_runs.json` unless the team explicitly changes the data strategy.
 - Phase 12 quest generation and Phase 13 daily insights both use `AI_RUNS`, but with different `run_type` values.

@@ -90,11 +90,12 @@ APP_ENV=dev
 API_PREFIX=/api/v1
 CORS_ORIGINS=http://localhost:3000
 
-ORACLE_DB_USER=DEVQUEST_APP
+ORACLE_DB_USER=ADMIN
 ORACLE_DB_PASSWORD=...
-ORACLE_DB_DSN=devquest_high
+ORACLE_DB_DSN=tasksdb_tp
 ORACLE_DB_WALLET_DIR=/opt/secrets/wallet
-ORACLE_DB_POOL_MIN=2
+ORACLE_DB_POOL_SIZE=10
+ORACLE_DB_POOL_MIN=10
 ORACLE_DB_POOL_MAX=10
 ORACLE_DB_POOL_INCREMENT=1
 ORACLE_DB_POOL_TIMEOUT_SECONDS=30
@@ -110,6 +111,26 @@ OCI_USE_INSTANCE_PRINCIPAL=true
 AI_CACHE_TTL_SECONDS=86400
 AI_REQUEST_TIMEOUT_SECONDS=45
 ```
+
+Oracle access rule for implementation:
+
+- All repositories and services must acquire DB connections through
+  `backend/db.py:connection_scope()` or, for lower-level code,
+  `backend/db.py:get_connection()`.
+- `connection_scope()` is the preferred request-path helper because it returns
+  pooled connections in a `finally` block even when SQL or mapping code raises.
+- `get_connection()` uses the shared process-local `python-oracledb` pool. If it
+  is used directly, the caller must call `conn.close()` in `finally`.
+- Closing a pooled connection returns it to the pool; it is not a per-request
+  physical disconnect.
+- Do not call `oracledb.connect()` directly in request paths.
+- Do not store pooled connections in module globals, cached objects, or
+  long-lived service instances. Acquire late and release immediately after the
+  SQL unit of work finishes.
+- Default pool sizing is fixed (`DB_POOL_SIZE=10`, so min and max are both 10)
+  following Oracle python-oracledb guidance to avoid connection storms. Only use
+  different `DB_POOL_MIN` / `DB_POOL_MAX` values when the deployment owner
+  explicitly chooses a non-fixed pool.
 
 For local development, config-file authentication is acceptable. In OCI Compute, Functions, or Container Instances, prefer instance principals or workload identity over long-lived API keys.
 
@@ -367,15 +388,17 @@ CREATE TABLE QUEST_PLANS (
 
 CREATE TABLE QUEST_ITEMS (
   QUEST_ITEM_ID NUMBER(19) DEFAULT QUEST_ITEMS_SEQ.NEXTVAL PRIMARY KEY,
+  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
   QUEST_PLAN_ID NUMBER(19) NOT NULL REFERENCES QUEST_PLANS(QUEST_PLAN_ID),
-  TASK_ID NUMBER(19) NOT NULL REFERENCES WORK_ITEMS(TASK_ID),
+  TASK_ID NUMBER(19) NOT NULL,
   RANK_ORDER NUMBER(5) NOT NULL,
   REASON CLOB,
   SUGGESTED_START_AT TIMESTAMP WITH TIME ZONE,
   SUGGESTED_END_AT TIMESTAMP WITH TIME ZONE,
   XP_VALUE NUMBER(8),
   CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-  CONSTRAINT QUEST_ITEMS_UK UNIQUE (QUEST_PLAN_ID, TASK_ID)
+  CONSTRAINT QUEST_ITEMS_TASK_FK FOREIGN KEY (USER_ID, TASK_ID) REFERENCES WORK_ITEMS(USER_ID, TASK_ID),
+  CONSTRAINT QUEST_ITEMS_UK UNIQUE (USER_ID, QUEST_PLAN_ID, TASK_ID)
 );
 ```
 
@@ -1985,7 +2008,38 @@ Daily overview output:
 
 ### 19.1 Database Pool
 
-Use `oracledb.create_pool_async()` at app startup:
+Current FastAPI code uses the synchronous `python-oracledb` pool exposed by
+`backend/db.py`. Request-path code should use `connection_scope()`:
+
+```python
+from db import connection_scope
+
+def fetch_rows(sql, binds):
+    with connection_scope() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchall()
+```
+
+Transaction pattern:
+
+```python
+from db import connection_scope
+
+def write_rows(insert_sql, binds, event_sql, event_binds):
+    with connection_scope() as conn:
+        try:
+            cur = conn.cursor()
+            cur.execute(insert_sql, binds)
+            cur.execute(event_sql, event_binds)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+```
+
+If a future refactor moves the backend to fully async DB access, use
+`oracledb.create_pool_async()` at app startup:
 
 ```python
 import oracledb
@@ -2005,7 +2059,7 @@ async def create_db_pool(settings):
     )
 ```
 
-Repository pattern:
+Async repository pattern:
 
 ```python
 async with pool.acquire() as conn:
@@ -2014,7 +2068,7 @@ async with pool.acquire() as conn:
         rows = await cur.fetchall()
 ```
 
-Transaction pattern:
+Async transaction pattern:
 
 ```python
 async with pool.acquire() as conn:

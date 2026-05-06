@@ -65,11 +65,12 @@ tasksdb_tp
 Set these in the same PowerShell window before starting the backend:
 
 ```powershell
-$env:DB_USER="DEVQUEST_APP"
-$env:DB_PASSWORD="<your_database_user_password>"
+$env:DB_USER="ADMIN"
+$env:DB_PASSWORD="<shared_database_user_password>"
 $env:DB_DSN="tasksdb_tp"
 $env:DB_WALLET_DIR="$env:USERPROFILE\.oracle\wallet_tasksdb"
-$env:DB_WALLET_PASSWORD="<wallet_password_used_when_downloading_wallet>"
+$env:DB_WALLET_PASSWORD="<shared_wallet_password>"
+$env:DB_POOL_SIZE="10"
 ```
 
 If the wallet was downloaded without a password requirement for your driver
@@ -79,26 +80,91 @@ setup, leave `DB_WALLET_PASSWORD` unset:
 Remove-Item Env:\DB_WALLET_PASSWORD -ErrorAction SilentlyContinue
 ```
 
-## 5. Confirm Backend Wallet Support
+## 5. Connection Pooling And Leak Prevention Standard
 
-The backend connection helper supports both wallet and no-wallet connections.
-When `DB_WALLET_DIR` is set, it passes wallet options to `python-oracledb`:
+The backend must use the shared helper `backend/db.py:get_connection()` for all
+Oracle work. Do not call `oracledb.connect()` directly in request paths.
+
+`get_connection()` acquires from a process-local `python-oracledb` connection
+pool. This is required because ADB wallet connection setup is slow when repeated
+for every repository call.
+
+For request-path code, prefer the managed helper
+`backend/db.py:connection_scope()`:
 
 ```python
-oracledb.connect(
+from db import connection_scope
+
+def load_rows():
+    with connection_scope() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT ... FROM ... WHERE USER_ID = :user_id", {"user_id": 1})
+        return cur.fetchall()
+```
+
+`connection_scope()` always calls `conn.close()` in a `finally` block. For a
+pooled connection, `close()` returns the connection to the pool; it does not
+tear down the physical database session on every request.
+
+If a module uses the lower-level `get_connection()` helper directly, it must use
+this exact pattern:
+
+```python
+conn = get_connection()
+try:
+    ...
+finally:
+    conn.close()
+```
+
+Never keep pooled connections in module globals, service instances, cached
+objects, or background state. Acquire late, finish the SQL work, commit or
+rollback as needed, and return the connection immediately.
+
+Pool sizing follows Oracle python-oracledb guidance: use a fixed-size pool by
+default so `min == max`, which avoids connection storms and makes DB capacity
+needs predictable. The team default is:
+
+```powershell
+$env:DB_POOL_SIZE="10"
+```
+
+Optional advanced overrides:
+
+```powershell
+$env:DB_POOL_MIN="10"
+$env:DB_POOL_MAX="10"
+$env:DB_POOL_INCREMENT="1"
+$env:DB_POOL_TIMEOUT="0"
+```
+
+Use `DB_POOL_SIZE` for normal local/team runs. Only set `DB_POOL_MIN` and
+`DB_POOL_MAX` differently when the deployment owner has explicitly chosen a
+non-fixed pool.
+
+## 6. Confirm Backend Wallet Support
+
+The backend connection helper supports both wallet and no-wallet pooled
+connections. When `DB_WALLET_DIR` is set, it passes wallet options to
+`python-oracledb.create_pool()`:
+
+```python
+oracledb.create_pool(
     user=...,
     password=...,
     dsn=...,
     config_dir=...,
     wallet_location=...,
     wallet_password=...,
+    min=...,
+    max=...,
 )
 ```
 
 `config_dir` points to the folder containing `tnsnames.ora`, and
 `wallet_location` points to the folder containing `ewallet.pem`.
 
-## 6. Test The Database Connection
+## 7. Test The Database Connection
 
 From the project root:
 
@@ -106,7 +172,7 @@ From the project root:
 cd backend
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
-.\.venv\Scripts\python.exe -c "import os, oracledb; c=oracledb.connect(user=os.environ['DB_USER'], password=os.environ['DB_PASSWORD'], dsn=os.environ['DB_DSN'], config_dir=os.environ['DB_WALLET_DIR'], wallet_location=os.environ['DB_WALLET_DIR'], wallet_password=os.environ.get('DB_WALLET_PASSWORD')); print('Connected:', c.version); c.close()"
+.\.venv\Scripts\python.exe -c "from db import get_connection, get_pool_stats; c=get_connection(); print('Connected:', c.version); c.close(); print(get_pool_stats())"
 ```
 
 Expected output:
@@ -115,7 +181,7 @@ Expected output:
 Connected: <oracle_version>
 ```
 
-## 7. Start The Backend
+## 8. Start The Backend
 
 After the connection test works:
 
@@ -154,7 +220,7 @@ port `1522` is allowed.
 - Keep wallet files outside the repository.
 - Never commit wallet zip files, `ewallet.pem`, database passwords, or local
   `.env` files.
-- Prefer an application database user such as `DEVQUEST_APP` instead of using
-  `ADMIN`.
+- For the current team ADB, use the shared `ADMIN` schema so all developers see
+  the same tables and seed data.
 - Rotate the wallet if it is accidentally shared.
 - Use a compartment, VCN, or allowed IP setup appropriate for the environment.

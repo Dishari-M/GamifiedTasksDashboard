@@ -1,149 +1,207 @@
-from db import get_connection
-from repositories import task_repository
+from db import connection_scope
 
 
 DEFAULT_USER_ID = 1
 
 
 def get_user():
-    conn = get_connection()
-    try:
+    with connection_scope() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                USER_ID,
-                DISPLAY_NAME,
-                EMAIL,
-                TIMEZONE,
-                WORKDAY_START_LOCAL,
-                WORKDAY_END_LOCAL,
-                FOCUS_XP_MULTIPLIER
-            FROM APP_USERS
-            WHERE USER_ID = :user_id
-            """,
-            {"user_id": DEFAULT_USER_ID},
-        )
-        row = cur.fetchone()
-        if not row:
-            return _default_user()
-        first_name, last_name = _split_display_name(row[1])
-        return {
-            "user_id": row[0],
-            "first_name": first_name,
-            "last_name": last_name,
-            "email": row[2],
-            "timezone": row[3] or "Asia/Calcutta",
-            "workday_start_local": row[4] or "09:00",
-            "workday_end_local": row[5] or "17:00",
-            "focus_xp_multiplier": float(row[6] or 1.5),
-        }
-    finally:
-        conn.close()
+        return _get_user(cur)
 
 
 def get_work_items():
-    conn = get_connection()
-    try:
+    with connection_scope() as conn:
         cur = conn.cursor()
-        result = task_repository.list_tasks(
-            cur,
-            DEFAULT_USER_ID,
-            {"page": 1, "page_size": 100},
-            _today_from_db(cur),
-        )
-        return [_dashboard_task(item) for item in result["items"]]
-    finally:
-        conn.close()
+        return _get_work_items(cur, _today_from_db(cur))
 
 
 def get_daily_work_items(work_date):
-    conn = get_connection()
-    try:
+    with connection_scope() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                d.WORK_ITEM_WORK_DATE_ID,
-                d.TASK_ID,
-                TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD'),
-                d.PLANNED_MINUTES,
-                d.ACTUAL_MINUTES,
-                d.NOTES,
-                ROW_NUMBER() OVER (
-                    ORDER BY NVL(w.AI_PRIORITY_SCORE, 0) DESC,
-                             NVL(w.XP_VALUE, 0) DESC,
-                             d.CREATED_AT,
-                             w.TITLE
-                ) AS RANK_ORDER
-            FROM WORK_ITEM_WORK_DATES d
-            JOIN WORK_ITEMS w
-              ON w.TASK_ID = d.TASK_ID
-             AND w.USER_ID = d.USER_ID
-            WHERE d.USER_ID = :user_id
-              AND d.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD')
-            ORDER BY RANK_ORDER
-            """,
-            {"user_id": DEFAULT_USER_ID, "work_date": work_date},
-        )
-        return [
-            {
-                "daily_work_id": row[0],
-                "daily_work_item_id": row[0],
-                "task_id": row[1],
-                "work_date": row[2],
-                "is_working_today": True,
-                "planned_minutes": row[3],
-                "actual_minutes": row[4],
-                "notes": _text(row[5]),
-                "rank_order": row[6],
-            }
-            for row in cur.fetchall()
-        ]
-    finally:
-        conn.close()
+        return _get_daily_work_items(cur, work_date)
 
 
 def get_calendar_events(work_date):
-    conn = get_connection()
-    try:
+    with connection_scope() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                EVENT_ID,
-                TITLE,
-                START_AT,
-                END_AT,
-                DURATION_MINUTES,
-                IS_MEETING,
-                IS_FOCUS_BLOCK,
-                ATTENDEE_COUNT,
-                EXTERNAL_SOURCE
-            FROM CALENDAR_EVENTS
-            WHERE USER_ID = :user_id
-              AND START_AT >= CAST(TO_DATE(:work_date, 'YYYY-MM-DD') AS TIMESTAMP)
-              AND START_AT < CAST(TO_DATE(:work_date, 'YYYY-MM-DD') + 1 AS TIMESTAMP)
-            ORDER BY START_AT
-            """,
-            {"user_id": DEFAULT_USER_ID, "work_date": work_date},
-        )
-        return [
-            {
-                "event_id": row[0],
-                "title": row[1],
-                "start_at": row[2].isoformat() if row[2] else None,
-                "end_at": row[3].isoformat() if row[3] else None,
-                "duration_minutes": row[4] or 0,
-                "is_meeting": bool(row[5]),
-                "is_focus_block": bool(row[6]),
-                "attendee_count": row[7],
-                "external_source": row[8],
-            }
-            for row in cur.fetchall()
-        ]
-    finally:
-        conn.close()
+        return _get_calendar_events(cur, work_date)
+
+
+def get_dashboard_snapshot(work_date, previous_date):
+    with connection_scope() as conn:
+        cur = conn.cursor()
+        return {
+            "user": _get_user(cur),
+            "tasks": _get_work_items(cur, work_date),
+            "daily_work_items": _get_daily_work_items(cur, work_date),
+            "previous_daily_work_items": _get_daily_work_items(cur, previous_date),
+            "events": _get_calendar_events(cur, work_date),
+            "previous_events": _get_calendar_events(cur, previous_date),
+        }
+
+
+def _get_user(cur):
+    cur.execute(
+        """
+        SELECT
+            USER_ID,
+            DISPLAY_NAME,
+            EMAIL,
+            TIMEZONE,
+            WORKDAY_START_LOCAL,
+            WORKDAY_END_LOCAL,
+            FOCUS_XP_MULTIPLIER
+        FROM APP_USERS
+        WHERE USER_ID = :user_id
+        """,
+        {"user_id": DEFAULT_USER_ID},
+    )
+    row = cur.fetchone()
+    if not row:
+        return _default_user()
+    first_name, last_name = _split_display_name(row[1])
+    return {
+        "user_id": row[0],
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": row[2],
+        "timezone": row[3] or "Asia/Calcutta",
+        "workday_start_local": row[4] or "09:00",
+        "workday_end_local": row[5] or "17:00",
+        "focus_xp_multiplier": float(row[6] or 1.5),
+    }
+
+
+def _get_work_items(cur, work_date):
+    cur.execute(
+        """
+        SELECT
+            TASK_ID,
+            TITLE,
+            DESCRIPTION,
+            EXTERNAL_SOURCE,
+            EXTERNAL_ID,
+            TASK_TYPE,
+            PRIORITY,
+            STATUS,
+            ESTIMATED_MINUTES,
+            ACTUAL_MINUTES,
+            XP_VALUE,
+            ROW_VERSION,
+            AI_DIFFICULTY,
+            AI_IMPACT_SCORE,
+            AI_PRIORITY_SCORE,
+            AI_INSIGHT,
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM')
+        FROM WORK_ITEMS
+        WHERE USER_ID = :user_id
+        ORDER BY UPDATED_AT DESC, CREATED_AT DESC, TASK_ID DESC
+        FETCH FIRST 100 ROWS ONLY
+        """,
+        {"user_id": DEFAULT_USER_ID},
+    )
+    return [
+        {
+            "task_id": row[0],
+            "title": _text(row[1]),
+            "description": _text(row[2]),
+            "external_source": row[3] or "Custom",
+            "external_id": row[4] or "",
+            "task_type": row[5] or "Task",
+            "priority": row[6] or "Medium",
+            "status": row[7] or "To Do",
+            "estimated_minutes": row[8] or 0,
+            "actual_minutes": row[9] or 0,
+            "xp_value": row[10] or 0,
+            "row_version": row[11] or 1,
+            "ai_difficulty": row[12] or "Medium",
+            "ai_impact_score": row[13] or 0,
+            "ai_priority_score": row[14] or 0,
+            "ai_insight": _text(row[15]),
+            "completed_at": row[16],
+        }
+        for row in cur.fetchall()
+    ]
+
+
+def _get_daily_work_items(cur, work_date):
+    cur.execute(
+        """
+        SELECT
+            d.WORK_ITEM_WORK_DATE_ID,
+            d.TASK_ID,
+            TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD'),
+            d.PLANNED_MINUTES,
+            d.ACTUAL_MINUTES,
+            d.NOTES,
+            ROW_NUMBER() OVER (
+                ORDER BY NVL(w.AI_PRIORITY_SCORE, 0) DESC,
+                         NVL(w.XP_VALUE, 0) DESC,
+                         d.CREATED_AT,
+                         w.TITLE
+            ) AS RANK_ORDER
+        FROM WORK_ITEM_WORK_DATES d
+        JOIN WORK_ITEMS w
+          ON w.TASK_ID = d.TASK_ID
+         AND w.USER_ID = d.USER_ID
+        WHERE d.USER_ID = :user_id
+          AND d.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD')
+        ORDER BY RANK_ORDER
+        """,
+        {"user_id": DEFAULT_USER_ID, "work_date": work_date},
+    )
+    return [
+        {
+            "daily_work_id": row[0],
+            "daily_work_item_id": row[0],
+            "task_id": row[1],
+            "work_date": row[2],
+            "is_working_today": True,
+            "planned_minutes": row[3],
+            "actual_minutes": row[4],
+            "notes": _text(row[5]),
+            "rank_order": row[6],
+        }
+        for row in cur.fetchall()
+    ]
+
+
+def _get_calendar_events(cur, work_date):
+    cur.execute(
+        """
+        SELECT
+            EVENT_ID,
+            TITLE,
+            START_AT,
+            END_AT,
+            DURATION_MINUTES,
+            IS_MEETING,
+            IS_FOCUS_BLOCK,
+            ATTENDEE_COUNT,
+            EXTERNAL_SOURCE
+        FROM CALENDAR_EVENTS
+        WHERE USER_ID = :user_id
+          AND START_AT >= CAST(TO_DATE(:work_date, 'YYYY-MM-DD') AS TIMESTAMP)
+          AND START_AT < CAST(TO_DATE(:work_date, 'YYYY-MM-DD') + 1 AS TIMESTAMP)
+        ORDER BY START_AT
+        """,
+        {"user_id": DEFAULT_USER_ID, "work_date": work_date},
+    )
+    return [
+        {
+            "event_id": row[0],
+            "title": row[1],
+            "start_at": row[2].isoformat() if row[2] else None,
+            "end_at": row[3].isoformat() if row[3] else None,
+            "duration_minutes": row[4] or 0,
+            "is_meeting": bool(row[5]),
+            "is_focus_block": bool(row[6]),
+            "attendee_count": row[7],
+            "external_source": row[8],
+        }
+        for row in cur.fetchall()
+    ]
 
 
 def _dashboard_task(task):
