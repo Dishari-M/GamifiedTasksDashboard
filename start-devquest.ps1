@@ -30,17 +30,24 @@ function Stop-PortProcess {
 function Wait-ForHttp {
     param(
         [string]$Url,
-        [int]$TimeoutSeconds = 60
+        [int]$TimeoutSeconds = 60,
+        [hashtable]$Headers = @{}
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         try {
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
+            $response = Invoke-WebRequest -Uri $Url -Headers $Headers -UseBasicParsing -TimeoutSec 5
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
                 return $true
             }
         } catch {
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+                if ($statusCode -ge 200 -and $statusCode -lt 500) {
+                    return $true
+                }
+            }
         }
         Start-Sleep -Seconds 2
     }

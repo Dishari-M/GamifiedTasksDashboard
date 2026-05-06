@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime
 
 import oracledb
@@ -14,6 +15,7 @@ VALID_TASK_TYPES = {"Task", "Bug", "Epic", "Review", "Meeting"}
 VALID_SOURCES = {"Custom", "CUSTOM", "Jira", "Outlook", "Microsoft To Do"}
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
 VALID_STATUSES = {"To Do", "In Progress", "Blocked", "Done", "Upcoming", "Cancelled"}
+logger = logging.getLogger(__name__)
 
 ALIASES = {
     "source": "external_source",
@@ -92,10 +94,8 @@ def create_oracle_task(payload, user_id=None):
     except oracledb.IntegrityError as exc:
         if conn:
             conn.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "DUPLICATE_EXTERNAL_TASK", "message": "A task with this external source and ID already exists."},
-        ) from exc
+        logger.exception("Oracle integrity error while creating task for user_id=%s source=%s external_id=%s", _user_id(user_id), task.get("external_source"), task.get("external_id"))
+        raise _integrity_error_http_exception(exc) from exc
     except oracledb.DatabaseError as exc:
         if conn:
             conn.rollback()
@@ -314,6 +314,7 @@ def _normalize_payload(payload):
         data["worked_dates"] = sorted(set(data["worked_dates"] + [_today_utc()]))
         if data["status"] != "Blocked":
             data["status"] = "In Progress"
+    _normalize_custom_source_identity(data)
     data["run_ai_enrichment"] = bool(data.get("run_ai_enrichment", True))
     return data
 
@@ -368,6 +369,7 @@ def _normalize_update_payload(payload):
         data["worked_dates"] = _dates(data["worked_dates"])
     if "working_today" in data:
         data["working_today"] = bool(data["working_today"])
+    _normalize_custom_source_identity(data)
     _validate_update_data(data)
     return data
 
@@ -495,6 +497,38 @@ def _dates(value):
         return []
     raw = value if isinstance(value, list) else str(value).split(",")
     return sorted({_normalize_date(item, "worked_dates") for item in raw if str(item).strip()})
+
+
+def _normalize_custom_source_identity(data):
+    if data.get("external_source") in {"Custom", "CUSTOM"}:
+        # User-created tasks are first-party rows, not synced external records.
+        data["external_id"] = None
+
+
+def _integrity_error_http_exception(exc):
+    error = exc.args[0] if exc.args else None
+    code = getattr(error, "code", None)
+    message = str(getattr(error, "message", "") or str(exc))
+
+    if code == 1:
+        return HTTPException(
+            status_code=409,
+            detail={"code": "DUPLICATE_EXTERNAL_TASK", "message": "A task with this external source and ID already exists."},
+        )
+
+    if code == 2291:
+        return HTTPException(
+            status_code=403,
+            detail={
+                "code": "USER_NOT_PROVISIONED",
+                "message": "This user is not provisioned in the Oracle APP_USERS table yet. The current auth flow is still using a local user id that does not exist in the DB.",
+            },
+        )
+
+    return HTTPException(
+        status_code=409,
+        detail={"code": "TASK_CONSTRAINT_VIOLATION", "message": "Task data violated an Oracle integrity constraint."},
+    )
 
 
 def _normalize_date(value, field):

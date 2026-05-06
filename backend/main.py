@@ -4,7 +4,7 @@ from services.task_service import create_task,get_tasks
 from services.quest_service import get_quests
 from services.ai_service import enrich_task
 from services.task_service import complete_task
-from services.filesystem_user_service import (
+from services.oracle_user_service import (
     get_user_profile,
     login_user,
     logout_user,
@@ -56,11 +56,11 @@ tags_metadata = [
     },
     {
         "name": "Auth",
-        "description": "Local filesystem login and profile creation.",
+        "description": "Oracle-backed login and profile creation.",
     },
     {
         "name": "Users",
-        "description": "Read local user profile details.",
+        "description": "Read Oracle-backed user profile details.",
     },
     {
         "name": "Dashboard",
@@ -129,19 +129,19 @@ def mark_complete(task_id: str, user_id: int = Depends(current_oracle_user_id)):
     return complete_task(task_id,user_id)
 
 @app.post("/api/v1/auth/register", tags=["Auth"])
-def register_filesystem_user(payload: dict):
+def register_oracle_user(payload: dict):
     return register_user(payload)
 
 @app.post("/api/v1/auth/login", tags=["Auth"])
-def login_filesystem_user(payload: dict):
+def login_oracle_user(payload: dict):
     return login_user(payload)
 
 @app.post("/api/v1/auth/logout", tags=["Auth"])
-def logout_filesystem_user(user_id: str = Depends(current_local_user_id)):
+def logout_oracle_user(user_id: str = Depends(current_local_user_id)):
     return logout_user(user_id)
 
 @app.get("/api/v1/users/profile", tags=["Users"])
-def filesystem_user_profile(identifier: str):
+def oracle_user_profile(identifier: str):
     return get_user_profile(identifier)
 
 @app.post("/api/v1/tasks")
