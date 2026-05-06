@@ -10,6 +10,7 @@ from integrations import oci_genai_client
 from db import get_connection
 from repositories import overview_repository, standup_repository
 from services.filesystem_store import read_records, with_store_lock
+from services.oracle_user_service import parse_oracle_user_id
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -46,7 +47,7 @@ def generate_standup_note_response(payload, user_id="local-user"):
 
 def build_standup_note(work_date, user_id="local-user", force=False):
     if get_data_mode() == "oracle":
-        return _oracle_standup_note(work_date, force=force)
+        return _oracle_standup_note(work_date, user_id, force=force)
 
     context = _standup_context(work_date, user_id)
     if get_ai_mode() == "mock":
@@ -62,14 +63,15 @@ def build_standup_note(work_date, user_id="local-user", force=False):
     return _response(context, note, force)
 
 
-def _oracle_standup_note(work_date, force=False):
+def _oracle_standup_note(work_date, user_id, force=False):
     conn = None
     ai_run_id = None
+    oracle_user_id = parse_oracle_user_id(user_id)
     try:
         conn = get_connection()
         cur = conn.cursor()
-        saved = standup_repository.fetch_standup_note(cur, 1, work_date)
-        context = standup_repository.build_context(cur, 1, work_date)
+        saved = standup_repository.fetch_standup_note(cur, oracle_user_id, work_date)
+        context = standup_repository.build_context(cur, oracle_user_id, work_date)
         if saved and not force:
             return _saved_response(context, saved, force)
 
@@ -80,16 +82,16 @@ def _oracle_standup_note(work_date, force=False):
             "context": context,
             "force": bool(force),
         }
-        ai_run_id = overview_repository.insert_ai_run(cur, 1, "STANDUP_NOTE", get_oci_genai_model_id(), request)
+        ai_run_id = overview_repository.insert_ai_run(cur, oracle_user_id, "STANDUP_NOTE", get_oci_genai_model_id(), request)
         conn.commit()
 
         note = _real_note(context) if get_ai_mode() == "real" else _mock_note(context)
         note["full_note"] = " ".join(_exactly_five(note["sentences"]))
-        standup_repository.upsert_standup_note(cur, 1, work_date, ai_run_id, note)
+        standup_repository.upsert_standup_note(cur, oracle_user_id, work_date, ai_run_id, note)
         overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", note)
         conn.commit()
 
-        saved = standup_repository.fetch_standup_note(cur, 1, work_date) or {}
+        saved = standup_repository.fetch_standup_note(cur, oracle_user_id, work_date) or {}
         return _response(
             context,
             note,
