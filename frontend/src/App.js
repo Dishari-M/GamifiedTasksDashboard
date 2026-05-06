@@ -131,7 +131,11 @@ const settingsFormFromApi = (settings) => ({
   focus_xp_multiplier: String(settings?.focus_xp_multiplier ?? FOCUS_XP_MULTIPLIER),
 });
 
-const formatSettingsMultiplier = (value) => `${Number(value || FOCUS_XP_MULTIPLIER).toFixed(2)}x`;
+const multiplierSliderValue = (value) => {
+  const multiplier = Number(value);
+  if (!Number.isFinite(multiplier)) return FOCUS_XP_MULTIPLIER;
+  return Math.min(3, Math.max(0.25, multiplier));
+};
 
 const mergeSettingsIntoUser = (user, settings) => ({
   ...user,
@@ -1684,8 +1688,14 @@ const SettingsPage = ({ currentUser, onUserUpdate }) => {
             </label>
           </div>
           <label className="settings-row settings-slider-row" data-testid="xp-multiplier-setting-label">
-            <span className="settings-slider-header">Focus XP multiplier <output className="settings-slider-value" htmlFor="xp-multiplier-setting-input">{formatSettingsMultiplier(form.focus_xp_multiplier)}</output></span>
-            <input id="xp-multiplier-setting-input" type="range" min="0.25" max="3" step="0.01" value={form.focus_xp_multiplier} onChange={(event) => updateField("focus_xp_multiplier", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.focus_xp_multiplier)} aria-describedby={fieldErrors.focus_xp_multiplier ? "xp-multiplier-error" : undefined} data-testid="xp-multiplier-setting-input" />
+            <span className="settings-slider-header">Focus XP multiplier</span>
+            <span className="settings-slider-control">
+              <span className="settings-slider-value">
+                <input id="xp-multiplier-setting-input" type="number" min="0.25" max="3" step="0.01" value={form.focus_xp_multiplier} onChange={(event) => updateField("focus_xp_multiplier", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.focus_xp_multiplier)} aria-describedby={fieldErrors.focus_xp_multiplier ? "xp-multiplier-error" : undefined} data-testid="xp-multiplier-setting-input" />
+                <span aria-hidden="true">x</span>
+              </span>
+              <input id="xp-multiplier-setting-slider" type="range" min="0.25" max="3" step="0.01" value={multiplierSliderValue(form.focus_xp_multiplier)} onChange={(event) => updateField("focus_xp_multiplier", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.focus_xp_multiplier)} aria-describedby={fieldErrors.focus_xp_multiplier ? "xp-multiplier-error" : undefined} data-testid="xp-multiplier-setting-slider" />
+            </span>
             {fieldErrors.focus_xp_multiplier && <span className="field-error" id="xp-multiplier-error">{fieldErrors.focus_xp_multiplier}</span>}
           </label>
           {saveError && <p className="form-error" role="alert" data-testid="settings-save-error">{saveError}</p>}

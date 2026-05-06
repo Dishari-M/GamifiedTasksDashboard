@@ -356,22 +356,66 @@
   gap: 14px;
 }
 
+.settings-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 440px;
+}
+
 .settings-slider-value {
-  min-width: 68px;
-  min-height: 34px;
+  width: 104px;
+  min-height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  gap: 0;
+  padding: 0 10px;
   border-radius: 11px;
   color: #fff;
   background: rgba(0, 122, 255, 0.18);
   border: 1px solid rgba(0, 122, 255, 0.36);
   font-weight: 900;
+  flex: 0 0 auto;
+}
+
+.settings-slider-value input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  width: 4.75ch;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font-weight: 900;
+  text-align: right;
+}
+
+.settings-slider-value input[type="number"]:focus-visible {
+  box-shadow: none;
+}
+
+.settings-slider-value input[type="number"]::-webkit-outer-spin-button,
+.settings-slider-value input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.settings-slider-value:has(input[aria-invalid="true"]) {
+  border-color: rgba(255, 59, 48, 0.72);
+}
+
+.settings-slider-control input[type="range"] {
+  flex: 1 1 180px;
+  min-width: 150px;
+  max-width: 300px;
 }
 
 .settings-card input[type="range"] {
-  width: 100%;
+  width: min(300px, 100%);
   height: 36px;
   padding: 0;
   border: 0;
