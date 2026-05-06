@@ -185,6 +185,10 @@ Use this as the execution checklist for building the production backend. The det
 | `START_DATE` | `DATE` | task form start date |
 | `ESTIMATED_MINUTES` | `NUMBER(8)` | effort column |
 | `ACTUAL_MINUTES` | `NUMBER(8)` | completion/overview |
+| `RCA_TSHIRT_SIZE` | `VARCHAR2(20)` | RCA/Jira complexity estimate: `XS`, `S`, `M`, `L`, `XL` |
+| `RCA_FILE_CHANGE_COUNT` | `NUMBER(8)` | file-change count used by RCA tool |
+| `RCA_COMPLEXITY_SOURCE` | `VARCHAR2(40)` | `RCA`, `Jira`, `Manual`, or similar source marker |
+| `RCA_COMPLEXITY_AT` | `TIMESTAMP WITH TIME ZONE` | when RCA complexity was calculated |
 | `XP_VALUE` | `NUMBER(8)` | task table, XP cards |
 | `LABELS_JSON` | `CLOB` | JSON array for labels/themes |
 | `NOTES` | `CLOB` | inline notes, AI context, standup, overview |
@@ -452,7 +456,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] `WORK_ITEMS(USER_ID, STATUS)`
   - [ ] `WORK_ITEMS(USER_ID, COMPLETED_AT)`
   - [ ] `WORK_ITEMS(USER_ID, UPDATED_AT)`
-  - [ ] `WORK_ITEMS(USER_ID, EXTERNAL_SOURCE, EXTERNAL_ID)` unique for non-null external IDs.
+  - [ ] `WORK_ITEMS` function-based unique index for non-null external IDs only, for example `WORK_ITEMS_SOURCE_EXT_UK` on `CASE WHEN EXTERNAL_ID IS NOT NULL THEN USER_ID/EXTERNAL_SOURCE/EXTERNAL_ID END`.
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, WORK_DATE)`
   - [ ] `WORK_ITEM_WORK_DATES(USER_ID, TASK_ID, WORK_DATE)` unique.
   - [ ] `CALENDAR_EVENTS(USER_ID, START_AT)`
@@ -828,6 +832,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Insert `AI_RUNS`.
   - [ ] Call OCI GenAI.
   - [ ] Validate difficulty, impact, priority score, effort, category, XP, insight.
+  - [ ] For XP, prefer RCA T-shirt sizing when present; otherwise infer from AI difficulty/effort/impact; otherwise use deterministic default XP.
   - [ ] Update `WORK_ITEMS` AI fields.
   - [ ] Update `XP_VALUE`.
   - [ ] Insert `WORK_ITEM_EVENTS` with `EVENT_TYPE = 'AI_ENRICHED'`.
@@ -852,6 +857,7 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Implement `POST /api/v1/missions/generate`.
   - [ ] Read candidate tasks from `WORK_ITEMS`.
+  - [ ] Include `RCA_TSHIRT_SIZE`, `RCA_FILE_CHANGE_COUNT`, and existing `XP_VALUE` in AI context.
   - [ ] Exclude completed and cancelled tasks.
   - [ ] Read calendar capacity from `CALENDAR_EVENTS`.
   - [ ] Use `APP_USERS` timezone and workday settings.
@@ -900,6 +906,7 @@ Use this as the execution checklist for building the production backend. The det
 
 - [ ] Implement `POST /api/v1/insights/today/generate`.
   - [ ] Read tasks joined through `WORK_ITEM_WORK_DATES` for the selected date.
+  - [ ] Include RCA T-shirt sizing and existing XP in task insight context.
   - [ ] Read task notes.
   - [ ] Read completed tasks.
   - [ ] Read meeting schedule.
@@ -1285,6 +1292,10 @@ CREATE TABLE WORK_ITEMS (
   ESTIMATED_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
   ACTUAL_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
   XP_VALUE NUMBER(8) DEFAULT 0 NOT NULL,
+  RCA_TSHIRT_SIZE VARCHAR2(20),
+  RCA_FILE_CHANGE_COUNT NUMBER(8),
+  RCA_COMPLEXITY_SOURCE VARCHAR2(40),
+  RCA_COMPLEXITY_AT TIMESTAMP WITH TIME ZONE,
   LABELS_JSON CLOB,
   NOTES CLOB,
   AI_DIFFICULTY VARCHAR2(20),
@@ -1306,7 +1317,8 @@ CREATE TABLE WORK_ITEMS (
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do', 'In Progress', 'Blocked', 'Done', 'Upcoming', 'Cancelled')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Critical', 'High', 'Medium', 'Low')),
   CONSTRAINT WORK_ITEMS_TYPE_CK CHECK (TASK_TYPE IN ('Task', 'Bug', 'Epic', 'Review', 'Meeting')),
-  CONSTRAINT WORK_ITEMS_SOURCE_CK CHECK (EXTERNAL_SOURCE IN ('Custom', 'Jira', 'Outlook', 'Microsoft To Do'))
+  CONSTRAINT WORK_ITEMS_SOURCE_CK CHECK (EXTERNAL_SOURCE IN ('Custom', 'Jira', 'Outlook', 'Microsoft To Do')),
+  CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS', 'S', 'M', 'L', 'XL'))
 );
 
 CREATE INDEX WORK_ITEMS_USER_STATUS_IX ON WORK_ITEMS (USER_ID, STATUS);
@@ -1315,8 +1327,8 @@ CREATE INDEX WORK_ITEMS_USER_UPDATED_IX ON WORK_ITEMS (USER_ID, UPDATED_AT);
 
 CREATE UNIQUE INDEX WORK_ITEMS_EXTERNAL_UK
 ON WORK_ITEMS (
-  USER_ID,
-  EXTERNAL_SOURCE,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN USER_ID END,
+  CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_SOURCE END,
   CASE WHEN EXTERNAL_ID IS NOT NULL THEN EXTERNAL_ID END
 );
 

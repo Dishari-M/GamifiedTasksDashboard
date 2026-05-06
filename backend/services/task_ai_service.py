@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from config import get_ai_mode, get_ai_provider, get_oci_genai_model_id
 from integrations import oci_genai_client
+from services.xp_service import resolve_xp_value
 
 
 TASK_ENRICHMENT_SYSTEM_PROMPT = """
@@ -68,6 +69,9 @@ def _prompt_task(task):
         "estimated_minutes": task.get("estimated_minutes"),
         "actual_minutes": task.get("actual_minutes"),
         "xp_value": task.get("xp_value"),
+        "rca_tshirt_size": task.get("rca_tshirt_size"),
+        "rca_file_change_count": task.get("rca_file_change_count"),
+        "rca_complexity_source": task.get("rca_complexity_source"),
         "notes": task.get("notes"),
         "labels": task.get("labels"),
     }
@@ -105,7 +109,7 @@ def _fallback_enrichment(task):
     difficulty = "Hard" if effort >= 105 or priority_weight >= 9 else "Easy" if effort <= 35 and priority_weight <= 5 else "Medium"
     xp_value = task.get("xp_value")
     if xp_value in (None, ""):
-        xp_value = max(10, round((effort * 0.75 + impact * 9 + priority_weight * 5) / 10) * 10)
+        xp_value = resolve_xp_value(task)
     return {
         "difficulty": difficulty,
         "impact_score": impact,

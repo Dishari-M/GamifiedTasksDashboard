@@ -13,8 +13,7 @@ def get_user():
             """
             SELECT
                 USER_ID,
-                FIRST_NAME,
-                LAST_NAME,
+                DISPLAY_NAME,
                 EMAIL,
                 TIMEZONE,
                 WORKDAY_START_LOCAL,
@@ -28,15 +27,16 @@ def get_user():
         row = cur.fetchone()
         if not row:
             return _default_user()
+        first_name, last_name = _split_display_name(row[1])
         return {
             "user_id": row[0],
-            "first_name": row[1],
-            "last_name": row[2],
-            "email": row[3],
-            "timezone": row[4] or "Asia/Calcutta",
-            "workday_start_local": row[5] or "09:00",
-            "workday_end_local": row[6] or "17:00",
-            "focus_xp_multiplier": float(row[7] or 1.5),
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": row[2],
+            "timezone": row[3] or "Asia/Calcutta",
+            "workday_start_local": row[4] or "09:00",
+            "workday_end_local": row[5] or "17:00",
+            "focus_xp_multiplier": float(row[6] or 1.5),
         }
     finally:
         conn.close()
@@ -185,6 +185,15 @@ def _default_user():
         "workday_end_local": "17:00",
         "focus_xp_multiplier": 1.5,
     }
+
+
+def _split_display_name(value):
+    parts = str(value or "DevQuest User").strip().split()
+    if not parts:
+        return "DevQuest", "User"
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
 
 
 def _text(value):
