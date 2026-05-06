@@ -330,7 +330,6 @@ Use this as the execution checklist for building the production backend. The det
 | `TASK_ID` | `NUMBER(19)` | FK to `WORK_ITEMS` |
 | `RANK_ORDER` | `NUMBER(5)` | quest order |
 | `REASON` | `CLOB` | AI reason |
-| `SUGGESTED_ACTION` | `CLOB` | AI action |
 | `SUGGESTED_START_AT` | `TIMESTAMP WITH TIME ZONE` | schedule suggestion |
 | `SUGGESTED_END_AT` | `TIMESTAMP WITH TIME ZONE` | schedule suggestion |
 | `XP_VALUE` | `NUMBER(8)` | XP snapshot |

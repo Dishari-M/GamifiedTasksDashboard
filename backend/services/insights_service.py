@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from config import get_oci_genai_model_id
+import oracledb
+from fastapi import HTTPException
+
+from config import get_data_mode, get_oci_genai_model_id
+from db import get_connection
+from repositories import ai_run_repository, task_repository
 from services.filesystem_store import read_records, with_store_lock, write_records
 from services.insights_ai_service import TODAY_INSIGHT_SYSTEM_PROMPT, build_today_insight_ai_output
 from services.phase8_capacity_service import build_capacity
@@ -29,6 +34,9 @@ def generate_today_insight_response(payload, user_id=None):
 
 
 def get_today_insight(work_date, user_id):
+    if get_data_mode() == "oracle":
+        return _oracle_get_today_insight(work_date, _oracle_user_id(user_id))
+
     def action():
         context = _context(work_date, user_id)
         saved = _latest_successful_run(read_records(AI_RUNS_FILE), user_id, work_date)
@@ -39,6 +47,9 @@ def get_today_insight(work_date, user_id):
 
 
 def generate_today_insight(work_date, user_id, request_payload):
+    if get_data_mode() == "oracle":
+        return _oracle_generate_today_insight(work_date, _oracle_user_id(user_id), request_payload)
+
     def action():
         ai_runs = read_records(AI_RUNS_FILE)
         context = _context(work_date, user_id)
@@ -63,6 +74,51 @@ def generate_today_insight(work_date, user_id, request_payload):
         return _response(context, ai, ai_run["ai_run_id"])
 
     return with_store_lock(action)
+
+
+def _oracle_get_today_insight(work_date, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        context = _oracle_context(cur, work_date, user_id)
+        saved = ai_run_repository.latest_successful_run(cur, user_id, RUN_TYPE, work_date)
+        ai = saved.get("response_payload") if saved else _fallback_ai(context)
+        return _response(context, ai, saved.get("ai_run_id") if saved else None)
+    except oracledb.DatabaseError as exc:
+        raise _oracle_error(exc)
+    finally:
+        conn.close()
+
+
+def _oracle_generate_today_insight(work_date, user_id, request_payload):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        context = _oracle_context(cur, work_date, user_id)
+
+        if not request_payload.get("force"):
+            saved = ai_run_repository.latest_successful_run(cur, user_id, RUN_TYPE, work_date)
+            if saved:
+                return _response(context, saved.get("response_payload") or {}, saved.get("ai_run_id"))
+
+        ai_run_payload = _ai_run_payload(work_date, context, request_payload)
+        ai_run_id = ai_run_repository.insert_ai_run(cur, user_id, RUN_TYPE, get_oci_genai_model_id(), ai_run_payload)
+        conn.commit()
+        try:
+            ai = build_today_insight_ai_output(context)
+        except Exception as exc:
+            ai_run_repository.update_ai_run(cur, ai_run_id, "FAILED", error_code=exc.__class__.__name__, error_message=str(exc))
+            conn.commit()
+            raise
+
+        ai_run_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload=ai)
+        conn.commit()
+        return _response(context, ai, ai_run_id)
+    except oracledb.DatabaseError as exc:
+        conn.rollback()
+        raise _oracle_error(exc)
+    finally:
+        conn.close()
 
 
 def _context(work_date, user_id):
@@ -91,6 +147,57 @@ def _context(work_date, user_id):
         "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
         "meeting_minutes": capacity.get("meeting_minutes", 0),
         "available_focus_minutes": capacity.get("available_focus_minutes", 0),
+    }
+
+
+def _oracle_context(cur, work_date, user_id):
+    tasks = task_repository.list_tasks(cur, user_id, {"page": 1, "page_size": 500}, work_date)["items"]
+    return _context_from_tasks(work_date, tasks)
+
+
+def _context_from_tasks(work_date, tasks):
+    tasks = [_response_task(task, work_date) for task in tasks]
+    previous_date = previous_date_key(work_date)
+    worked_tasks = [task for task in tasks if task["working_today"]]
+    completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == work_date]
+    previous_worked_tasks = [task for task in tasks if task.get("status") != "Done" and previous_date in _worked_dates(task.get("worked_dates"))]
+    previous_completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == previous_date]
+    sorted_worked = sorted(
+        worked_tasks,
+        key=lambda task: (
+            -float(task.get("priority_score") or 0),
+            -_priority_weight(task.get("priority")),
+            -resolve_xp_value(task),
+            int(task.get("estimated_minutes") or 0),
+        ),
+    )
+    capacity = build_capacity(work_date)
+    previous_capacity = build_capacity(previous_date)
+    events = get_calendar_events(work_date)
+    metrics = {
+        "task_count": len(tasks),
+        "working_today_count": len(worked_tasks),
+        "completed_count": len(completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
+        "meeting_minutes": capacity.get("meeting_minutes", 0),
+        "available_focus_minutes": capacity.get("available_focus_minutes", 0),
+    }
+    previous_metrics = {
+        "task_count": len(tasks),
+        "working_today_count": len(previous_worked_tasks),
+        "completed_count": len(previous_completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in previous_completed_tasks),
+        "meeting_minutes": previous_capacity.get("meeting_minutes", 0),
+        "available_focus_minutes": previous_capacity.get("available_focus_minutes", 0),
+    }
+    return {
+        "date": work_date,
+        "capacity": capacity,
+        "tasks": [_task_insight(item) for item in sorted_worked],
+        "completed_tasks": [_task_insight(item) for item in completed_tasks],
+        "calendar_events": events,
+        "metrics": metrics,
+        "previous_metrics": previous_metrics,
     }
     previous_metrics = {
         "task_count": len(tasks),
@@ -233,6 +340,14 @@ def _create_ai_run(ai_runs, user_id, work_date, context, request_payload):
     return ai_run
 
 
+def _ai_run_payload(work_date, context, request_payload):
+    return {
+        "system_prompt": TODAY_INSIGHT_SYSTEM_PROMPT,
+        "request": {**request_payload, "date": work_date},
+        "context": context,
+    }
+
+
 def _mark_ai_run_succeeded(ai_runs, ai_run_id, response_payload):
     for run in ai_runs:
         if run.get("ai_run_id") == ai_run_id:
@@ -267,3 +382,17 @@ def _date_part(value):
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _oracle_user_id(user_id):
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _oracle_error(exc):
+    return HTTPException(
+        status_code=500,
+        detail={"code": "ORACLE_ERROR", "message": str(exc)},
+    )

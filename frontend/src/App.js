@@ -824,7 +824,25 @@ const normalizeStandupNote = (note, fallback) => {
   };
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus }) => {
+const PageLoader = ({ title = "Loading", detail = "Getting the latest data ready.", steps = ["Tasks", "Capacity", "AI"] }) => (
+  <main className="page-stack page-loading-shell" data-testid="page-loader" aria-live="polite" aria-busy="true">
+    <section className="surface page-loader-card" role="status">
+      <div className="page-loader-visual" aria-hidden="true">
+        <span className="page-loader-orbit" />
+        <span className="page-loader-core">
+          <Hourglass size={34} weight="duotone" />
+        </span>
+      </div>
+      <strong>{title}</strong>
+      <p>{detail}</p>
+      <div className="page-loader-steps" aria-hidden="true">
+        {steps.map((step) => <span key={step}>{step}</span>)}
+      </div>
+    </section>
+  </main>
+);
+
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
@@ -842,6 +860,10 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   ].filter(Boolean) : [];
   const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedQuestTasks.length ? orderedQuestTasks : [...tasks].sort(compareQuestTasks);
   const topMissions = uniqueTasksById([...missionSourceTasks.slice(0, 3), ...completedToday]);
+
+  if (isLoading) {
+    return <PageLoader title="Loading dashboard" detail="Fetching tasks, capacity, calendar, and AI insight data." steps={["Tasks", "Calendar", "AI"]} />;
+  }
 
   return (
     <main className="dashboard-page" data-testid="dashboard-page">
@@ -863,7 +885,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   );
 };
 
-const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
@@ -871,6 +893,10 @@ const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, on
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
+
+  if (isLoading) {
+    return <PageLoader title="Loading tasks" detail="Reading your saved work items from the backend." steps={["Work items", "Dates", "Stats"]} />;
+  }
 
   return (
     <main className="page-stack" data-testid="tasks-page">
@@ -1178,6 +1204,10 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     }
   };
 
+  if (insightStatus === "loading" || standupStatus === "loading") {
+    return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
+  }
+
   return (
     <main className="page-stack" data-testid="insights-page">
       <section className="surface insight-detail-card" data-testid="capacity-analysis-card">
@@ -1237,6 +1267,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const [weeklyData, setWeeklyData] = useState(null);
   const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
   const [overviewStatus, setOverviewStatus] = useState("loading");
+  const [weeklyStatus, setWeeklyStatus] = useState("loading");
   const [generating, setGenerating] = useState(null);
   const dailyRequestIdRef = useRef(0);
   const weeklyRequestIdRef = useRef(0);
@@ -1291,12 +1322,19 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
     let cancelled = false;
     const requestId = weeklyRequestIdRef.current + 1;
     weeklyRequestIdRef.current = requestId;
+    setWeeklyStatus("loading");
     overviewApi.weekly({ week_start: selectedWeek })
       .then((data) => {
-        if (!cancelled && requestId === weeklyRequestIdRef.current) setWeeklyData(data);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) {
+          setWeeklyData(data);
+          setWeeklyStatus("live");
+        }
       })
       .catch(() => {
-        if (!cancelled && requestId === weeklyRequestIdRef.current) setWeeklyData(null);
+        if (!cancelled && requestId === weeklyRequestIdRef.current) {
+          setWeeklyData(null);
+          setWeeklyStatus("fallback");
+        }
       });
     return () => {
       cancelled = true;
@@ -1363,6 +1401,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const dailyFocusMinutes = dailyData?.focus_minutes ?? fallbackDailyFocusMinutes;
   const weeklyThemes = toList(weeklyData?.themes).length ? toList(weeklyData?.themes) : [...new Set(fallbackCompletedWeek.flatMap((task) => task.labels || []))].slice(0, 5);
   const topAccomplishments = toList(weeklyData?.top_accomplishments);
+
+  if ((overviewStatus === "loading" || weeklyStatus === "loading") && !dailyData && !weeklyData) {
+    return <PageLoader title="Loading overview" detail="Fetching daily and weekly overview data." steps={["Daily", "Weekly", "Summary"]} />;
+  }
 
   return (
     <main className="page-stack" data-testid="overview-page">
@@ -1434,13 +1476,14 @@ const SettingsPage = () => <main className="page-stack" data-testid="settings-pa
 const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const location = useLocation();
   const [tasks, setTasks] = useState([]);
+  const [taskStatus, setTaskStatus] = useState("loading");
   const [taskLoadError, setTaskLoadError] = useState("");
   const [overview, setOverview] = useState(defaultOverview);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
   const [dashboardInsight, setDashboardInsight] = useState(null);
-  const [dashboardStatus, setDashboardStatus] = useState("fallback");
+  const [dashboardStatus, setDashboardStatus] = useState("loading");
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
   const [questRun, setQuestRun] = useState(() => readQuestRun(readStoredTasks(), readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, [])));
@@ -1458,16 +1501,19 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
 
   useEffect(() => {
     let isActive = true;
+    setTaskStatus("loading");
     tasksApi.list()
       .then((loadedTasks) => {
         if (!isActive) return;
         const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
         setTasks(taskItems.map(normalizeTask));
         setTaskLoadError("");
+        setTaskStatus("live");
       })
       .catch((error) => {
         if (!isActive) return;
         setTaskLoadError(error?.message || "Unable to load saved tasks.");
+        setTaskStatus("fallback");
       });
 
     return () => {
@@ -1667,6 +1713,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
 
   useEffect(() => {
     let cancelled = false;
+    setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
       .then((data) => {
         if (cancelled) return;
@@ -1701,8 +1748,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionNotice={completionNotice} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />

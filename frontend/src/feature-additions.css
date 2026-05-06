@@ -2773,3 +2773,178 @@ html[data-theme="light"] select:focus-visible {
   background: rgba(137, 145, 163, 0.1);
   border-color: rgba(137, 145, 163, 0.22);
 }
+
+.page-loading-shell {
+  min-height: min(68vh, 720px);
+  display: grid;
+  place-items: center;
+  padding: 34px 20px;
+}
+
+.page-loader-card {
+  position: relative;
+  width: min(500px, 100%);
+  min-height: 290px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.page-loader-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(112, 71, 255, 0.2), transparent 34%),
+    linear-gradient(90deg, transparent, rgba(32, 199, 255, 0.16), transparent);
+  opacity: 0.92;
+}
+
+.page-loader-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.page-loader-card strong {
+  font-family: "Exo 2", sans-serif;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  color: var(--text);
+}
+
+.page-loader-card p {
+  max-width: 340px;
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.page-loader-visual {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+}
+
+.page-loader-orbit {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 0deg, var(--violet), var(--blue), var(--cyan), transparent 76%),
+    radial-gradient(circle, rgba(112, 71, 255, 0.14), transparent 62%);
+  filter: drop-shadow(0 0 18px rgba(112, 71, 255, 0.34));
+  animation: page-loader-spin 1.1s linear infinite;
+}
+
+.page-loader-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(18, 23, 34, 0.98), rgba(10, 14, 26, 0.98));
+}
+
+.page-loader-core {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  color: var(--violet);
+  background: linear-gradient(145deg, rgba(112, 71, 255, 0.18), rgba(0, 122, 255, 0.1));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 36px rgba(112, 71, 255, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: page-loader-pulse 1.35s ease-in-out infinite;
+}
+
+.page-loader-steps {
+  width: min(360px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.page-loader-steps span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  color: var(--text-soft);
+  font-weight: 800;
+  line-height: 1.2;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(98, 111, 153, 0.2);
+}
+
+.page-loader-steps span::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 12px rgba(0, 255, 102, 0.5);
+  animation: page-loader-dot 1.05s ease-in-out infinite;
+}
+
+.page-loader-steps span:nth-child(2)::before {
+  animation-delay: 0.16s;
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(32, 199, 255, 0.5);
+}
+
+.page-loader-steps span:nth-child(3)::before {
+  animation-delay: 0.32s;
+  background: var(--violet);
+  box-shadow: 0 0 12px rgba(112, 71, 255, 0.5);
+}
+
+@keyframes page-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes page-loader-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.78;
+  }
+
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes page-loader-dot {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+html[data-theme="light"] .page-loader-orbit::after {
+  background: linear-gradient(145deg, rgba(255, 250, 241, 0.98), rgba(241, 234, 223, 0.98));
+}
+
+html[data-theme="light"] .page-loader-core {
+  background: linear-gradient(145deg, rgba(112, 71, 255, 0.13), rgba(109, 155, 179, 0.12));
+}

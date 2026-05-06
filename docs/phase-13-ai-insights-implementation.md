@@ -7,7 +7,7 @@ Phase 13 adds opt-in AI insight generation for the existing AI Insights page. Th
 | Area | Status | Notes |
 | --- | --- | --- |
 | `GET /api/v1/insights/today` | Implemented | Returns capacity, task insights, completed tasks, and the latest successful generated insight when available. |
-| `POST /api/v1/insights/today/generate` | Implemented | Generates or reuses a daily insight and stores generated runs in local `AI_RUNS`. |
+| `POST /api/v1/insights/today/generate` | Implemented | Generates or reuses a daily insight and stores generated runs in Oracle `AI_RUNS` when `DEVQUEST_DATA_MODE=oracle`. |
 | AI Insights UI wiring | Implemented | Existing AI Insights page loads the GET endpoint and uses a small opt-in AI button for generation. |
 | Standup summary | Pending | Phase 14 owns generated standup notes. |
 | OCI Agent historical questions | Pending | Future scope for historical blocker/trend questions over DB-backed data. |
@@ -17,7 +17,7 @@ Phase 13 adds opt-in AI insight generation for the existing AI Insights page. Th
 | Purpose | Method and path | Required header | Body | Persistence |
 | --- | --- | --- | --- | --- |
 | Fetch today's AI insight | `GET /api/v1/insights/today?date=YYYY-MM-DD` | `X-DevQuest-User-Id: user-1` | None | Does not create a run. Returns the latest successful `TODAY_INSIGHT` from `AI_RUNS` for that user/date, or deterministic fallback content if no run exists. |
-| Generate today's AI insight | `POST /api/v1/insights/today/generate` | `X-DevQuest-User-Id: user-1` | `date`, `include_tasks`, `include_calendar`, `include_notes`, `force` | Creates a local `AI_RUNS` row when generation runs. With `force=false`, reuses the latest successful run for that user/date when present. With `force=true`, creates a fresh run. |
+| Generate today's AI insight | `POST /api/v1/insights/today/generate` | `X-DevQuest-User-Id: user-1` | `date`, `include_tasks`, `include_calendar`, `include_notes`, `force` | Creates an Oracle `AI_RUNS` row when generation runs. With `force=false`, reuses the latest successful run for that user/date when present. With `force=true`, creates a fresh run. |
 
 ## Generate Request
 

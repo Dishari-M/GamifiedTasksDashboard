@@ -1,9 +1,12 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import oracledb
 from fastapi import HTTPException
 
-from config import get_oci_genai_model_id
+from config import get_data_mode, get_oci_genai_model_id
+from db import get_connection
+from repositories import ai_run_repository, quest_repository, task_repository
 from services.filesystem_store import read_records, with_store_lock, write_records
 from services.mission_quest_ai_service import (
     MISSION_SYSTEM_PROMPT,
@@ -48,6 +51,9 @@ def quests_generate_response(payload, user_id):
 
 
 def generate_missions(work_date, request_payload, user_id):
+    if get_data_mode() == "oracle":
+        return _oracle_generate_missions(work_date, request_payload, _oracle_user_id(user_id))
+
     def action():
         tasks = _candidate_tasks(read_records(WORK_ITEMS_FILE), user_id, work_date, request_payload)
         context = _context(work_date, tasks, request_payload, "missions")
@@ -76,6 +82,9 @@ def generate_missions(work_date, request_payload, user_id):
 
 
 def get_quests_today(quest_date, user_id):
+    if get_data_mode() == "oracle":
+        return _oracle_get_quests_today(quest_date, _oracle_user_id(user_id))
+
     def action():
         tasks = _candidate_tasks(
             read_records(WORK_ITEMS_FILE),
@@ -120,6 +129,9 @@ def get_quests_today(quest_date, user_id):
 
 
 def generate_quests(quest_date, request_payload, user_id):
+    if get_data_mode() == "oracle":
+        return _oracle_generate_quests(quest_date, request_payload, _oracle_user_id(user_id))
+
     def action():
         work_items = read_records(WORK_ITEMS_FILE)
         tasks = _candidate_tasks(work_items, user_id, quest_date, request_payload)
@@ -169,6 +181,132 @@ def generate_quests(quest_date, request_payload, user_id):
     return with_store_lock(action)
 
 
+def _oracle_generate_missions(work_date, request_payload, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        tasks = _oracle_candidate_tasks(cur, user_id, work_date, request_payload)
+        context = _context(work_date, tasks, request_payload, "missions")
+        ai_run_id = ai_run_repository.insert_ai_run(
+            cur,
+            user_id,
+            "MISSION_RECOMMENDATIONS",
+            get_oci_genai_model_id(),
+            _ai_run_payload(MISSION_SYSTEM_PROMPT, work_date, context, request_payload),
+        )
+        conn.commit()
+        try:
+            ai = build_mission_ai_output(context)
+            missions = _validated_missions(ai.get("missions") or [], tasks, request_payload.get("max_missions", 5))
+            ai = {**ai, "missions": missions}
+        except Exception as exc:
+            ai_run_repository.update_ai_run(cur, ai_run_id, "FAILED", error_code=exc.__class__.__name__, error_message=str(exc))
+            conn.commit()
+            raise
+        ai_run_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload=ai)
+        conn.commit()
+        return {
+            "date": work_date,
+            "summary": ai.get("summary") or "",
+            "missions": missions,
+            "ai_run_id": ai_run_id,
+            "generated_at": ai.get("generated_at"),
+        }
+    except oracledb.DatabaseError as exc:
+        conn.rollback()
+        raise _oracle_http_error(exc)
+    finally:
+        conn.close()
+
+
+def _oracle_get_quests_today(quest_date, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        capacity = build_capacity(quest_date)
+        plan = quest_repository.latest_quest_plan(cur, user_id, quest_date)
+        if plan:
+            items = quest_repository.fetch_quest_items(cur, user_id, plan["quest_plan_id"], quest_date)
+            return {
+                "quest_plan_id": plan["quest_plan_id"],
+                "quest_date": quest_date,
+                "source": "QUEST_PLANS",
+                "capacity": _capacity_response(capacity),
+                "summary": plan.get("summary") or "",
+                "quests": [_quest_response(task, quest) for task, quest in items],
+                "ai_run_id": plan.get("source_ai_run_id"),
+                "generated_at": plan.get("updated_at") or plan.get("created_at"),
+            }
+
+        tasks = _oracle_candidate_tasks(cur, user_id, quest_date, {"respect_working_today": True, "max_quests": 10})
+        ranked = _default_rank(tasks)[:5]
+        return {
+            "quest_plan_id": None,
+            "quest_date": quest_date,
+            "source": "WORK_ITEM_WORK_DATES",
+            "capacity": _capacity_response(capacity),
+            "summary": "Working Today tasks are ready for quest generation." if ranked else "Mark tasks as Working Today to generate quests.",
+            "quests": [_quest_response(task, _default_quest_item(task, index)) for index, task in enumerate(ranked)],
+            "ai_run_id": None,
+            "generated_at": None,
+        }
+    except oracledb.DatabaseError as exc:
+        raise _oracle_http_error(exc)
+    finally:
+        conn.close()
+
+
+def _oracle_generate_quests(quest_date, request_payload, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        tasks = _oracle_candidate_tasks(cur, user_id, quest_date, request_payload)
+        if request_payload.get("from_missions"):
+            mission_context = _context(quest_date, tasks, {**request_payload, "max_missions": request_payload.get("max_quests", 5)}, "missions")
+            mission_ai = build_mission_ai_output(mission_context)
+            mission_ids = {item.get("task_id") for item in mission_ai.get("missions", []) if item.get("is_quest_candidate")}
+            if mission_ids:
+                tasks = [task for task in tasks if task["task_id"] in mission_ids]
+
+        context = _context(quest_date, tasks, request_payload, "quests")
+        ai_run_id = ai_run_repository.insert_ai_run(
+            cur,
+            user_id,
+            "QUEST_PLAN",
+            get_oci_genai_model_id(),
+            _ai_run_payload(QUEST_SYSTEM_PROMPT, quest_date, context, request_payload),
+        )
+        conn.commit()
+        try:
+            ai = build_quest_ai_output(context)
+            quests = _validated_quests(ai.get("quests") or [], tasks, request_payload.get("max_quests", 5))
+            ai = {**ai, "quests": quests}
+            quest_plan_id = quest_repository.upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, context["capacity"])
+            quest_repository.replace_quest_items(cur, user_id, quest_plan_id, quests)
+            quest_repository.mark_quest_tasks_working(cur, user_id, quest_date, quests)
+        except Exception as exc:
+            ai_run_repository.update_ai_run(cur, ai_run_id, "FAILED", error_code=exc.__class__.__name__, error_message=str(exc))
+            conn.commit()
+            raise
+
+        ai_run_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload=ai)
+        conn.commit()
+        task_by_id = {task["task_id"]: task for task in _oracle_user_tasks(cur, user_id, quest_date)}
+        return {
+            "quest_plan_id": quest_plan_id,
+            "quest_date": quest_date,
+            "summary": ai.get("summary") or "",
+            "quests": [_quest_response(task_by_id.get(item["task_id"]), item) for item in quests if task_by_id.get(item["task_id"])],
+            "ai_run_id": ai_run_id,
+            "generated_at": ai.get("generated_at"),
+        }
+    except oracledb.DatabaseError as exc:
+        conn.rollback()
+        raise _oracle_http_error(exc)
+    finally:
+        conn.close()
+
+
 def _context(work_date, tasks, request_payload, scope):
     capacity = build_capacity(work_date)
     return {
@@ -195,6 +333,14 @@ def _candidate_tasks(tasks, user_id, work_date, request_payload):
             continue
         filtered.append(task)
     return _default_rank(filtered)
+
+
+def _oracle_candidate_tasks(cur, user_id, work_date, request_payload):
+    return _candidate_tasks(_oracle_user_tasks(cur, user_id, work_date), user_id, work_date, request_payload)
+
+
+def _oracle_user_tasks(cur, user_id, work_date):
+    return task_repository.list_tasks(cur, user_id, {"page": 1, "page_size": 500}, work_date)["items"]
 
 
 def _user_tasks(tasks, user_id):
@@ -440,6 +586,14 @@ def _create_ai_run(ai_runs, user_id, run_type, work_date, system_prompt, context
     return ai_run
 
 
+def _ai_run_payload(system_prompt, work_date, context, request_payload):
+    return {
+        "system_prompt": system_prompt,
+        "request": {**request_payload, "date": work_date},
+        "context": context,
+    }
+
+
 def _mark_ai_run_succeeded(ai_runs, ai_run_id, response_payload):
     for run in ai_runs:
         if run.get("ai_run_id") == ai_run_id:
@@ -478,3 +632,17 @@ def _next_id(records, field, default):
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _oracle_user_id(user_id):
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _oracle_http_error(exc):
+    return HTTPException(
+        status_code=500,
+        detail={"code": "ORACLE_ERROR", "message": str(exc)},
+    )

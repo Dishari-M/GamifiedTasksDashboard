@@ -116,9 +116,12 @@ If port `8000` is already in use, either stop the existing backend process or st
 DB-backed endpoints require Oracle connection environment variables:
 
 ```powershell
-$env:DB_USER="your_db_user"
-$env:DB_PASSWORD="your_db_password"
-$env:DB_DSN="your_db_dsn"
+$env:DB_USER="ADMIN"
+$env:DB_PASSWORD="<shared_database_user_password>"
+$env:DB_DSN="tasksdb_tp"
+$env:DB_WALLET_DIR="$env:USERPROFILE\.oracle\wallet_tasksdb"
+$env:DB_WALLET_PASSWORD="<shared_wallet_password>"
+$env:DB_POOL_SIZE="10"
 ```
 
 Set these before starting the backend if you want to use endpoints such as `/tasks` and `/quests`.
@@ -126,9 +129,12 @@ Set these before starting the backend if you want to use endpoints such as `/tas
 macOS/Linux equivalent:
 
 ```bash
-export DB_USER="your_db_user"
-export DB_PASSWORD="your_db_password"
-export DB_DSN="your_db_dsn"
+export DB_USER="ADMIN"
+export DB_PASSWORD="<shared_database_user_password>"
+export DB_DSN="tasksdb_tp"
+export DB_WALLET_DIR="$USERPROFILE\\.oracle\\wallet_tasksdb"
+export DB_WALLET_PASSWORD="<shared_wallet_password>"
+export DB_POOL_SIZE="10"
 ```
 
 Without these DB variables, the root endpoint `/` can still run, but DB-backed endpoints may fail when they try to connect to Oracle.
@@ -141,9 +147,31 @@ Set these in the same PowerShell window before starting the backend. These are p
 
 ```powershell
 $env:DEVQUEST_AI_MODE="mock"
-$env:DEVQUEST_DATA_MODE="mock"
+$env:DEVQUEST_DATA_MODE="oracle"
 $env:DEVQUEST_AI_PROVIDER="oci_genai"
+$env:DB_USER="ADMIN"
+$env:DB_PASSWORD="<shared_database_user_password>"
+$env:DB_DSN="tasksdb_tp"
+$env:DB_WALLET_DIR="$env:USERPROFILE\.oracle\wallet_tasksdb"
+$env:DB_WALLET_PASSWORD="<shared_wallet_password>"
+$env:DB_POOL_SIZE="10"
 ```
+
+Oracle DB code must use the shared `python-oracledb` pool in `backend/db.py`.
+For API request paths, prefer `connection_scope()` so connections are always
+returned to the pool:
+
+```python
+from db import connection_scope
+
+with connection_scope() as conn:
+    cur = conn.cursor()
+    cur.execute("SELECT ...")
+```
+
+If `get_connection()` is used directly, close it in a `finally` block. Do not
+create standalone `oracledb.connect()` connections in API request paths, and do
+not keep pooled connections in globals, caches, or long-lived service objects.
 
 Later, when OCI Generative AI access is available:
 
