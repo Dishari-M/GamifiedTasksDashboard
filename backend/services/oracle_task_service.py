@@ -435,8 +435,6 @@ def _validate_update_data(data):
     for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         if data.get(field) is not None and data[field] < 0:
             _validation_error(f"{field} cannot be negative.", {"field": field})
-    if "rca_tshirt_size" in data and data.get("rca_tshirt_size") is None:
-        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
 
 
 def _validate_unique_external_identity(cur, user_id, task):
