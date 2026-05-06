@@ -363,6 +363,8 @@ def create_or_replace_plan(cur, user_id, payload):
         existing_items = []
         existing_by_task_id = {}
 
+    _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items, payload.get("quests") or [])
+
     active_item_id = None
     seen_item_ids = set()
     for quest in payload.get("quests") or []:
@@ -512,25 +514,21 @@ def create_or_replace_plan(cur, user_id, payload):
         if str(quest.get("state") or "").upper() == "ACTIVE":
             active_item_id = inserted_item_id
 
-    referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
     for item in existing_items:
         if item["quest_item_id"] in seen_item_ids:
             continue
-        if item["quest_item_id"] in referenced_item_ids:
-            cur.execute(
-                """
-                UPDATE QUEST_ITEMS
-                SET STATE = 'SKIPPED',
-                    SKIPPED_AT = SYSTIMESTAMP,
-                    SKIP_REASON = 'Regenerated',
-                    UPDATED_AT = SYSTIMESTAMP,
-                    ROW_VERSION = ROW_VERSION + 1
-                WHERE QUEST_ITEM_ID = :quest_item_id
-                """,
-                {"quest_item_id": item["quest_item_id"]},
-            )
-        else:
-            cur.execute("DELETE FROM QUEST_ITEMS WHERE QUEST_ITEM_ID = :quest_item_id", {"quest_item_id": item["quest_item_id"]})
+        cur.execute(
+            """
+            UPDATE QUEST_ITEMS
+            SET STATE = 'SKIPPED',
+                SKIPPED_AT = COALESCE(SKIPPED_AT, SYSTIMESTAMP),
+                SKIP_REASON = COALESCE(SKIP_REASON, 'Regenerated'),
+                UPDATED_AT = SYSTIMESTAMP,
+                ROW_VERSION = ROW_VERSION + 1
+            WHERE QUEST_ITEM_ID = :quest_item_id
+            """,
+            {"quest_item_id": item["quest_item_id"]},
+        )
 
     cur.execute(
         """
@@ -840,6 +838,36 @@ def _referenced_quest_item_ids(cur, quest_plan_id):
         {"quest_plan_id": quest_plan_id},
     )
     return {int(row[0]) for row in cur.fetchall()}
+
+
+def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items, incoming_quests):
+    if not existing_items:
+        return
+
+    incoming_task_ids = {str(quest.get("task_id")) for quest in incoming_quests}
+    referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
+    next_rank_order = max([int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests] + [0]) + 1
+
+    for item in existing_items:
+        if str(item.get("task_id")) in incoming_task_ids:
+            continue
+        if item["quest_item_id"] in referenced_item_ids:
+            cur.execute(
+                """
+                UPDATE QUEST_ITEMS
+                SET STATE = 'SKIPPED',
+                    RANK_ORDER = :rank_order,
+                    SKIPPED_AT = SYSTIMESTAMP,
+                    SKIP_REASON = 'Regenerated',
+                    UPDATED_AT = SYSTIMESTAMP,
+                    ROW_VERSION = ROW_VERSION + 1
+                WHERE QUEST_ITEM_ID = :quest_item_id
+                """,
+                {"quest_item_id": item["quest_item_id"], "rank_order": next_rank_order},
+            )
+            next_rank_order += 1
+        else:
+            cur.execute("DELETE FROM QUEST_ITEMS WHERE QUEST_ITEM_ID = :quest_item_id", {"quest_item_id": item["quest_item_id"]})
 
 
 def _returned_id(var):

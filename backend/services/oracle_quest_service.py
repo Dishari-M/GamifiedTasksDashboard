@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ PLAN_STATUS_NOT_GENERATED = "NOT_GENERATED"
 PLAN_STATUS_ACTIVE = "ACTIVE"
 ITEM_STATE_ACTIVE = "ACTIVE"
 ITEM_STATE_QUEUED = "QUEUED"
+logger = logging.getLogger(__name__)
 
 
 def oracle_quests_today_response(date, user_id=1):
@@ -59,6 +61,7 @@ def oracle_generate_quests_response(payload, user_id=1):
     except oracledb.DatabaseError as exc:
         if conn:
             conn.rollback()
+        logger.exception("Oracle quest generation failed for user_id=%s quest_date=%s payload=%s", user_id, quest_date, payload.model_dump())
         raise HTTPException(status_code=503, detail="Quest storage is unavailable.") from exc
     finally:
         if conn:
