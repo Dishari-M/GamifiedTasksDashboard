@@ -56,7 +56,7 @@ def build_capacity(date=None, user=None, events=None, user_id=None):
     work_date = resolve_work_date(date)
     if user is None:
         user = get_user(user_id)
-    events = events if events is not None else get_calendar_events(work_date)
+    events = events if events is not None else get_calendar_events(work_date, user_id)
 
     workday_start = _parse_iso(iso_at(work_date, user["workday_start_local"]))
     workday_end = _parse_iso(iso_at(work_date, user["workday_end_local"]))

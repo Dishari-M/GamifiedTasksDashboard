@@ -42,6 +42,8 @@ const resolveBrowserExecutable = async () => {
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const parseLeadingInt = (value) => Number.parseInt(String(value || "").replace(/[^0-9].*$/, ""), 10) || 0;
+const parseXpTotal = (value) => Number.parseInt(String(value || "").replace(/[^0-9]/g, ""), 10) || 0;
 
 const buildTestAccount = () => {
   const stamp = Date.now();
@@ -150,6 +152,9 @@ try {
   await page.goto(`${baseUrl}/tasks`, { waitUntil: "load", timeout: 45000 });
   await expectVisible(page.getByTestId("tasks-page"), 15000, "Tasks page did not load.");
   addStep("open-tasks-page", "passed");
+
+  report.initialXpTotal = parseXpTotal(await page.getByTestId("level-total-xp").textContent());
+  report.initialStreakDays = parseLeadingInt(await page.getByTestId("streak-days-value").textContent());
 
   await page.getByTestId("create-task-title-input").fill(report.taskTitle);
   await page.getByTestId("create-task-description-input").fill("Playwright E2E validation for quests and focus integration.");
@@ -271,11 +276,23 @@ try {
     throw new Error(`Quest completion failed with HTTP ${completeResponse.status()}.`);
   }
 
-  await expectVisible(page.getByTestId("quest-completion-notice"), 15000);
-  const completionText = (await page.getByTestId("quest-completion-notice").textContent())?.trim() || "";
+  await expectVisible(page.getByTestId("floating-notice"), 15000);
+  const completionText = (await page.getByTestId("floating-notice").textContent())?.trim() || "";
   report.completionNotice = completionText;
+  report.finalXpTotal = parseXpTotal(await page.getByTestId("level-total-xp").textContent());
+  report.finalStreakDays = parseLeadingInt(await page.getByTestId("streak-days-value").textContent());
+  if (report.finalXpTotal <= report.initialXpTotal) {
+    throw new Error(`Expected total XP to increase after completing a quest. Before=${report.initialXpTotal}, after=${report.finalXpTotal}.`);
+  }
+  if (report.finalStreakDays < 1) {
+    throw new Error(`Expected quest streak to start after completing a quest. Saw ${report.finalStreakDays}.`);
+  }
   addStep("complete-quest", "passed", {
     completionNotice: completionText,
+    initialXpTotal: report.initialXpTotal,
+    finalXpTotal: report.finalXpTotal,
+    initialStreakDays: report.initialStreakDays,
+    finalStreakDays: report.finalStreakDays,
   });
   await saveScreenshot("05-quest-completed");
   report.result = "passed";

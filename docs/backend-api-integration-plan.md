@@ -90,7 +90,7 @@ APP_ENV=dev
 API_PREFIX=/api/v1
 CORS_ORIGINS=http://localhost:3000
 
-ORACLE_DB_USER=ADMIN
+ORACLE_DB_USER=DEVQUEST_APP
 ORACLE_DB_PASSWORD=...
 ORACLE_DB_DSN=tasksdb_tp
 ORACLE_DB_WALLET_DIR=/opt/secrets/wallet
@@ -114,6 +114,9 @@ AI_REQUEST_TIMEOUT_SECONDS=45
 
 Oracle access rule for implementation:
 
+- The team runtime schema is `DEVQUEST_APP`. Use it for local app runs and
+  backend smoke tests. Do not use `ADMIN` for normal app traffic unless the team
+  explicitly confirms the schema and seed data are synced.
 - All repositories and services must acquire DB connections through
   `backend/db.py:connection_scope()` or, for lower-level code,
   `backend/db.py:get_connection()`.

@@ -119,6 +119,7 @@ export const tasksApi = {
 
 export const questsApi = {
   today: (params = {}) => api.get("/quests/today", { params }).then(unwrap),
+  progress: (params = {}) => api.get("/quests/progress", { params }).then(unwrap),
   generate: (payload) => api.post("/quests/generate", payload).then(unwrap),
   update: (questItemId, payload) => api.patch(`/quests/${questItemId}`, payload).then(unwrap),
 };

@@ -579,6 +579,40 @@ def fetch_item_with_plan(cur, user_id, quest_item_id):
     }
 
 
+def list_completed_quest_dates(cur, user_id, reference_date):
+    cur.execute(
+        """
+        SELECT DISTINCT TO_CHAR(qp.QUEST_DATE, 'YYYY-MM-DD')
+        FROM QUEST_ITEMS qi
+        JOIN QUEST_PLANS qp
+          ON qp.QUEST_PLAN_ID = qi.QUEST_PLAN_ID
+        WHERE qp.USER_ID = :user_id
+          AND qi.STATE = 'COMPLETED'
+          AND qp.QUEST_DATE <= TO_DATE(:reference_date, 'YYYY-MM-DD')
+        ORDER BY TO_CHAR(qp.QUEST_DATE, 'YYYY-MM-DD')
+        """,
+        {"user_id": user_id, "reference_date": reference_date},
+    )
+    return [row[0] for row in cur.fetchall() if row and row[0]]
+
+
+def count_completed_quests(cur, user_id, reference_date):
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM QUEST_ITEMS qi
+        JOIN QUEST_PLANS qp
+          ON qp.QUEST_PLAN_ID = qi.QUEST_PLAN_ID
+        WHERE qp.USER_ID = :user_id
+          AND qi.STATE = 'COMPLETED'
+          AND qp.QUEST_DATE <= TO_DATE(:reference_date, 'YYYY-MM-DD')
+        """,
+        {"user_id": user_id, "reference_date": reference_date},
+    )
+    row = cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
 def resolve_client_item_id(cur, user_id, client_quest_item_id):
     cur.execute(
         """
