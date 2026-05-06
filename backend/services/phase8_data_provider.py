@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from config import get_data_mode
 from repositories import phase8_oracle_repository
 from services import phase8_mock_data
+from services.sync_service import list_calendar_events
 
 
 def _mode():
@@ -79,6 +80,9 @@ def get_calendar_events(work_date):
     """Return calendar meetings and focus blocks for the requested work date."""
     mode = _mode()
     if mode == "mock":
+        synced_events = list_calendar_events(work_date)
+        if synced_events:
+            return synced_events
         return phase8_mock_data.get_mock_calendar_events(work_date)
     if mode == "oracle":
         return _oracle_call(phase8_oracle_repository.get_calendar_events, work_date)

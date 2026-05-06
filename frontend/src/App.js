@@ -17,6 +17,7 @@ import {
   Fire,
   Flag,
   FloppyDisk,
+  FolderOpen,
   FunnelSimple,
   GearSix,
   House,
@@ -46,7 +47,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, jiraApi, overviewApi, tasksApi } from "./api/client";
+import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, jiraApi, overviewApi, syncApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
 import { CompletionMomentumNotice, NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
@@ -71,6 +72,7 @@ const navItems = [
 const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
 
 const THEME_STORAGE_KEY = "devquest.theme.v1";
+const RCA_WORKSPACE_STORAGE_KEY = "devquest.rca.workspace.v1";
 
 const readInitialTheme = () => {
   const stored = readStoredJson(THEME_STORAGE_KEY, null);
@@ -110,6 +112,13 @@ const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.mes
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+};
+
+const scheduleHeadingForDate = (dateKey) => {
+  const selected = dateKey || todayKey();
+  if (selected === todayKey()) return "Today's Schedule";
+  if (selected === addDaysKey(todayKey(), 1)) return "Tomorrow's Schedule";
+  return `${new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${selected}T00:00:00`))} Schedule`;
 };
 
 const levelProgressFromXp = (xpValue) => {
@@ -422,24 +431,115 @@ const MissionCard = ({ task, index, questMeta }) => {
   );
 };
 
-const SchedulePanel = ({ events = schedule }) => (
-  <section className="surface schedule-panel" data-testid="schedule-panel">
-    <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Schedule</h2><NavLink to="/calendar" data-testid="view-calendar-link">View Calendar</NavLink></div>
-    <div className="timeline" data-testid="schedule-timeline">
-      {events.map((event) => (
-        <div className="timeline-row" key={event.time} data-testid={`schedule-row-${slug(event.time)}`}>
-          <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
-          <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
-          <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
-            <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
-            <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
-            {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
-          </article>
+const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent, selectedDate = todayKey(), onDateChange, onFetchDate, isFetchingDate = false }) => {
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [savingEventId, setSavingEventId] = useState(null);
+
+  const startEditing = (event) => {
+    setEditingEventId(event.eventId);
+    setEditingTitle(event.title || "");
+  };
+  const cancelEditing = () => {
+    setEditingEventId(null);
+    setEditingTitle("");
+  };
+  const saveTitle = async (event) => {
+    const title = editingTitle.trim();
+    if (!title || !event.eventId) return;
+    setSavingEventId(event.eventId);
+    try {
+      await onUpdateEvent?.(event.eventId, title);
+      cancelEditing();
+    } finally {
+      setSavingEventId(null);
+    }
+  };
+
+  return (
+    <section className="surface schedule-panel" data-testid="schedule-panel">
+      <div className="section-heading schedule-heading">
+        <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> {scheduleHeadingForDate(selectedDate)}</h2>
+        {onFetchDate && (
+          <div className="schedule-date-controls">
+            <input type="date" value={selectedDate} onChange={(event) => onDateChange?.(event.target.value)} aria-label="Calendar date" data-testid="schedule-date-input" />
+            <button className="ghost-button" type="button" onClick={onFetchDate} disabled={isFetchingDate} data-testid="fetch-schedule-date-button">
+              {isFetchingDate ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={17} weight="duotone" aria-hidden="true" />}
+              {isFetchingDate ? "Fetching..." : "Fetch Calendar"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="timeline" data-testid="schedule-timeline">
+        {events.map((event) => {
+          const isEditing = editingEventId && String(editingEventId) === String(event.eventId);
+          const isSaving = savingEventId && String(savingEventId) === String(event.eventId);
+          return (
+            <div className="timeline-row" key={event.id || `${event.time}-${event.title}`} data-testid={`schedule-row-${slug(event.time)}`}>
+              <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
+              <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
+              <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
+                {isEditing ? (
+                  <input
+                    className="event-title-input"
+                    value={editingTitle}
+                    onChange={(inputEvent) => setEditingTitle(inputEvent.target.value)}
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.key === "Enter") saveTitle(event);
+                      if (keyEvent.key === "Escape") cancelEditing();
+                    }}
+                    aria-label={`Edit ${event.title} title`}
+                    data-testid={`schedule-title-input-${slug(event.title)}`}
+                    autoFocus
+                  />
+                ) : (
+                  <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
+                )}
+                <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
+                {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
+                {onUpdateEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-edit-button" type="button" onClick={() => startEditing(event)} aria-label={`Edit ${event.title} title`} data-testid={`edit-schedule-event-${slug(event.title)}`}>
+                    <PencilSimple size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+                {isEditing && (
+                  <>
+                    <button className="event-icon-button event-save-button" type="button" onClick={() => saveTitle(event)} disabled={isSaving || !editingTitle.trim()} aria-label={`Save ${event.title} title`} data-testid={`save-schedule-event-${slug(event.title)}`}>
+                      <CheckCircle size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                    <button className="event-icon-button event-cancel-button" type="button" onClick={cancelEditing} disabled={isSaving} aria-label={`Cancel editing ${event.title}`} data-testid={`cancel-schedule-event-${slug(event.title)}`}>
+                      <X size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+                {onRemoveEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-remove-button" type="button" onClick={() => onRemoveEvent(event.eventId)} aria-label={`Remove ${event.title} from today's schedule`} data-testid={`remove-schedule-event-${slug(event.title)}`}>
+                    <X size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+              </article>
+            </div>
+          );
+        })}
+        {!events.length && <p className="empty-state">No events in today&apos;s schedule.</p>}
+      </div>
+      {!!removedEvents.length && (
+        <div className="removed-events-panel" data-testid="removed-calendar-events">
+          <h3>Removed events</h3>
+          {removedEvents.map((event) => (
+            <article className="removed-event-row" key={event.id || event.eventId || event.title}>
+              <span>{event.time}</span>
+              <strong>{event.title}</strong>
+              <button className="ghost-button" type="button" onClick={() => onRestoreEvent?.(event.eventId)} data-testid={`restore-schedule-event-${slug(event.title)}`}>
+                <ArrowClockwise size={16} weight="bold" aria-hidden="true" /> Restore
+              </button>
+            </article>
+          ))}
         </div>
-      ))}
-    </div>
-  </section>
-);
+      )}
+    </section>
+  );
+};
 
 const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
@@ -682,14 +782,14 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
 const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [banner, setBanner] = useState("");
-  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [isFetchingJiraFields, setIsFetchingJiraFields] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
     setBanner("");
-    setIsGeneratingDescription(false);
+    setIsFetchingJiraFields(false);
     setIsSubmitting(false);
     setSubmitError("");
   }, [task]);
@@ -699,43 +799,50 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     if (field === "externalId" && value.trim()) setBanner("");
   };
 
-  const generateDescription = async () => {
+  const fetchJiraFields = async () => {
     const externalId = form.externalId.trim();
     if (!externalId) {
-      setBanner("External ID is required before generating a description with AI.");
+      setBanner("External ID is required before fetching Jira details.");
       return;
     }
 
     setBanner("");
-    setIsGeneratingDescription(true);
+    setIsFetchingJiraFields(true);
     try {
-      const result = await jiraApi.oneLineDescription(externalId);
-      const description = result.one_liner_description?.trim();
-      if (!description) {
-        setBanner("AI could not generate a Jira description. Please check the External ID and try again.");
+      const result = await jiraApi.taskFields(externalId);
+      if (!result?.title && !result?.description) {
+        setBanner("Could not fetch Jira details. Please check the External ID and try again.");
         return;
       }
-      update("description", description);
+      setForm((current) => ({
+        ...current,
+        title: result.title?.trim() || current.title,
+        description: result.description?.trim() || current.description,
+        priority: priorities.includes(result.priority) ? result.priority : current.priority,
+        labels: Array.isArray(result.labels) ? result.labels.join(", ") : current.labels,
+        type: taskTypes.includes(result.type) ? result.type : current.type,
+        source: "Jira",
+      }));
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (error.response?.status === 409 && detail?.code === "JIRA_MCP_AUTH_REQUIRED") {
         const ssoSessionKey = `jira-sso-started:${externalId}`;
         if (window.sessionStorage.getItem(ssoSessionKey)) {
-          setBanner("Jira SSO was already opened for this ID. Complete that Codex window, then retry; if it already succeeded, close it and click Generate by AI again.");
+          setBanner("Jira SSO was already opened for this ID. Complete that Codex window, then retry; if it already succeeded, close it and click Fetch Details again.");
           return;
         }
         try {
           await jiraApi.startSsoLogin(externalId);
           window.sessionStorage.setItem(ssoSessionKey, "true");
-          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then click Generate by AI again.");
+          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then click Fetch Details again.");
         } catch {
           setBanner(detail.message || "Jira SSO is required. Start Codex from a terminal, complete Jira sign-in, then retry.");
         }
         return;
       }
-      setBanner(typeof detail === "string" ? detail : detail?.message || "AI description generation failed. Confirm the backend is running and the Jira ID is accessible.");
+      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not fetch Jira details. Confirm the backend is running and the Jira ID is accessible.");
     } finally {
-      setIsGeneratingDescription(false);
+      setIsFetchingJiraFields(false);
     }
   };
 
@@ -761,16 +868,16 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     <form className="task-editor-form" onSubmit={submit} data-testid={`${mode}-task-form`}>
       {banner && <div className="form-banner form-banner-error" role="alert" data-testid={`${mode}-ai-error-banner`}>{banner}</div>}
       <label>Title<input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" data-testid={`${mode}-task-title-input`} /></label>
-      <label>
-        <span className="field-label-row">
-          <span>Description</span>
-          <button className="inline-ai-button" type="button" onClick={generateDescription} disabled={isGeneratingDescription} data-testid={`${mode}-generate-description-button`}><Sparkle size={16} weight="duotone" aria-hidden="true" /> {isGeneratingDescription ? "Generating..." : "Generate by AI"}</button>
-        </span>
-        <textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} />
-      </label>
+      <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
       <label>Type<select value={form.type} onChange={(event) => update("type", event.target.value)}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Source<select value={form.source} onChange={(event) => update("source", event.target.value)}>{sources.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>External ID<input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" /></label>
+      <label>
+        <span className="field-label-row">
+          <span>External ID</span>
+          <button className="inline-ai-button" type="button" onClick={fetchJiraFields} disabled={isFetchingJiraFields} data-testid={`${mode}-fetch-jira-fields-button`}><Sparkle size={16} weight="duotone" aria-hidden="true" /> {isFetchingJiraFields ? "Fetching..." : "Fetch Details"}</button>
+        </span>
+        <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" />
+      </label>
       <label>Project key<input value={form.projectKey} onChange={(event) => update("projectKey", event.target.value)} placeholder="PAY" /></label>
       <label>Priority<select value={form.priority} onChange={(event) => update("priority", event.target.value)}>{priorities.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Status<select value={form.status} onChange={(event) => update("status", event.target.value)}>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -963,7 +1070,22 @@ const TasksPage = ({ tasks, onAddTask, onStatusChange, onEdit, onToggleToday, on
   );
 };
 
-const CalendarPage = ({ overview }) => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /><section className="surface weekly-panel" data-testid="weekly-overview-card"><div className="section-heading"><h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2><NavLink to="/overview">Open overview</NavLink></div><div className="weekly-grid"><StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" /><StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" /><StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" /></div></section></main>;
+const CalendarPage = ({ overview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent, selectedDate, onDateChange, onFetchDate, isFetchingDate }) => (
+  <main className="page-stack calendar-page" data-testid="calendar-page">
+    <section className="surface weekly-panel" data-testid="weekly-overview-card">
+      <div className="section-heading">
+        <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+        <NavLink to="/overview">Open overview</NavLink>
+      </div>
+      <div className="weekly-grid calendar-weekly-grid">
+        <StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" />
+        <StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" />
+        <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" />
+      </div>
+    </section>
+    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} selectedDate={selectedDate} onDateChange={onDateChange} onFetchDate={onFetchDate} isFetchingDate={isFetchingDate} />
+  </main>
+);
 
 const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, completionNotice, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus }) => {
   const todaySessions = sessionsForDay(focusSessions);
@@ -1150,6 +1272,7 @@ const rcaSectionHeadings = new Set([
   "EVIDENCE",
   "OPEN QUESTIONS",
 ]);
+const activeRcaStatuses = new Set(["queued", "running"]);
 
 const RcaReport = ({ text }) => {
   const sections = [];
@@ -1187,6 +1310,29 @@ const RcaReport = ({ text }) => {
   );
 };
 
+const JiraTshirtSizing = ({ sizing }) => {
+  if (!sizing?.size) return null;
+  const details = [
+    `${sizing.priority || "Medium"} priority`,
+    `${sizing.affected_files ?? 0} affected file(s)`,
+    `${sizing.suggested_changes ?? 0} suggested change(s)`,
+  ];
+
+  return (
+    <section className="jira-tshirt-sizing" data-testid="jira-tshirt-sizing-card">
+      <div className="jira-tshirt-size-mark" data-testid="jira-tshirt-size-value">{sizing.size}</div>
+      <div>
+        <h3>Jira T-shirt Sizing</h3>
+        <p data-testid="jira-tshirt-sizing-reason">{sizing.reason}</p>
+        <div className="jira-tshirt-facts">
+          {details.map((detail) => <span key={detail}>{detail}</span>)}
+          {(sizing.risk_signals || []).slice(0, 3).map((signal) => <span key={signal}>{signal}</span>)}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const JiraRcaPage = ({ tasks }) => {
   const { jiraKey = "" } = useParams();
   const normalizedJiraKey = jiraKey.trim().toUpperCase();
@@ -1194,14 +1340,21 @@ const JiraRcaPage = ({ tasks }) => {
   const [rcaResult, setRcaResult] = useState(null);
   const [rcaJob, setRcaJob] = useState(null);
   const [banner, setBanner] = useState("");
+  const [rcaWorkspace, setRcaWorkspace] = useState(() => readStoredJson(RCA_WORKSPACE_STORAGE_KEY, ""));
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [isSelectingWorkspace, setIsSelectingWorkspace] = useState(false);
+  const isRcaActive = rcaJob?.job_id && activeRcaStatuses.has(rcaJob.status);
+  const activeSizing = rcaResult?.jira_tshirt_sizing || task?.jiraTshirtSizing || null;
 
   useEffect(() => {
-    if (!rcaJob?.job_id || !["queued", "running"].includes(rcaJob.status)) return undefined;
+    if (!rcaJob?.job_id || !activeRcaStatuses.has(rcaJob.status)) return undefined;
+    let stopped = false;
 
     const pollJob = async () => {
       try {
         const job = await jiraApi.getRcaJob(rcaJob.job_id);
+        if (stopped) return;
         setRcaJob(job);
         if (job.status === "completed" && job.result) {
           setRcaResult({ jira_key: job.jira_key, ...job.result });
@@ -1212,8 +1365,12 @@ const JiraRcaPage = ({ tasks }) => {
         } else if (job.status === "failed") {
           setBanner(job.error || "RCA generation failed. Check the console output below.");
           setIsGenerating(false);
+        } else if (job.status === "cancelled") {
+          setBanner("RCA cancelled.");
+          setIsGenerating(false);
         }
       } catch (error) {
+        if (stopped) return;
         const detail = error.response?.data?.detail;
         setBanner(typeof detail === "string" ? detail : detail?.message || "Could not read live RCA status.");
         setIsGenerating(false);
@@ -1222,16 +1379,30 @@ const JiraRcaPage = ({ tasks }) => {
 
     const intervalId = window.setInterval(pollJob, 1500);
     pollJob();
-    return () => window.clearInterval(intervalId);
+    return () => {
+      stopped = true;
+      window.clearInterval(intervalId);
+    };
   }, [rcaJob?.job_id, rcaJob?.status]);
 
+  useEffect(() => {
+    writeStoredJson(RCA_WORKSPACE_STORAGE_KEY, rcaWorkspace);
+  }, [rcaWorkspace]);
+
   const generateRca = async () => {
+    if (isRcaActive) return;
+    const workspacePath = rcaWorkspace.trim();
+    if (!workspacePath) {
+      setBanner("Select the local codebase folder before running RCA.");
+      return;
+    }
     setBanner("");
     setRcaResult(null);
     setRcaJob(null);
     setIsGenerating(true);
+    setIsCancelling(false);
     try {
-      const job = await jiraApi.startRcaJob(normalizedJiraKey, task?.notes || "");
+      const job = await jiraApi.startRcaJob(normalizedJiraKey, task?.notes || "", task?.priority || "Medium", workspacePath);
       setRcaJob(job);
     } catch (error) {
       const detail = error.response?.data?.detail;
@@ -1247,6 +1418,46 @@ const JiraRcaPage = ({ tasks }) => {
       }
       setBanner(typeof detail === "string" ? detail : detail?.message || "RCA generation failed. Confirm the backend is running and Jira is accessible.");
       setIsGenerating(false);
+    }
+  };
+
+  const selectWorkspace = async () => {
+    if (isGenerating || isRcaActive) return;
+    setBanner("");
+    setIsSelectingWorkspace(true);
+    try {
+      const result = await jiraApi.selectRcaWorkspace();
+      if (result?.code_base_path) {
+        setRcaWorkspace(result.code_base_path);
+      }
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not open the local folder picker. Make sure the local Codex runner/backend is running on this machine.");
+    } finally {
+      setIsSelectingWorkspace(false);
+    }
+  };
+
+  const cancelRca = async () => {
+    if (!rcaJob?.job_id || !activeRcaStatuses.has(rcaJob.status)) return;
+    setBanner("");
+    setIsCancelling(true);
+    try {
+      const job = await jiraApi.cancelRcaJob(rcaJob.job_id);
+      setRcaJob(job);
+      setIsGenerating(false);
+      if (job.status === "cancelled") {
+        setBanner("RCA cancelled.");
+      } else if (job.status === "completed" && job.result) {
+        setRcaResult({ jira_key: job.jira_key, ...job.result });
+      } else {
+        setBanner(job.error || "RCA is no longer running.");
+      }
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not cancel RCA.");
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -1275,11 +1486,40 @@ const JiraRcaPage = ({ tasks }) => {
           <span>{normalizedJiraKey}</span>
           <h3>{task?.title || "Jira task"}</h3>
           <p>{task?.description || "Generate RCA to fetch Jira details and analyze the codebase."}</p>
-          {task && <div className="theme-list"><Pill tone={task.priority.toLowerCase()}>{task.priority}</Pill><Pill tone={task.type.toLowerCase()}>{task.type}</Pill><Pill tone="task">{task.source}</Pill></div>}
+          {task && (
+            <div className="theme-list">
+              <Pill tone={task.priority.toLowerCase()}>{task.priority}</Pill>
+              <Pill tone={task.type.toLowerCase()}>{task.type}</Pill>
+              <Pill tone="task">{task.source}</Pill>
+              {activeSizing?.size && <Pill tone={`tshirt-${activeSizing.size.toLowerCase()}`} testId="jira-summary-tshirt-size">{activeSizing.size}</Pill>}
+            </div>
+          )}
         </div>
-        <button className="primary-action jira-rca-generate" type="button" onClick={generateRca} disabled={isGenerating || !normalizedJiraKey} data-testid="generate-jira-rca-button">
-          <Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGenerating ? "Generating RCA..." : "Generate RCA"}
-        </button>
+        <label className="jira-rca-workspace" data-testid="jira-rca-workspace-field">
+          <span><FolderOpen size={17} weight="duotone" aria-hidden="true" /> Codebase workspace</span>
+          <div className="jira-rca-workspace-picker">
+            <input
+              value={rcaWorkspace}
+              onChange={(event) => setRcaWorkspace(event.target.value)}
+              placeholder="Select a local codebase folder"
+              disabled={isGenerating || isRcaActive}
+              data-testid="jira-rca-workspace-input"
+            />
+            <button className="ghost-button" type="button" onClick={selectWorkspace} disabled={isGenerating || isRcaActive || isSelectingWorkspace} data-testid="select-jira-rca-workspace-button">
+              <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingWorkspace ? "Selecting..." : "Select Folder"}
+            </button>
+          </div>
+        </label>
+        <div className="jira-rca-actions">
+          <button className="primary-action jira-rca-generate" type="button" onClick={generateRca} disabled={isGenerating || isRcaActive || !normalizedJiraKey || !rcaWorkspace.trim()} data-testid="generate-jira-rca-button">
+            <Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGenerating ? "Generating Jira RCA and T-Shirt Size..." : "Generate Jira RCA and T-Shirt Size"}
+          </button>
+          {isRcaActive && (
+            <button className="ghost-button jira-rca-cancel" type="button" onClick={cancelRca} disabled={isCancelling} data-testid="cancel-jira-rca-button">
+              <X size={18} weight="bold" aria-hidden="true" /> {isCancelling ? "Cancelling..." : "Cancel RCA"}
+            </button>
+          )}
+        </div>
         {rcaJob?.status === "auth_required" && (
           <button className="ghost-button jira-rca-generate" type="button" onClick={startSso} data-testid="start-jira-rca-sso-button">
             Open SSO
@@ -1296,6 +1536,7 @@ const JiraRcaPage = ({ tasks }) => {
         <section className="surface jira-rca-result" data-testid="jira-rca-result-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> RCA Result</h2><span>{Math.round(rcaResult.elapsed_seconds || 0)}s</span></div>
           <RcaReport text={rcaResult.root_cause_analysis} />
+          <JiraTshirtSizing sizing={rcaResult.jira_tshirt_sizing} />
         </section>
       )}
     </main>
@@ -1470,7 +1711,55 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   );
 };
 
-const SyncPage = () => <main className="page-stack" data-testid="sync-page"><section className="surface sync-card" data-testid="sync-management-card"><div className="section-heading"><h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2><button className="primary-action" data-testid="run-sync-button"><CloudArrowDown size={19} weight="duotone" aria-hidden="true" /> Sync Now</button></div><div className="sync-grid">{["Jira", "Outlook Calendar", "Microsoft To Do"].map((source) => <article className="sync-source" key={source} data-testid={`sync-source-${slug(source)}`}><CheckCircle size={26} weight="duotone" aria-hidden="true" /><strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong><span data-testid={`sync-source-status-${slug(source)}`}>Ready to sync</span></article>)}</div></section></main>;
+const syncSources = ["Jira", "Outlook Calendar"];
+
+const sourceState = (syncRun, source, syncingSource) => {
+  const current = (syncRun?.sources || []).find((item) => item.source === source);
+  if (syncingSource === "ALL") return { source, status: "RUNNING", message: "Syncing..." };
+  if (syncingSource === source) return { source, status: "RUNNING", message: "Syncing..." };
+  if (current) return current;
+  return { source, status: "IDLE", message: "Ready to sync." };
+};
+
+const SyncStatusIcon = ({ status }) => {
+  if (status === "RUNNING") return <ArrowClockwise className="sync-spin" size={26} weight="bold" aria-hidden="true" />;
+  if (status === "FAILED") return <X size={26} weight="bold" aria-hidden="true" />;
+  return <CheckCircle size={26} weight="duotone" aria-hidden="true" />;
+};
+
+const SyncPage = ({ syncRun, syncingSource, onRunSync }) => (
+  <main className="page-stack" data-testid="sync-page">
+    <section className="surface sync-card" data-testid="sync-management-card">
+      <div className="section-heading sync-heading">
+        <h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2>
+        <div className="sync-action-stack">
+          <button className="primary-action" onClick={() => onRunSync()} disabled={Boolean(syncingSource)} data-testid="run-sync-button">
+            {syncingSource === "ALL" ? <ArrowClockwise className="sync-spin" size={19} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={19} weight="duotone" aria-hidden="true" />}
+            {syncingSource === "ALL" ? "Syncing Up..." : "Sync Up"}
+          </button>
+          <span data-testid="last-sync-time">{syncRun?.last_sync_at ? `Last synced ${formatDateTime(syncRun.last_sync_at)}` : "Not synced yet"}</span>
+        </div>
+      </div>
+      <div className="sync-grid">
+        {syncSources.map((source) => {
+          const state = sourceState(syncRun, source, syncingSource);
+          return (
+            <article className={`sync-source sync-source-${slug(state.status)}`} key={source} data-testid={`sync-source-${slug(source)}`}>
+              <SyncStatusIcon status={state.status} />
+              <strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong>
+              <span data-testid={`sync-source-status-${slug(source)}`}>{state.message}</span>
+              {state.error && <p className="sync-error" data-testid={`sync-source-error-${slug(source)}`}>{state.error}</p>}
+              <button className="ghost-button sync-source-action" onClick={() => onRunSync(source)} disabled={Boolean(syncingSource)} data-testid={`run-${slug(source)}-sync-button`}>
+                {syncingSource === source ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : source === "Jira" ? <Database size={17} weight="duotone" aria-hidden="true" /> : <CalendarBlank size={17} weight="duotone" aria-hidden="true" />}
+                Sync Up
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  </main>
+);
 
 const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value={formatFocusMultiplier(FOCUS_XP_MULTIPLIER)} readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
 
@@ -1480,8 +1769,14 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [overview, setOverview] = useState(defaultOverview);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [calendarSchedule, setCalendarSchedule] = useState(schedule);
+  const [removedCalendarEvents, setRemovedCalendarEvents] = useState([]);
+  const [calendarDate, setCalendarDate] = useState(todayKey());
+  const [isFetchingCalendarDate, setIsFetchingCalendarDate] = useState(false);
   const [dashboardInsight, setDashboardInsight] = useState(null);
   const [dashboardStatus, setDashboardStatus] = useState("fallback");
+  const [syncRun, setSyncRun] = useState(null);
+  const [syncingSource, setSyncingSource] = useState("");
   const [focusSessions, setFocusSessions] = useState(() => readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, []));
   const [activeSession, setActiveSession] = useState(() => readStoredJson(ACTIVE_FOCUS_STORAGE_KEY, null));
   const [questRun, setQuestRun] = useState(() => readQuestRun(readStoredTasks(), readStoredJson(FOCUS_SESSIONS_STORAGE_KEY, [])));
@@ -1571,6 +1866,145 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const handleAddTask = async (form) => {
     const createdTask = await tasksApi.create(form);
     setTasks((items) => [normalizeTask(createdTask), ...items]);
+  };
+  const handleRunSync = async (source) => {
+    const selectedSources = source ? [source] : ["Jira", "Outlook Calendar"];
+    const syncingKey = source || "ALL";
+    setSyncingSource(syncingKey);
+    setSyncRun((current) => ({
+      ...(current || {}),
+      status: "RUNNING",
+      sources: [
+        { source: "Jira", status: selectedSources.includes("Jira") ? "RUNNING" : "IDLE", message: selectedSources.includes("Jira") ? "Syncing Jira issues..." : "Ready to sync." },
+        { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "RUNNING" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Fetching today's Outlook meetings." : "Ready to sync." },
+      ],
+    }));
+    try {
+      const result = await syncApi.run(source ? { sources: selectedSources } : {});
+      setSyncRun(result);
+      const events = result?.calendar_events || result?.calendarEvents || [];
+      if (selectedSources.includes("Outlook Calendar") || events.length) {
+        const normalizedEvents = normalizeApiSchedule(events);
+        setCalendarSchedule(normalizedEvents);
+        setDashboardSchedule(normalizedEvents);
+      }
+      if (selectedSources.includes("Jira")) {
+        const refreshedTasks = await tasksApi.list();
+        const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
+        setTasks(taskItems.map(normalizeTask));
+      }
+      setTaskLoadError("");
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setSyncRun({
+        status: "FAILED",
+        last_sync_at: nowIso(),
+        sources: [
+          { source: "Jira", status: selectedSources.includes("Jira") ? "FAILED" : "IDLE", message: selectedSources.includes("Jira") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Jira") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+          { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "FAILED" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Outlook Calendar") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+        ],
+      });
+    } finally {
+      setSyncingSource("");
+    }
+  };
+  const renameScheduleEvent = (items, eventId, title) =>
+    items.map((event) => (String(event.eventId) === String(eventId) ? { ...event, title } : event));
+
+  const handleUpdateCalendarEvent = async (eventId, title) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    setCalendarSchedule((items) => renameScheduleEvent(items, eventId, title));
+    if (calendarDate === todayKey()) setDashboardSchedule((items) => renameScheduleEvent(items, eventId, title));
+    try {
+      const result = await calendarApi.updateEvent(eventId, { title });
+      const updatedEvent = result?.event;
+      if (updatedEvent) {
+        const normalizedEvent = normalizeApiSchedule([updatedEvent])[0];
+        setCalendarSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        if (calendarDate === todayKey()) {
+          setDashboardSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        }
+      }
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update calendar event.");
+      throw error;
+    }
+  };
+
+  const handleRemoveCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const removedEvent = calendarSchedule.find((event) => String(event.eventId) === String(eventId));
+    setCalendarSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    if (calendarDate === todayKey()) {
+      setDashboardSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    }
+    if (removedEvent) setRemovedCalendarEvents((items) => [removedEvent, ...items]);
+    try {
+      await calendarApi.removeEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to remove calendar event.");
+    }
+  };
+  const handleRestoreCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const restoredEvent = removedCalendarEvents.find((event) => String(event.eventId) === String(eventId));
+    if (restoredEvent) {
+      setRemovedCalendarEvents((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+      setCalendarSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      if (calendarDate === todayKey()) {
+        setDashboardSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      }
+    }
+    try {
+      await calendarApi.restoreEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to restore calendar event.");
+    }
+  };
+  const handleFetchCalendarDate = async () => {
+    setIsFetchingCalendarDate(true);
+    setTaskLoadError("");
+    try {
+      const result = await calendarApi.fetchEvents({ date: calendarDate });
+      const events = Array.isArray(result) ? result : result?.items || [];
+      const normalizedEvents = normalizeApiSchedule(events);
+      setCalendarSchedule(normalizedEvents);
+      if (calendarDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents([]);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setTaskLoadError(typeof detail === "string" ? detail : detail?.error || detail?.message || error?.message || "Unable to fetch calendar events.");
+    } finally {
+      setIsFetchingCalendarDate(false);
+    }
+  };
+  const handleCalendarDateChange = async (nextDate) => {
+    setCalendarDate(nextDate);
+    try {
+      const data = await calendarApi.events({ date: nextDate });
+      const events = Array.isArray(data) ? data : data?.items || [];
+      const removedEvents = data?.removed_items || data?.removedItems || [];
+      const normalizedEvents = events.length ? normalizeApiSchedule(events) : [];
+      setCalendarSchedule(normalizedEvents);
+      if (nextDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+    } catch {
+      setCalendarSchedule([]);
+      setRemovedCalendarEvents([]);
+    }
   };
 
   const updateQuestRun = (updater) => setQuestRun((run) => {
@@ -1731,6 +2165,27 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    syncApi.runs()
+      .then((data) => {
+        if (!cancelled) setSyncRun(data);
+      })
+      .catch(() => {});
+    calendarApi.events({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        const events = Array.isArray(data) ? data : data?.items || [];
+        const removedEvents = data?.removed_items || data?.removedItems || [];
+        if (events.length) setCalendarSchedule(normalizeApiSchedule(events));
+        setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="app-shell" data-theme={theme} data-testid="app-shell">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} />
@@ -1741,13 +2196,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} />} />
-          <Route path="/calendar" element={<CalendarPage overview={overview} />} />
+          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} selectedDate={calendarDate} onDateChange={handleCalendarDateChange} onFetchDate={handleFetchCalendarDate} isFetchingDate={isFetchingCalendarDate} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} completionNotice={completionNotice} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} completionNotice={completionNotice} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/jira/:jiraKey/rca" element={<JiraRcaPage tasks={tasks} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
-          <Route path="/sync" element={<SyncPage />} />
+          <Route path="/sync" element={<SyncPage syncRun={syncRun} syncingSource={syncingSource} onRunSync={handleRunSync} />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </div>

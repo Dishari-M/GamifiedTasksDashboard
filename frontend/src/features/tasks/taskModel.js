@@ -57,6 +57,8 @@ export const normalizeTask = (task) => {
     impact: ai.impact,
     priorityScore: ai.priorityScore,
     aiInsight: ai.aiInsight,
+    jiraTshirtSize: task.jiraTshirtSize || task.jira_tshirt_size || task.jira_tshirt_sizing?.size || task.jiraTshirtSizing?.size || "",
+    jiraTshirtSizing: task.jiraTshirtSizing || task.jira_tshirt_sizing || null,
     notes: task.notes || "",
     labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
     workingToday: Boolean(task.workingToday),
@@ -210,6 +212,9 @@ export const normalizeApiTask = (task) =>
 
 export const normalizeApiSchedule = (events = []) =>
   events.map((event) => ({
+    id: event.event_id || event.id || event.external_id,
+    eventId: event.event_id || event.id,
+    externalId: event.external_id || "",
     time: formatTime(event.start_at),
     title: event.title,
     duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),

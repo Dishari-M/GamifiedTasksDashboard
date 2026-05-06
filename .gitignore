@@ -21,6 +21,8 @@ backend/.venv/
 # Testing
 /coverage
 backend/.tmp/
+backend/.codex-rca-runtime/locks/
+backend/.codex-rca-runtime/tmp/
 
 # Next.js
 /.next/

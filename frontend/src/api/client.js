@@ -2,6 +2,7 @@ import axios from "axios";
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 const BACKEND_BASE_URL = process.env.REACT_APP_BACKEND_BASE_URL || "http://127.0.0.1:8000";
+const LOCAL_CODEX_BASE_URL = process.env.REACT_APP_LOCAL_CODEX_BASE_URL || "http://127.0.0.1:8000";
 export const CURRENT_USER_STORAGE_KEY = "devquest.currentUser";
 
 const readStoredUser = () => {
@@ -35,6 +36,25 @@ export const backendApi = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+const localCodexApi = axios.create({
+  baseURL: LOCAL_CODEX_BASE_URL,
+  timeout: 0,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+const attachUserHeader = (config) => {
+  const user = readStoredUser();
+  if (user?.user_id) {
+    config.headers["X-DevQuest-User-Id"] = user.user_id;
+  }
+  return config;
+};
+
+backendApi.interceptors.request.use(attachUserHeader);
+localCodexApi.interceptors.request.use(attachUserHeader);
 
 const phase8Api = axios.create({
   baseURL: PHASE8_API_BASE_URL,
@@ -87,6 +107,10 @@ export const overviewApi = {
 
 export const calendarApi = {
   events: (params = {}) => api.get("/calendar/events", { params }).then(unwrap),
+  fetchEvents: (payload = {}) => api.post("/calendar/events/fetch", payload).then(unwrap),
+  updateEvent: (eventId, payload) => api.patch(`/calendar/events/${eventId}`, payload).then(unwrap),
+  removeEvent: (eventId) => api.delete(`/calendar/events/${eventId}`).then(unwrap),
+  restoreEvent: (eventId) => api.post(`/calendar/events/${eventId}/restore`).then(unwrap),
 };
 
 export const dashboardApi = {
@@ -103,9 +127,12 @@ export const syncApi = {
 };
 
 export const jiraApi = {
-  oneLineDescription: (jiraKey) => backendApi.post("/api/jira/one-line-description", { jira_key: jiraKey }).then(unwrap),
-  rca: (jiraKey, additionalContext = "") => backendApi.post("/api/jira/rca", { jira_key: jiraKey, additional_context: additionalContext }).then(unwrap),
-  startRcaJob: (jiraKey, additionalContext = "") => backendApi.post("/api/jira/rca/jobs", { jira_key: jiraKey, additional_context: additionalContext }).then(unwrap),
-  getRcaJob: (jobId) => backendApi.get(`/api/jira/rca/jobs/${jobId}`).then(unwrap),
-  startSsoLogin: (jiraKey) => backendApi.post("/api/jira/sso-login", { jira_key: jiraKey }).then(unwrap),
+  oneLineDescription: (jiraKey) => localCodexApi.post("/api/jira/one-line-description", { jira_key: jiraKey }).then(unwrap),
+  taskFields: (jiraKey) => localCodexApi.post("/api/jira/task-fields", { jira_key: jiraKey }).then(unwrap),
+  rca: (jiraKey, additionalContext = "", priority = "", codeBasePath = "") => localCodexApi.post("/api/jira/rca", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath }).then(unwrap),
+  startRcaJob: (jiraKey, additionalContext = "", priority = "", codeBasePath = "") => localCodexApi.post("/api/jira/rca/jobs", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath }).then(unwrap),
+  getRcaJob: (jobId) => localCodexApi.get(`/api/jira/rca/jobs/${jobId}`).then(unwrap),
+  cancelRcaJob: (jobId) => localCodexApi.post(`/api/jira/rca/jobs/${jobId}/cancel`).then(unwrap),
+  selectRcaWorkspace: () => localCodexApi.post("/api/jira/rca/workspace/select", {}).then(unwrap),
+  startSsoLogin: (jiraKey) => localCodexApi.post("/api/jira/sso-login", { jira_key: jiraKey }).then(unwrap),
 };
