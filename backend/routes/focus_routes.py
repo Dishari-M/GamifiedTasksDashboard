@@ -1,16 +1,10 @@
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, status
 
 from services.oracle_focus_service import create_oracle_focus_session, list_oracle_focus_sessions
+from services.user_context import current_oracle_user_id
 
 
 router = APIRouter(prefix="/api/v1/focus-sessions", tags=["Focus"])
-
-
-def current_oracle_user_id(x_devquest_user_id: str | None = Header(default=None, alias="X-DevQuest-User-Id")):
-    try:
-        return int(x_devquest_user_id) if x_devquest_user_id else 1
-    except (TypeError, ValueError):
-        return 1
 
 
 @router.get("", status_code=status.HTTP_200_OK)

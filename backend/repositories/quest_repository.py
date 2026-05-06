@@ -522,7 +522,7 @@ def create_or_replace_plan(cur, user_id, payload):
             UPDATE QUEST_ITEMS
             SET STATE = 'SKIPPED',
                 SKIPPED_AT = COALESCE(SKIPPED_AT, SYSTIMESTAMP),
-                SKIP_REASON = COALESCE(SKIP_REASON, 'Regenerated'),
+                SKIP_REASON = COALESCE(SKIP_REASON, 'Not today'),
                 UPDATED_AT = SYSTIMESTAMP,
                 ROW_VERSION = ROW_VERSION + 1
             WHERE QUEST_ITEM_ID = :quest_item_id
@@ -858,7 +858,7 @@ def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items,
                 SET STATE = 'SKIPPED',
                     RANK_ORDER = :rank_order,
                     SKIPPED_AT = SYSTIMESTAMP,
-                    SKIP_REASON = 'Regenerated',
+                    SKIP_REASON = 'Not today',
                     UPDATED_AT = SYSTIMESTAMP,
                     ROW_VERSION = ROW_VERSION + 1
                 WHERE QUEST_ITEM_ID = :quest_item_id
