@@ -16,6 +16,7 @@ from services.mission_quest_ai_service import (
 )
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import get_calendar_events, resolve_work_date
+from services.user_context import parse_oracle_user_id
 from services.xp_service import resolve_xp_value
 
 
@@ -56,7 +57,7 @@ def generate_missions(work_date, request_payload, user_id):
 
     def action():
         tasks = _candidate_tasks(read_records(WORK_ITEMS_FILE), user_id, work_date, request_payload)
-        context = _context(work_date, tasks, request_payload, "missions")
+        context = _context(work_date, tasks, request_payload, "missions", user_id)
         ai_runs = read_records(AI_RUNS_FILE)
         ai_run = _create_ai_run(ai_runs, user_id, "MISSION_RECOMMENDATIONS", work_date, MISSION_SYSTEM_PROMPT, context, request_payload)
         write_records(AI_RUNS_FILE, ai_runs)
@@ -136,13 +137,13 @@ def generate_quests(quest_date, request_payload, user_id):
         work_items = read_records(WORK_ITEMS_FILE)
         tasks = _candidate_tasks(work_items, user_id, quest_date, request_payload)
         if request_payload.get("from_missions"):
-            mission_context = _context(quest_date, tasks, {**request_payload, "max_missions": request_payload.get("max_quests", 5)}, "missions")
+            mission_context = _context(quest_date, tasks, {**request_payload, "max_missions": request_payload.get("max_quests", 5)}, "missions", user_id)
             mission_ai = build_mission_ai_output(mission_context)
             mission_ids = [item.get("task_id") for item in mission_ai.get("missions", []) if item.get("is_quest_candidate")]
             if mission_ids:
                 tasks = [task for task in tasks if task["task_id"] in set(mission_ids)]
 
-        context = _context(quest_date, tasks, request_payload, "quests")
+        context = _context(quest_date, tasks, request_payload, "quests", user_id)
         ai_runs = read_records(AI_RUNS_FILE)
         quest_plans = read_records(QUEST_PLANS_FILE)
         quest_items = read_records(QUEST_ITEMS_FILE)
@@ -186,7 +187,7 @@ def _oracle_generate_missions(work_date, request_payload, user_id):
     try:
         cur = conn.cursor()
         tasks = _oracle_candidate_tasks(cur, user_id, work_date, request_payload)
-        context = _context(work_date, tasks, request_payload, "missions")
+        context = _context(work_date, tasks, request_payload, "missions", user_id)
         ai_run_id = ai_run_repository.insert_ai_run(
             cur,
             user_id,
@@ -262,13 +263,13 @@ def _oracle_generate_quests(quest_date, request_payload, user_id):
         cur = conn.cursor()
         tasks = _oracle_candidate_tasks(cur, user_id, quest_date, request_payload)
         if request_payload.get("from_missions"):
-            mission_context = _context(quest_date, tasks, {**request_payload, "max_missions": request_payload.get("max_quests", 5)}, "missions")
+            mission_context = _context(quest_date, tasks, {**request_payload, "max_missions": request_payload.get("max_quests", 5)}, "missions", user_id)
             mission_ai = build_mission_ai_output(mission_context)
             mission_ids = {item.get("task_id") for item in mission_ai.get("missions", []) if item.get("is_quest_candidate")}
             if mission_ids:
                 tasks = [task for task in tasks if task["task_id"] in mission_ids]
 
-        context = _context(quest_date, tasks, request_payload, "quests")
+        context = _context(quest_date, tasks, request_payload, "quests", user_id)
         ai_run_id = ai_run_repository.insert_ai_run(
             cur,
             user_id,
@@ -307,14 +308,14 @@ def _oracle_generate_quests(quest_date, request_payload, user_id):
         conn.close()
 
 
-def _context(work_date, tasks, request_payload, scope):
-    capacity = build_capacity(work_date)
+def _context(work_date, tasks, request_payload, scope, user_id=None):
+    capacity = build_capacity(work_date, user_id=user_id)
     return {
         "date": work_date,
         "scope": scope,
         "max_items": int(request_payload.get("max_missions") or request_payload.get("max_quests") or 5),
         "capacity": capacity,
-        "calendar_events": get_calendar_events(work_date) if request_payload.get("include_calendar", True) else [],
+        "calendar_events": get_calendar_events(work_date, user_id) if request_payload.get("include_calendar", True) else [],
         "candidate_tasks": [_ai_task(task) for task in tasks],
     }
 
@@ -635,10 +636,7 @@ def _now_iso():
 
 
 def _oracle_user_id(user_id):
-    try:
-        return int(user_id)
-    except (TypeError, ValueError):
-        return 1
+    return parse_oracle_user_id(user_id)
 
 
 def _oracle_http_error(exc):

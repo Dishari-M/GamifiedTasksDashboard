@@ -1,47 +1,44 @@
 from db import connection_scope
 
 
-DEFAULT_USER_ID = 1
-
-
-def get_user():
+def get_user(user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
-        return _get_user(cur)
+        return _get_user(cur, user_id)
 
 
-def get_work_items():
+def get_work_items(user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
-        return _get_work_items(cur, _today_from_db(cur))
+        return _get_work_items(cur, user_id, _today_from_db(cur))
 
 
-def get_daily_work_items(work_date):
+def get_daily_work_items(work_date, user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
-        return _get_daily_work_items(cur, work_date)
+        return _get_daily_work_items(cur, user_id, work_date)
 
 
-def get_calendar_events(work_date):
+def get_calendar_events(work_date, user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
-        return _get_calendar_events(cur, work_date)
+        return _get_calendar_events(cur, user_id, work_date)
 
 
-def get_dashboard_snapshot(work_date, previous_date):
+def get_dashboard_snapshot(work_date, previous_date, user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
         return {
-            "user": _get_user(cur),
-            "tasks": _get_work_items(cur, work_date),
-            "daily_work_items": _get_daily_work_items(cur, work_date),
-            "previous_daily_work_items": _get_daily_work_items(cur, previous_date),
-            "events": _get_calendar_events(cur, work_date),
-            "previous_events": _get_calendar_events(cur, previous_date),
+            "user": _get_user(cur, user_id),
+            "tasks": _get_work_items(cur, user_id, work_date),
+            "daily_work_items": _get_daily_work_items(cur, user_id, work_date),
+            "previous_daily_work_items": _get_daily_work_items(cur, user_id, previous_date),
+            "events": _get_calendar_events(cur, user_id, work_date),
+            "previous_events": _get_calendar_events(cur, user_id, previous_date),
         }
 
 
-def _get_user(cur):
+def _get_user(cur, user_id):
     cur.execute(
         """
         SELECT
@@ -55,11 +52,11 @@ def _get_user(cur):
         FROM APP_USERS
         WHERE USER_ID = :user_id
         """,
-        {"user_id": DEFAULT_USER_ID},
+        {"user_id": user_id},
     )
     row = cur.fetchone()
     if not row:
-        return _default_user()
+        return _default_user(user_id)
     first_name, last_name = _split_display_name(row[1])
     return {
         "user_id": row[0],
@@ -73,7 +70,7 @@ def _get_user(cur):
     }
 
 
-def _get_work_items(cur, work_date):
+def _get_work_items(cur, user_id, work_date):
     cur.execute(
         """
         SELECT
@@ -99,7 +96,7 @@ def _get_work_items(cur, work_date):
         ORDER BY UPDATED_AT DESC, CREATED_AT DESC, TASK_ID DESC
         FETCH FIRST 100 ROWS ONLY
         """,
-        {"user_id": DEFAULT_USER_ID},
+        {"user_id": user_id},
     )
     return [
         {
@@ -125,7 +122,7 @@ def _get_work_items(cur, work_date):
     ]
 
 
-def _get_daily_work_items(cur, work_date):
+def _get_daily_work_items(cur, user_id, work_date):
     cur.execute(
         """
         SELECT
@@ -149,7 +146,7 @@ def _get_daily_work_items(cur, work_date):
           AND d.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD')
         ORDER BY RANK_ORDER
         """,
-        {"user_id": DEFAULT_USER_ID, "work_date": work_date},
+        {"user_id": user_id, "work_date": work_date},
     )
     return [
         {
@@ -167,7 +164,7 @@ def _get_daily_work_items(cur, work_date):
     ]
 
 
-def _get_calendar_events(cur, work_date):
+def _get_calendar_events(cur, user_id, work_date):
     cur.execute(
         """
         SELECT
@@ -186,7 +183,7 @@ def _get_calendar_events(cur, work_date):
           AND START_AT < CAST(TO_DATE(:work_date, 'YYYY-MM-DD') + 1 AS TIMESTAMP)
         ORDER BY START_AT
         """,
-        {"user_id": DEFAULT_USER_ID, "work_date": work_date},
+        {"user_id": user_id, "work_date": work_date},
     )
     return [
         {
@@ -232,9 +229,9 @@ def _today_from_db(cur):
     return cur.fetchone()[0]
 
 
-def _default_user():
+def _default_user(user_id):
     return {
-        "user_id": DEFAULT_USER_ID,
+        "user_id": user_id,
         "first_name": "DevQuest",
         "last_name": "User",
         "email": "",

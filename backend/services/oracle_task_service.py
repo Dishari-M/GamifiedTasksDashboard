@@ -7,9 +7,8 @@ from fastapi import HTTPException
 from db import get_connection
 from repositories import task_repository
 from services.task_ai_service import enrich_task_with_ai, fallback_task_enrichment
+from services.user_context import parse_oracle_user_id
 
-
-DEFAULT_USER_ID = 1
 
 VALID_TASK_TYPES = {"Task", "Bug", "Epic", "Review", "Meeting"}
 VALID_SOURCES = {"Custom", "CUSTOM", "Jira", "Outlook", "Microsoft To Do"}
@@ -38,7 +37,7 @@ ALIASES = {
 }
 
 
-def list_oracle_tasks(filters=None, user_id=DEFAULT_USER_ID):
+def list_oracle_tasks(filters=None, user_id=None):
     filters = dict(filters or {})
     work_date = _normalize_date(filters.get("worked_date") or _today_utc(), "worked_date")
     conn = None
@@ -53,7 +52,7 @@ def list_oracle_tasks(filters=None, user_id=DEFAULT_USER_ID):
             conn.close()
 
 
-def get_oracle_task(task_id, user_id=DEFAULT_USER_ID):
+def get_oracle_task(task_id, user_id=None):
     conn = None
     try:
         conn = get_connection()
@@ -70,7 +69,7 @@ def get_oracle_task(task_id, user_id=DEFAULT_USER_ID):
             conn.close()
 
 
-def create_oracle_task(payload, user_id=DEFAULT_USER_ID):
+def create_oracle_task(payload, user_id=None):
     task = _normalize_payload(payload)
     _validate_task_input(task)
     conn = None
@@ -106,7 +105,7 @@ def create_oracle_task(payload, user_id=DEFAULT_USER_ID):
             conn.close()
 
 
-def update_oracle_task(task_id, payload, user_id=DEFAULT_USER_ID):
+def update_oracle_task(task_id, payload, user_id=None):
     task_id = _task_id(task_id)
     data = _normalize_update_payload(payload)
     row_version = _optional_int((payload or {}).get("row_version") or (payload or {}).get("rowVersion"), "row_version")
@@ -168,11 +167,11 @@ def update_oracle_task(task_id, payload, user_id=DEFAULT_USER_ID):
             conn.close()
 
 
-def update_oracle_task_notes(task_id, payload, user_id=DEFAULT_USER_ID):
+def update_oracle_task_notes(task_id, payload, user_id=None):
     return update_oracle_task(task_id, {**dict(payload or {}), "notes": (payload or {}).get("notes", "")}, user_id)
 
 
-def update_oracle_task_status(task_id, payload, user_id=DEFAULT_USER_ID):
+def update_oracle_task_status(task_id, payload, user_id=None):
     data = dict(payload or {})
     if not data.get("status"):
         _validation_error("status is required.", {"field": "status"})
@@ -182,7 +181,7 @@ def update_oracle_task_status(task_id, payload, user_id=DEFAULT_USER_ID):
     return task
 
 
-def complete_oracle_task(task_id, payload, user_id=DEFAULT_USER_ID):
+def complete_oracle_task(task_id, payload, user_id=None):
     data = dict(payload or {})
     notes = _append_notes(
         data.get("notes"),
@@ -199,7 +198,7 @@ def complete_oracle_task(task_id, payload, user_id=DEFAULT_USER_ID):
     return _clear_today_after_completion(task_id, task, user_id, event_type="TASK_COMPLETED")
 
 
-def update_oracle_task_today(task_id, payload, user_id=DEFAULT_USER_ID):
+def update_oracle_task_today(task_id, payload, user_id=None):
     task_id = _task_id(task_id)
     data = _normalize_aliases(payload or {})
     requested = data.get("working_today")
@@ -436,8 +435,6 @@ def _validate_update_data(data):
     for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         if data.get(field) is not None and data[field] < 0:
             _validation_error(f"{field} cannot be negative.", {"field": field})
-    if "rca_tshirt_size" in data and data.get("rca_tshirt_size") is None:
-        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
 
 
 def _validate_unique_external_identity(cur, user_id, task):
@@ -543,10 +540,7 @@ def _optional_int(value, field):
 
 
 def _user_id(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return DEFAULT_USER_ID
+    return parse_oracle_user_id(value)
 
 
 def _task_id(value):

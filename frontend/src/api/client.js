@@ -34,6 +34,14 @@ const phase8Api = axios.create({
   },
 });
 
+phase8Api.interceptors.request.use((config) => {
+  const user = readStoredUser();
+  if (user?.user_id) {
+    config.headers["X-DevQuest-User-Id"] = user.user_id;
+  }
+  return config;
+});
+
 const unwrap = (response) => response.data?.data ?? response.data;
 const inFlightGetRequests = new Map();
 

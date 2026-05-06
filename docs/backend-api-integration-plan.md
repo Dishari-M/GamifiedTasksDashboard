@@ -127,6 +127,12 @@ Oracle access rule for implementation:
 - Do not store pooled connections in module globals, cached objects, or
   long-lived service instances. Acquire late and release immediately after the
   SQL unit of work finishes.
+- User ownership is mandatory: every user-scoped API must resolve the caller
+  from `X-DevQuest-User-Id` and query/mutate with that resolved
+  `APP_USERS.USER_ID`. Do not hardcode `USER_ID = 1` in services,
+  repositories, dashboard/capacity reads, overview reads, AI runs, quests, or
+  task writes. The local app id format `user-<n>` maps to Oracle numeric
+  `APP_USERS.USER_ID = <n>`.
 - Default pool sizing is fixed (`DB_POOL_SIZE=10`, so min and max are both 10)
   following Oracle python-oracledb guidance to avoid connection storms. Only use
   different `DB_POOL_MIN` / `DB_POOL_MAX` values when the deployment owner

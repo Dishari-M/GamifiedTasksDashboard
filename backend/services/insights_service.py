@@ -12,6 +12,7 @@ from services.insights_ai_service import TODAY_INSIGHT_SYSTEM_PROMPT, build_toda
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import get_calendar_events, resolve_work_date
 from services.stat_insight_service import build_stat_insights, previous_date_key
+from services.user_context import parse_oracle_user_id
 from services.xp_service import resolve_xp_value
 
 
@@ -137,9 +138,9 @@ def _context(work_date, user_id):
             int(task.get("estimated_minutes") or 0),
         ),
     )
-    capacity = build_capacity(work_date)
-    previous_capacity = build_capacity(previous_date)
-    events = get_calendar_events(work_date)
+    capacity = build_capacity(work_date, user_id=user_id)
+    previous_capacity = build_capacity(previous_date, user_id=user_id)
+    events = get_calendar_events(work_date, user_id)
     metrics = {
         "task_count": len(tasks),
         "working_today_count": len(worked_tasks),
@@ -152,10 +153,10 @@ def _context(work_date, user_id):
 
 def _oracle_context(cur, work_date, user_id):
     tasks = task_repository.list_tasks(cur, user_id, {"page": 1, "page_size": 500}, work_date)["items"]
-    return _context_from_tasks(work_date, tasks)
+    return _context_from_tasks(work_date, tasks, user_id)
 
 
-def _context_from_tasks(work_date, tasks):
+def _context_from_tasks(work_date, tasks, user_id=None):
     tasks = [_response_task(task, work_date) for task in tasks]
     previous_date = previous_date_key(work_date)
     worked_tasks = [task for task in tasks if task["working_today"]]
@@ -171,9 +172,9 @@ def _context_from_tasks(work_date, tasks):
             int(task.get("estimated_minutes") or 0),
         ),
     )
-    capacity = build_capacity(work_date)
-    previous_capacity = build_capacity(previous_date)
-    events = get_calendar_events(work_date)
+    capacity = build_capacity(work_date, user_id=user_id)
+    previous_capacity = build_capacity(previous_date, user_id=user_id)
+    events = get_calendar_events(work_date, user_id)
     metrics = {
         "task_count": len(tasks),
         "working_today_count": len(worked_tasks),
@@ -385,10 +386,7 @@ def _now_iso():
 
 
 def _oracle_user_id(user_id):
-    try:
-        return int(user_id)
-    except (TypeError, ValueError):
-        return 1
+    return parse_oracle_user_id(user_id)
 
 
 def _oracle_error(exc):
