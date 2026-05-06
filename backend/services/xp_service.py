@@ -6,12 +6,23 @@ TSHIRT_XP = {
     "XL": 210,
 }
 
+TSHIRT_NOT_APPLICABLE = "NA"
+TSHIRT_ALLOWED = {*TSHIRT_XP, TSHIRT_NOT_APPLICABLE}
+TSHIRT_NOT_APPLICABLE_ALIASES = {"NA", "N/A", "NOT APPLICABLE", "NOT_APPLICABLE", "NONE"}
+
 
 def normalize_tshirt_size(value):
     if value is None:
         return None
     size = str(value).strip().upper()
-    return size if size in TSHIRT_XP else None
+    if size in TSHIRT_NOT_APPLICABLE_ALIASES:
+        return TSHIRT_NOT_APPLICABLE
+    return size if size in TSHIRT_ALLOWED else None
+
+
+def has_applicable_tshirt_size(value):
+    size = normalize_tshirt_size(value)
+    return bool(size and size != TSHIRT_NOT_APPLICABLE)
 
 
 def xp_from_tshirt_size(value):

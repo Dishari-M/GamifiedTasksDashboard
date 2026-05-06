@@ -18,7 +18,7 @@ from services.mission_quest_ai_service import (
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import get_calendar_events, resolve_work_date
 from services.user_context import parse_oracle_user_id
-from services.xp_service import resolve_xp_value
+from services.xp_service import has_applicable_tshirt_size, resolve_xp_value
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -388,7 +388,7 @@ def _default_rank(tasks):
 def _xp_source(task):
     if task.get("xp_value") not in (None, "") or task.get("xp") not in (None, ""):
         return "explicit"
-    if task.get("rca_tshirt_size") or task.get("rcaTshirtSize"):
+    if has_applicable_tshirt_size(task.get("rca_tshirt_size") or task.get("rcaTshirtSize")):
         return "rca_tshirt_size"
     return "default"
 
