@@ -1,4 +1,4 @@
-import { CheckCircle, Clock, Play, Timer, Trophy } from "@phosphor-icons/react";
+import { CheckCircle, Clock, Lightning, Play, Timer, Trophy } from "@phosphor-icons/react";
 import { formatMinutes } from "../../utils/dateTime";
 import { formatFocusMultiplier } from "../rewards/xpRewards";
 
@@ -48,6 +48,7 @@ export const NextQuestCard = ({
   nextQuest,
   nextQuestTask,
   summary,
+  isCompleting,
   activeSessionMatchesNextQuest,
   activeSessionConflicts,
   skipReason,
@@ -99,13 +100,16 @@ export const NextQuestCard = ({
           <Play size={19} weight="fill" aria-hidden="true" /> {activeSessionMatchesNextQuest ? "Resume Focus" : activeSessionConflicts ? "Open Focus" : "Start Focus"}
         </button>
         {activeSessionConflicts && <p className="quest-focus-warning" data-testid="quest-focus-warning">A focus session is already running. Open Focus Mode to wrap it before starting this quest.</p>}
-        <button className="ghost-button success-action" onClick={() => onCompleteQuest(nextQuest.id)} data-testid="quest-complete-button"><CheckCircle size={19} weight="duotone" aria-hidden="true" /> Complete quest</button>
+        <button className="primary-action quest-complete-action" onClick={() => onCompleteQuest(nextQuest.id)} disabled={isCompleting} data-testid="quest-complete-button">
+          {isCompleting ? <span className="quest-button-loader" aria-hidden="true" /> : <Lightning size={19} weight="fill" aria-hidden="true" />}
+          {isCompleting ? "Claiming XP..." : "Complete & claim XP"}
+        </button>
         <div className="skip-control">
           <label htmlFor="quest-skip-reason">Skip reason</label>
-          <select id="quest-skip-reason" value={skipReason} onChange={(event) => onSkipReasonChange(event.target.value)} data-testid="quest-skip-reason-select">
+          <select id="quest-skip-reason" value={skipReason} onChange={(event) => onSkipReasonChange(event.target.value)} disabled={isCompleting} data-testid="quest-skip-reason-select">
             {skipReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
           </select>
-          <button className="ghost-button" onClick={() => onSkipQuest(nextQuest.id, skipReason)} data-testid="quest-skip-button">Skip</button>
+          <button className="ghost-button" onClick={() => onSkipQuest(nextQuest.id, skipReason)} disabled={isCompleting} data-testid="quest-skip-button">Skip</button>
         </div>
       </div>
     </article>

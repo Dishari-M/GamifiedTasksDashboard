@@ -846,7 +846,12 @@ def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items,
 
     incoming_task_ids = {str(quest.get("task_id")) for quest in incoming_quests}
     referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
-    next_rank_order = max([int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests] + [0]) + 1
+    highest_live_rank = max(
+        [int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests]
+        + [int(item.get("rank") or item.get("rank_order") or 0) for item in existing_items]
+        + [0]
+    )
+    next_rank_order = highest_live_rank + 1000
 
     for item in existing_items:
         if str(item.get("task_id")) in incoming_task_ids:

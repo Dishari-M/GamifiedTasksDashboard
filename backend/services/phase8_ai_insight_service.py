@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from fastapi import HTTPException
 
@@ -6,14 +7,24 @@ from config import get_ai_mode, get_ai_provider, get_oci_genai_model_id
 from integrations import oci_genai_client
 
 
+logger = logging.getLogger(__name__)
+
+
 def _generated_at():
     """Return the current local timestamp for generated insight metadata."""
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def _task_impact_score(task):
+    if "ai_impact_score" in task and task["ai_impact_score"] is not None:
+        return task["ai_impact_score"]
+    ai = task.get("ai") or {}
+    return ai.get("impact_score", 0)
+
+
 def _mock_insight(capacity, top_missions, planned_tasks):
     """Build a deterministic dashboard insight without calling an AI provider."""
-    impact_score = max((task["ai_impact_score"] for task in planned_tasks), default=0)
+    impact_score = max((_task_impact_score(task) for task in planned_tasks), default=0)
     first_mission = top_missions[0]["title"] if top_missions else "the highest priority mission"
     return {
         "text": f"You have {capacity['available_focus_minutes']} focus minutes after meetings. Start with {first_mission}.",
@@ -50,22 +61,19 @@ def _real_insight(work_date, capacity, top_missions, tasks, schedule):
 
     model_id = get_oci_genai_model_id()
     if not model_id:
-        raise HTTPException(
-            status_code=501,
-            detail="DEVQUEST_AI_MODE=real requires OCI_GENAI_MODEL_ID before OCI Generative AI can be called.",
-        )
+        logger.warning("Dashboard insight falling back to deterministic output because OCI_GENAI_MODEL_ID is not configured.")
+        return _mock_insight(capacity, top_missions, tasks)
 
     try:
         insight = oci_genai_client.generate_dashboard_insight(
             _prompt_payload(work_date, capacity, top_missions, tasks, schedule)
         )
     except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        logger.warning("Dashboard insight OCI client is not implemented locally; using deterministic fallback.")
+        return _mock_insight(capacity, top_missions, tasks)
     except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"OCI Generative AI call failed: {exc}",
-        ) from exc
+        logger.exception("Dashboard insight OCI call failed; using deterministic fallback.")
+        return _mock_insight(capacity, top_missions, tasks)
 
     return {
         **insight,
