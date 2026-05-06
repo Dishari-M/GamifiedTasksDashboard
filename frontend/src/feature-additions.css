@@ -3805,3 +3805,91 @@ html[data-theme="light"] .page-loader-orbit::after {
 html[data-theme="light"] .page-loader-core {
   background: linear-gradient(145deg, rgba(112, 71, 255, 0.13), rgba(109, 155, 179, 0.12));
 }
+
+.quest-inline-status {
+  margin: 0 0 18px;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.quest-generate-busy {
+  position: relative;
+}
+
+.quest-button-loader {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  animation: quest-button-spin 0.8s linear infinite;
+}
+
+.quest-complete-action {
+  background: linear-gradient(135deg, rgba(36, 208, 120, 0.95), rgba(18, 166, 99, 0.95));
+  border-color: rgba(36, 208, 120, 0.3);
+  box-shadow: 0 14px 28px rgba(12, 110, 66, 0.28);
+}
+
+.quest-complete-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(12, 110, 66, 0.32);
+}
+
+.focus-saving-panel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(98, 111, 153, 0.24);
+}
+
+.focus-saving-panel p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+}
+
+.floating-notice {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 40;
+  display: grid;
+  gap: 4px;
+  max-width: min(360px, calc(100vw - 36px));
+  padding: 14px 16px;
+  border-radius: 16px;
+  color: #fff;
+  background: rgba(18, 166, 99, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28);
+  animation: floating-notice-in 0.18s ease-out;
+}
+
+.floating-notice span {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+@keyframes quest-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes floating-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

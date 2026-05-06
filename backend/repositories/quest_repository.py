@@ -579,6 +579,40 @@ def fetch_item_with_plan(cur, user_id, quest_item_id):
     }
 
 
+def list_completed_quest_dates(cur, user_id, reference_date):
+    cur.execute(
+        """
+        SELECT DISTINCT TO_CHAR(qp.QUEST_DATE, 'YYYY-MM-DD')
+        FROM QUEST_ITEMS qi
+        JOIN QUEST_PLANS qp
+          ON qp.QUEST_PLAN_ID = qi.QUEST_PLAN_ID
+        WHERE qp.USER_ID = :user_id
+          AND qi.STATE = 'COMPLETED'
+          AND qp.QUEST_DATE <= TO_DATE(:reference_date, 'YYYY-MM-DD')
+        ORDER BY TO_CHAR(qp.QUEST_DATE, 'YYYY-MM-DD')
+        """,
+        {"user_id": user_id, "reference_date": reference_date},
+    )
+    return [row[0] for row in cur.fetchall() if row and row[0]]
+
+
+def count_completed_quests(cur, user_id, reference_date):
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM QUEST_ITEMS qi
+        JOIN QUEST_PLANS qp
+          ON qp.QUEST_PLAN_ID = qi.QUEST_PLAN_ID
+        WHERE qp.USER_ID = :user_id
+          AND qi.STATE = 'COMPLETED'
+          AND qp.QUEST_DATE <= TO_DATE(:reference_date, 'YYYY-MM-DD')
+        """,
+        {"user_id": user_id, "reference_date": reference_date},
+    )
+    row = cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
 def resolve_client_item_id(cur, user_id, client_quest_item_id):
     cur.execute(
         """
@@ -846,7 +880,12 @@ def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items,
 
     incoming_task_ids = {str(quest.get("task_id")) for quest in incoming_quests}
     referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
-    next_rank_order = max([int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests] + [0]) + 1
+    highest_live_rank = max(
+        [int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests]
+        + [int(item.get("rank") or item.get("rank_order") or 0) for item in existing_items]
+        + [0]
+    )
+    next_rank_order = highest_live_rank + 1000
 
     for item in existing_items:
         if str(item.get("task_id")) in incoming_task_ids:
