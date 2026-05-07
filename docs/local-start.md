@@ -201,18 +201,28 @@ the task list query can skip the separate `COUNT(*)` round-trip. Keep the
 default `include_total=true` behavior for clients/tests that need exact paging
 totals.
 
-Later, when OCI Generative AI access is available:
+For final local OCI Generative AI access, first run:
+
+```powershell
+oci session authenticate --region us-phoenix-1 --tenancy-name bmc_operator_access --profile-name boat
+```
+
+Then set:
 
 ```powershell
 $env:DEVQUEST_AI_MODE="real"
 $env:DEVQUEST_AI_PROVIDER="oci_genai"
-$env:OCI_GENAI_MODEL_ID="your_model_id"
-$env:OCI_COMPARTMENT_ID="your_compartment_ocid"
-$env:OCI_AUTH_TYPE="config_file"
-$env:OCI_CONFIG_PROFILE="DEFAULT"
+$env:OCI_AUTH_TYPE="security_token"
+$env:OCI_CONFIG_PROFILE="boat"
+$env:OCI_REGION="us-phoenix-1"
+$env:OCI_COMPARTMENT_ID="ocid1.compartment.oc1..aaaaaaaaqbtusst4xngousk4vlvadjqhx32spryfmjymfnkoxw755ohsqn7q"
+$env:OCI_GENAI_ENDPOINT="https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com"
+$env:OCI_GENAI_MODEL_ID="google.gemini-2.5-flash"
+$env:OCI_GENAI_REQUEST_FORMAT="generic"
 ```
 
 `oci_genai` refers to OCI Generative AI through the Generative AI Service Inference API.
+`security_token` uses the OCI CLI session token in the local `boat` profile. If auth fails after working earlier, rerun `oci session authenticate`.
 
 Optional OCI settings:
 
