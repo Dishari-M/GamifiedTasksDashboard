@@ -36,7 +36,7 @@ def create_task(task, ai, user_id):
             },
         )
         conn.commit()
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today"))
+        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
     value = task_id.getvalue()
     tid = value[0] if isinstance(value, list) else value
     return {"id":tid,"xp":xp}
@@ -60,7 +60,7 @@ def complete_task(task_id, user_id):
         )
         conn.commit()
         updated=cur.rowcount
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today"))
+        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
     return {"id":task_id,"status":"done","updated":updated}
 
 def _text(value):

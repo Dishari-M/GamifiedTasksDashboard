@@ -57,7 +57,7 @@ def set_working_today(task_id, is_working_today, row_version, user_id):
 
         worked_dates = list_worked_dates(cur, task_id, user_id)
         conn.commit()
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today"))
+        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
         return {
             "task_id": task_id,
             "work_date": work_date,
