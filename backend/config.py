@@ -59,6 +59,7 @@ def get_oci_auth_type():
 
     Supported values:
     - config_file: local developer auth through ~/.oci/config. This is default.
+    - security_token: local OCI CLI session auth through a profile that has security_token_file.
     - instance_principal: OCI compute/resource runtime auth.
     - resource_principal: OCI Functions or similar resource principal auth.
     """
