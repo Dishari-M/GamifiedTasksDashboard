@@ -96,10 +96,14 @@ def build_dashboard(date=None, user_id=None):
 
     task_by_id = {task["task_id"]: task for task in tasks}
     daily_by_task_id = {item["task_id"]: item for item in daily_work_items}
-    planned_tasks = [task_by_id[item["task_id"]] for item in daily_work_items if item["task_id"] in task_by_id]
+    planned_tasks = [
+        task_by_id[item["task_id"]]
+        for item in daily_work_items
+        if item["task_id"] in task_by_id and task_by_id[item["task_id"]].get("status") != "Done"
+    ]
 
     top_mission_rows = sorted(
-        daily_work_items,
+        [item for item in daily_work_items if task_by_id.get(item["task_id"], {}).get("status") != "Done"],
         key=lambda item: (
             item["rank_order"] if item["rank_order"] is not None else 999,
             -(task_by_id.get(item["task_id"], {}).get("ai_priority_score", 0)),
