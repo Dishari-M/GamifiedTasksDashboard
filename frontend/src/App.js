@@ -1105,13 +1105,14 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
   const orderedQuestTasks = getQuestOrderedTasks(tasks, questRun);
-  const completedToday = completedTodayTasks(tasks);
   const runMissionTasks = isCurrentQuestRun(questRun) ? [
     nextQuestTask,
     ...(questRun.quests || []).filter((quest) => quest.id !== nextQuest?.id).map((quest) => getQuestTask(tasks, quest)),
-  ].filter(Boolean) : [];
-  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedQuestTasks.length ? orderedQuestTasks : [...tasks].sort(compareQuestTasks);
-  const topMissions = uniqueTasksById([...missionSourceTasks.slice(0, 3), ...completedToday]);
+  ].filter((task) => task && task.status !== "Done") : [];
+  const orderedOpenQuestTasks = orderedQuestTasks.filter((task) => task.status !== "Done");
+  const rankedOpenTasks = [...tasks].filter((task) => task.status !== "Done").sort(compareQuestTasks);
+  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedOpenQuestTasks.length ? orderedOpenQuestTasks : rankedOpenTasks;
+  const topMissions = uniqueTasksById(missionSourceTasks.slice(0, 3));
 
   if (isLoading) {
     return <PageLoader title="Loading dashboard" detail="Fetching tasks, capacity, calendar, and AI insight data." steps={["Tasks", "Calendar", "AI"]} />;

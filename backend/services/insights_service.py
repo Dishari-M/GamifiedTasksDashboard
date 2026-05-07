@@ -260,21 +260,22 @@ def _fallback_ai(context):
 
 def _task_insight(task):
     xp_value = resolve_xp_value(task)
+    ai = task.get("ai") or {}
     return {
         "task_id": task["task_id"],
         "title": task["title"],
         "priority": task.get("priority"),
         "status": task.get("status"),
         "task_type": task.get("task_type"),
-        "priority_score": float(task.get("priority_score") or 0),
+        "priority_score": float(task.get("priority_score") or task.get("priorityScore") or ai.get("priority_score") or 0),
         "effort_minutes": int(task.get("estimated_minutes") or 0),
         "xp_value": xp_value,
         "xp_source": _xp_source(task),
         "rca_tshirt_size": task.get("rca_tshirt_size") or task.get("rcaTshirtSize"),
         "rca_file_change_count": task.get("rca_file_change_count") or task.get("rcaFileChangeCount"),
         "rca_complexity_source": task.get("rca_complexity_source") or task.get("rcaComplexitySource"),
-        "impact_score": float(task.get("impact") or 0),
-        "insight": task.get("ai_insight") or "",
+        "impact_score": float(task.get("impact") or task.get("ai_impact_score") or ai.get("impact_score") or 0),
+        "insight": task.get("ai_insight") or task.get("aiInsight") or ai.get("insight") or "",
         "notes": task.get("notes") or "",
         "labels": task.get("labels") or [],
     }
