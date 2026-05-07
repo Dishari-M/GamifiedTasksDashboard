@@ -23,6 +23,13 @@ $dbUser = "DEVQUEST_APP"
 $dbPassword = "Teamaurora2026"
 $dbWalletPassword = "TeamAurora2026"
 $dbAlias = "tasksdb_tp"
+$ociProfileName = "boat"
+$ociConfigPath = Join-Path $env:USERPROFILE ".oci\config"
+$ociRegion = "us-phoenix-1"
+$ociCompartmentId = "ocid1.compartment.oc1..aaaaaaaaqbtusst4xngousk4vlvadjqhx32spryfmjymfnkoxw755ohsqn7q"
+$ociGenAiEndpoint = "https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com"
+$ociGenAiModelId = "google.gemini-2.5-flash"
+$aiMode = "mock"
 
 function Stop-PortProcess {
     param([int]$Port)
@@ -109,9 +116,65 @@ function Require-Path {
     }
 }
 
+function Get-OciProfileValue {
+    param(
+        [string]$ConfigPath,
+        [string]$ProfileName,
+        [string]$Key
+    )
+
+    if (-not (Test-Path $ConfigPath)) {
+        return $null
+    }
+
+    $inProfile = $false
+    foreach ($line in Get-Content -Path $ConfigPath) {
+        $trimmed = $line.Trim()
+        if ($trimmed -match '^\[(.+)\]$') {
+            $inProfile = ($Matches[1] -eq $ProfileName)
+            continue
+        }
+        if ($inProfile -and $trimmed -match "^$([regex]::Escape($Key))\s*=\s*(.+)$") {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return $null
+}
+
+function Test-OciBoatSession {
+    $tokenFile = Get-OciProfileValue -ConfigPath $ociConfigPath -ProfileName $ociProfileName -Key "security_token_file"
+    if (-not $tokenFile) {
+        return $false
+    }
+
+    $expandedTokenFile = [Environment]::ExpandEnvironmentVariables($tokenFile)
+    return (Test-Path $expandedTokenFile)
+}
+
+function Resolve-AiMode {
+    if ($env:DEVQUEST_AI_MODE) {
+        return $env:DEVQUEST_AI_MODE.Trim().ToLowerInvariant()
+    }
+
+    if (Test-OciBoatSession) {
+        return "real"
+    }
+
+    return "mock"
+}
+
 function Set-OracleEnvironment {
     $env:DEVQUEST_DATA_MODE = "oracle"
-    $env:DEVQUEST_AI_MODE = "real"
+    $env:DEVQUEST_AI_MODE = $aiMode
+    $env:DEVQUEST_AI_PROVIDER = "oci_genai"
+    $env:OCI_AUTH_TYPE = "security_token"
+    $env:OCI_CONFIG_PROFILE = $ociProfileName
+    $env:OCI_REGION = $ociRegion
+    $env:OCI_COMPARTMENT_ID = $ociCompartmentId
+    $env:OCI_GENAI_ENDPOINT = $ociGenAiEndpoint
+    $env:OCI_GENAI_MODEL_ID = $ociGenAiModelId
+    $env:OCI_GENAI_REQUEST_FORMAT = "generic"
     $env:DB_USER = $dbUser
     $env:DB_PASSWORD = $dbPassword
     $env:DB_DSN = $dbAlias
@@ -154,6 +217,13 @@ Require-Path (Join-Path $oracleWalletDir "sqlnet.ora") "Oracle wallet is missing
 Require-Path (Join-Path $oracleWalletDir "ewallet.pem") "Oracle wallet is missing ewallet.pem at $oracleWalletDir"
 Require-Path $oracleClientDir "Oracle Instant Client folder not found: $oracleClientDir"
 Require-Path (Join-Path $oracleClientDir "oci.dll") "Oracle Instant Client is missing oci.dll at $oracleClientDir"
+
+$aiMode = Resolve-AiMode
+if ($aiMode -eq "real") {
+    Write-Host "AI Mode: real OCI GenAI using OCI profile '$ociProfileName'." -ForegroundColor Green
+} else {
+    Write-Host "AI Mode: mock. Run OCI CLI BOAT session auth to enable real GenAI locally." -ForegroundColor Yellow
+}
 
 Set-OracleEnvironment
 
@@ -217,7 +287,15 @@ Stop-PortProcess -Port 3000
 Write-Host "Starting backend on http://127.0.0.1:8000 ..." -ForegroundColor Green
 $backendCommand = @"
 `$env:DEVQUEST_DATA_MODE='oracle'
-`$env:DEVQUEST_AI_MODE='real'
+`$env:DEVQUEST_AI_MODE='$aiMode'
+`$env:DEVQUEST_AI_PROVIDER='oci_genai'
+`$env:OCI_AUTH_TYPE='security_token'
+`$env:OCI_CONFIG_PROFILE='$ociProfileName'
+`$env:OCI_REGION='$ociRegion'
+`$env:OCI_COMPARTMENT_ID='$ociCompartmentId'
+`$env:OCI_GENAI_ENDPOINT='$ociGenAiEndpoint'
+`$env:OCI_GENAI_MODEL_ID='$ociGenAiModelId'
+`$env:OCI_GENAI_REQUEST_FORMAT='generic'
 `$env:DB_USER='$dbUser'
 `$env:DB_PASSWORD='$dbPassword'
 `$env:DB_DSN='$dbAlias'
@@ -270,6 +348,7 @@ Write-Host "Frontend: http://127.0.0.1:3000"
 Write-Host "Backend:  http://127.0.0.1:8000"
 Write-Host "API Docs: http://127.0.0.1:8000/docs"
 Write-Host "DB Mode:  oracle (tasksdb_tp via thick mode)"
+Write-Host "AI Mode:  $aiMode"
 Write-Host "Stop:     .\stop-devquest.cmd"
 
 try {
