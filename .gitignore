@@ -21,8 +21,10 @@ backend/.venv/
 # Testing
 /coverage
 backend/.tmp/
-backend/.codex-rca-runtime/locks/
-backend/.codex-rca-runtime/tmp/
+
+# Local DevQuest runtime state
+.devquest/
+backend/.codex-rca-runtime/
 backend/.enrichment-logs/
 
 # Next.js
