@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from config import get_data_mode, get_oci_genai_model_id
 from db import get_connection
 from repositories import ai_run_repository, task_repository
+from services.api_cache import canonical_cache_key, get_cached_response, invalidate_user_cache, set_cached_response
 from services.filesystem_store import read_records, with_store_lock, write_records
 from services.insights_ai_service import TODAY_INSIGHT_SYSTEM_PROMPT, build_today_insight_ai_output
 from services.phase8_capacity_service import build_capacity
@@ -19,18 +20,31 @@ from services.xp_service import has_applicable_tshirt_size, resolve_xp_value
 WORK_ITEMS_FILE = "work_items.json"
 AI_RUNS_FILE = "ai_runs.json"
 RUN_TYPE = "TODAY_INSIGHT"
+INSIGHTS_CACHE_NAMESPACE = "insights_today"
+INSIGHTS_CACHE_TTL_SECONDS = 30
 
 
 def today_insight_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
-    return {"data": get_today_insight(work_date, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_user_id = _cache_user_id(user_id)
+    cache_key = _insight_cache_key(work_date, cache_user_id)
+    cached = get_cached_response(INSIGHTS_CACHE_NAMESPACE, cache_key, INSIGHTS_CACHE_TTL_SECONDS)
+    if cached:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = get_today_insight(work_date, user_id)
+    set_cached_response(INSIGHTS_CACHE_NAMESPACE, cache_key, data, user_id=cache_user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def generate_today_insight_response(payload, user_id=None):
     work_date = resolve_work_date(payload.date)
+    cache_user_id = _cache_user_id(user_id)
+    invalidate_user_cache(cache_user_id, (INSIGHTS_CACHE_NAMESPACE,))
+    data = generate_today_insight(work_date, user_id, payload.model_dump())
+    set_cached_response(INSIGHTS_CACHE_NAMESPACE, _insight_cache_key(work_date, cache_user_id), data, user_id=cache_user_id)
     return {
-        "data": generate_today_insight(work_date, user_id, payload.model_dump()),
-        "meta": {"request_id": str(uuid4())},
+        "data": data,
+        "meta": {"request_id": str(uuid4()), "cache": "refresh"},
     }
 
 
@@ -424,6 +438,18 @@ def _now_iso():
 
 def _oracle_user_id(user_id):
     return parse_oracle_user_id(user_id)
+
+
+def _cache_user_id(user_id):
+    return _oracle_user_id(user_id) if get_data_mode() == "oracle" else user_id
+
+
+def _insight_cache_key(work_date, user_id):
+    return canonical_cache_key({
+        "mode": get_data_mode(),
+        "user_id": user_id,
+        "date": work_date,
+    })
 
 
 def _oracle_error(exc):
