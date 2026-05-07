@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 INFO:     127.0.0.1:61169 - "GET / HTTP/1.1" 200 OK
 INFO:     127.0.0.1:62605 - "GET /api/v1/tasks HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59409 - "OPTIONS /api/v1/dashboard/today?date=2026-05-07 HTTP/1.1" 200 OK
@@ -440,3 +441,34 @@ INFO:     127.0.0.1:60713 - "POST /api/v1/sync/run HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53943 - "GET /api/v1/insights/today?date=2026-05-07 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:52188 - "GET /api/v1/tasks HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59735 - "GET /api/v1/dashboard/today?date=2026-05-07 HTTP/1.1" 200 OK
+=======
+INFO:     127.0.0.1:49680 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52196 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64076 - "OPTIONS /api/v1/overviews/daily/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59879 - "OPTIONS /api/v1/dashboard/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62718 - "OPTIONS /api/v1/overviews/daily?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65213 - "OPTIONS /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61729 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61729 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50060 - "OPTIONS /api/v1/insights/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59063 - "OPTIONS /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50060 - "OPTIONS /api/v1/insights/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59063 - "OPTIONS /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/standup-notes/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/insights/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62737 - "OPTIONS /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62737 - "OPTIONS /api/v1/quests/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/quests/progress?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55989 - "OPTIONS /api/v1/focus-sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62737 - "OPTIONS /api/v1/task-enrichments?limit=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/sync/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55853 - "OPTIONS /api/v1/calendar/events?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64843 - "OPTIONS /api/v1/insights/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58783 - "OPTIONS /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55989 - "OPTIONS /api/v1/quests/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62737 - "OPTIONS /api/v1/quests/progress?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62940 - "OPTIONS /api/v1/focus-sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55853 - "OPTIONS /api/v1/sync/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64843 - "OPTIONS /api/v1/calendar/events?date=2026-05-07 HTTP/1.1" 200 OK
+>>>>>>> cc231be7d52741fa6731695e679e81b944210893

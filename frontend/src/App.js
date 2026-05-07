@@ -1796,6 +1796,9 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
   }));
   const risks = todayInsight?.risks || [];
   const recommendations = todayInsight?.recommendations || [];
+  const isInsightLoading = insightStatus === "loading";
+  const isStandupLoading = standupStatus === "loading";
+  const showInsightLoader = isGeneratingInsight;
 
   useEffect(() => {
     let cancelled = false;
@@ -1878,7 +1881,7 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
     }
   };
 
-  if ((insightStatus === "loading" || standupStatus === "loading") && !tasks.length) {
+  if (isInsightLoading || isStandupLoading) {
     return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
   }
 
@@ -1889,51 +1892,72 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
           <h2><Sparkle size={26} weight="duotone" aria-hidden="true" /> AI Task Insights</h2>
           <div className="editor-actions">
             <button className="ghost-button" onClick={refresh} data-testid="refresh-insights-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
-            <button className="primary-action" onClick={generateInsight} disabled={isGeneratingInsight} data-testid="generate-ai-insight-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingInsight ? "Generating..." : "AI"}</button>
+            <button className={`primary-action ${isGeneratingInsight ? "ai-generate-busy" : ""}`} onClick={generateInsight} disabled={isGeneratingInsight} data-testid="generate-ai-insight-button">
+              {isGeneratingInsight ? <span className="quest-button-loader" aria-hidden="true" /> : <Sparkle size={19} weight="duotone" aria-hidden="true" />}
+              {isGeneratingInsight ? "Generating..." : "AI"}
+            </button>
           </div>
         </div>
+        {showInsightLoader && (
+          <div className="ai-inline-loader" role="status" aria-live="polite" data-testid="ai-insights-inline-loader">
+            <div className="page-loader-visual ai-inline-loader-visual" aria-hidden="true">
+              <span className="page-loader-orbit" />
+              <span className="page-loader-core">
+                <Hourglass size={24} weight="duotone" />
+              </span>
+            </div>
+            <div>
+              <strong>{isGeneratingInsight ? "Generating AI insight" : "Loading AI insights"}</strong>
+              <p>{isGeneratingInsight ? "OCI GenAI is reviewing tasks, calendar, capacity, due dates, and notes." : "Fetching latest insight, standup, and task context."}</p>
+            </div>
+          </div>
+        )}
         <div className="capacity-grid">
           <StatCard label="Top Priority" value={topPriority?.priority || "None"} detail={topPriority?.title || "Mark a task for today"} icon={Flag} tone="red" testId="capacity-top-priority-stat" />
           <StatCard label="Focus Capacity" value={formatMinutes(todayInsight?.capacity?.available_focus_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} detail={insightStatus === "live" ? "From insights API" : "Working-today effort"} detailInsight={todayInsight?.stat_insights?.focus_minutes} icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
           <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} detailInsight={todayInsight?.stat_insights?.total_xp} icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
-        <article className="ai-daily-summary" data-testid="daily-ai-insight">
-          <span className="ai-section-kicker">Daily Insight</span>
-          <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
-          {insightError && <p className="form-error" role="alert">{insightError}</p>}
-        </article>
-        {(risks.length > 0 || recommendations.length > 0) && (
-          <div className="ai-guidance-grid" data-testid="ai-risk-recommendation-grid">
-            <article className="ai-guidance-panel ai-risk-panel">
-              <strong>Risks</strong>
-              <ul>
-                {(risks.length ? risks : ["No risks returned."]).map((item, index) => <li key={`risk-${index}`}>{item}</li>)}
-              </ul>
+        {!showInsightLoader && (
+          <>
+            <article className="ai-daily-summary" data-testid="daily-ai-insight">
+              <span className="ai-section-kicker">Daily Insight</span>
+              <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
+              {insightError && <p className="form-error" role="alert">{insightError}</p>}
             </article>
-            <article className="ai-guidance-panel ai-recommendation-panel">
-              <strong>Recommendations</strong>
-              <ul>
-                {(recommendations.length ? recommendations : ["No recommendations returned."]).map((item, index) => <li key={`recommendation-${index}`}>{item}</li>)}
-              </ul>
-            </article>
-          </div>
+            {(risks.length > 0 || recommendations.length > 0) && (
+              <div className="ai-guidance-grid" data-testid="ai-risk-recommendation-grid">
+                <article className="ai-guidance-panel ai-risk-panel">
+                  <strong>Risks</strong>
+                  <ul>
+                    {(risks.length ? risks : ["No risks returned."]).map((item, index) => <li key={`risk-${index}`}>{item}</li>)}
+                  </ul>
+                </article>
+                <article className="ai-guidance-panel ai-recommendation-panel">
+                  <strong>Recommendations</strong>
+                  <ul>
+                    {(recommendations.length ? recommendations : ["No recommendations returned."]).map((item, index) => <li key={`recommendation-${index}`}>{item}</li>)}
+                  </ul>
+                </article>
+              </div>
+            )}
+            <div className="ai-task-list">
+              {displayedInsights.map((task, index) => (
+                <article className="ai-task-row" key={task.task_id}>
+                  <span className="ai-task-rank">#{index + 1}</span>
+                  <div className="ai-task-copy">
+                    <strong>{task.title}</strong>
+                    <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
+                  </div>
+                  <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
+                    <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
+                    <span>{task.xp_value} XP</span>
+                    <span>{task.effort_minutes} min</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
         )}
-        <div className="ai-task-list">
-          {displayedInsights.map((task, index) => (
-            <article className="ai-task-row" key={task.task_id}>
-              <span className="ai-task-rank">#{index + 1}</span>
-              <div className="ai-task-copy">
-                <strong>{task.title}</strong>
-                <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
-              </div>
-              <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
-                <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
-                <span>{task.xp_value} XP</span>
-                <span>{task.effort_minutes} min</span>
-              </div>
-            </article>
-          ))}
-        </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
         <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>

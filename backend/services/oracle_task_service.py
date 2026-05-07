@@ -16,7 +16,7 @@ from services.xp_service import TSHIRT_ALLOWED, normalize_tshirt_size
 
 TASK_LIST_CACHE_TTL_SECONDS = 30
 TASK_LIST_CACHE_NAMESPACE = "task_list"
-TASK_RELATED_CACHE_NAMESPACES = (TASK_LIST_CACHE_NAMESPACE, "dashboard_today")
+TASK_RELATED_CACHE_NAMESPACES = (TASK_LIST_CACHE_NAMESPACE, "dashboard_today", "insights_today")
 
 VALID_TASK_TYPES = {"Task", "Bug", "Epic", "Review", "Meeting"}
 VALID_SOURCES = {"Custom", "CUSTOM", "Jira", "Outlook"}

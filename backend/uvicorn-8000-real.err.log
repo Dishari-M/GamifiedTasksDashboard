@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 INFO:     Started server process [37016]
+=======
+INFO:     Started server process [16792]
+>>>>>>> cc231be7d52741fa6731695e679e81b944210893
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
