@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from services.filesystem_store import read_records, with_store_lock, write_records
-from services.xp_service import normalize_tshirt_size, resolve_xp_value
+from services.xp_service import TSHIRT_ALLOWED, normalize_tshirt_size, resolve_xp_value
 
 
 WORK_ITEMS_FILE = "work_items.json"
@@ -448,7 +448,7 @@ def _normalize_payload(payload):
     raw_tshirt_size = data.get("rca_tshirt_size")
     data["rca_tshirt_size"] = normalize_tshirt_size(raw_tshirt_size)
     if raw_tshirt_size not in (None, "") and data["rca_tshirt_size"] is None:
-        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL, NA.", {"field": "rca_tshirt_size"})
     data["rca_file_change_count"] = _optional_number(data.get("rca_file_change_count"), "rca_file_change_count")
     data["rca_complexity_source"] = _empty_to_none(data.get("rca_complexity_source"))
     data["rca_complexity_at"] = _empty_to_none(data.get("rca_complexity_at"))
@@ -527,7 +527,7 @@ def _normalize_update_payload(payload):
     if "rca_tshirt_size" in data:
         data["rca_tshirt_size"] = normalize_tshirt_size(data["rca_tshirt_size"])
         if raw.get("rca_tshirt_size") not in (None, "") and data["rca_tshirt_size"] is None:
-            _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+            _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL, NA.", {"field": "rca_tshirt_size"})
     if "rca_file_change_count" in data:
         data["rca_file_change_count"] = _optional_number(data["rca_file_change_count"], "rca_file_change_count")
         if data["rca_file_change_count"] is not None and data["rca_file_change_count"] < 0:
@@ -659,8 +659,8 @@ def _validate_task_input(data):
         value = data.get(field)
         if value is not None and value < 0:
             _validation_error(f"{field} cannot be negative.", {"field": field})
-    if data.get("rca_tshirt_size") is None and data.get("rca_tshirt_size") not in (None, ""):
-        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+    if data.get("rca_tshirt_size") not in (None, "") and data.get("rca_tshirt_size") not in TSHIRT_ALLOWED:
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL, NA.", {"field": "rca_tshirt_size"})
 
 
 def _validate_unique_external_identity(tasks, data, user_id):

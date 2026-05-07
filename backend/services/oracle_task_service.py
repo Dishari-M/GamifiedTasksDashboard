@@ -11,6 +11,7 @@ from repositories.task_enrichment_repository import ensure_schema as ensure_task
 from services.api_cache import canonical_cache_key, get_cached_response, invalidate_user_cache, set_cached_response
 from services.task_ai_service import enrich_task_with_ai, fallback_task_enrichment
 from services.user_context import parse_oracle_user_id
+from services.xp_service import TSHIRT_ALLOWED, normalize_tshirt_size
 
 
 TASK_LIST_CACHE_TTL_SECONDS = 30
@@ -543,9 +544,9 @@ def _normalize_aliases(payload):
 def _normalize_tshirt_size(value):
     if value in (None, ""):
         return None
-    size = str(value).strip().upper()
-    if size not in {"XS", "S", "M", "L", "XL"}:
-        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL.", {"field": "rca_tshirt_size"})
+    size = normalize_tshirt_size(value)
+    if size not in TSHIRT_ALLOWED:
+        _validation_error("rca_tshirt_size must be one of XS, S, M, L, XL, NA.", {"field": "rca_tshirt_size"})
     return size
 
 

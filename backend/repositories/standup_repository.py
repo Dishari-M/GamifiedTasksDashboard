@@ -1,6 +1,46 @@
 import json
+from threading import Lock
 
 from repositories import overview_repository
+
+
+_STANDUP_STORAGE_LOCK = Lock()
+_STANDUP_STORAGE_READY = False
+
+
+def ensure_standup_storage(cur):
+    global _STANDUP_STORAGE_READY
+    if _STANDUP_STORAGE_READY:
+        return
+
+    with _STANDUP_STORAGE_LOCK:
+        if _STANDUP_STORAGE_READY:
+            return
+
+        if not sequence_exists(cur, "STANDUP_NOTES_SEQ"):
+            cur.execute("CREATE SEQUENCE STANDUP_NOTES_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
+
+        if not overview_repository.table_exists(cur, "STANDUP_NOTES"):
+            cur.execute(
+                """
+                CREATE TABLE STANDUP_NOTES (
+                  STANDUP_NOTE_ID NUMBER(19) DEFAULT STANDUP_NOTES_SEQ.NEXTVAL PRIMARY KEY,
+                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+                  NOTE_DATE DATE NOT NULL,
+                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
+                  ACCOMPLISHED CLOB,
+                  IN_PROGRESS CLOB,
+                  BLOCKERS CLOB,
+                  NEXT_STEPS CLOB,
+                  FULL_NOTE CLOB NOT NULL,
+                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  CONSTRAINT STANDUP_NOTES_UK UNIQUE (USER_ID, NOTE_DATE)
+                )
+                """
+            )
+
+        _STANDUP_STORAGE_READY = True
 
 
 def fetch_standup_note(cur, user_id, note_date):
@@ -281,3 +321,11 @@ def _text(value):
     if hasattr(value, "read"):
         return value.read()
     return str(value)
+
+
+def sequence_exists(cur, sequence_name):
+    cur.execute(
+        "SELECT COUNT(*) FROM USER_SEQUENCES WHERE SEQUENCE_NAME = :sequence_name",
+        {"sequence_name": sequence_name.upper()},
+    )
+    return cur.fetchone()[0] > 0

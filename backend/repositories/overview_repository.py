@@ -1,4 +1,79 @@
 import json
+from threading import Lock
+
+
+_OVERVIEW_STORAGE_LOCK = Lock()
+_OVERVIEW_STORAGE_READY = False
+
+
+def ensure_overview_storage(cur):
+    global _OVERVIEW_STORAGE_READY
+    if _OVERVIEW_STORAGE_READY:
+        return
+
+    with _OVERVIEW_STORAGE_LOCK:
+        if _OVERVIEW_STORAGE_READY:
+            return
+
+        if not sequence_exists(cur, "DAILY_OVERVIEWS_SEQ"):
+            cur.execute("CREATE SEQUENCE DAILY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
+
+        if not sequence_exists(cur, "WEEKLY_OVERVIEWS_SEQ"):
+            cur.execute("CREATE SEQUENCE WEEKLY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
+
+        if not table_exists(cur, "DAILY_OVERVIEWS"):
+            cur.execute(
+                """
+                CREATE TABLE DAILY_OVERVIEWS (
+                  DAILY_OVERVIEW_ID NUMBER(19) DEFAULT DAILY_OVERVIEWS_SEQ.NEXTVAL PRIMARY KEY,
+                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+                  OVERVIEW_DATE DATE NOT NULL,
+                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
+                  TASKS_COMPLETED NUMBER(8) DEFAULT 0 NOT NULL,
+                  XP_EARNED NUMBER(8) DEFAULT 0 NOT NULL,
+                  MEETING_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
+                  FOCUS_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
+                  NEW_LEARNINGS CLOB,
+                  WENT_WELL CLOB,
+                  WENT_WRONG CLOB,
+                  SUMMARY CLOB,
+                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
+                  CONSTRAINT DAILY_OVERVIEWS_UK UNIQUE (USER_ID, OVERVIEW_DATE)
+                )
+                """
+            )
+
+        if not table_exists(cur, "WEEKLY_OVERVIEWS"):
+            cur.execute(
+                """
+                CREATE TABLE WEEKLY_OVERVIEWS (
+                  WEEKLY_OVERVIEW_ID NUMBER(19) DEFAULT WEEKLY_OVERVIEWS_SEQ.NEXTVAL PRIMARY KEY,
+                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
+                  WEEK_START_DATE DATE NOT NULL,
+                  WEEK_END_DATE DATE NOT NULL,
+                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
+                  TASKS_COMPLETED NUMBER(8) DEFAULT 0 NOT NULL,
+                  XP_EARNED NUMBER(8) DEFAULT 0 NOT NULL,
+                  MEETING_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
+                  FOCUS_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
+                  TOP_ACCOMPLISHMENTS CLOB,
+                  NEW_LEARNINGS CLOB,
+                  THEMES CLOB,
+                  WENT_WELL CLOB,
+                  WENT_WRONG CLOB,
+                  SUMMARY CLOB,
+                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+                  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
+                  CONSTRAINT WEEKLY_OVERVIEWS_UK UNIQUE (USER_ID, WEEK_START_DATE),
+                  CONSTRAINT WEEKLY_OVERVIEWS_DATE_CK CHECK (WEEK_END_DATE >= WEEK_START_DATE)
+                )
+                """
+            )
+
+        _OVERVIEW_STORAGE_READY = True
 
 
 def fetch_daily_overview_row(cur, user_id, overview_date):
@@ -531,6 +606,14 @@ def table_exists(cur, table_name):
     cur.execute(
         "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name",
         {"table_name": table_name.upper()},
+    )
+    return cur.fetchone()[0] > 0
+
+
+def sequence_exists(cur, sequence_name):
+    cur.execute(
+        "SELECT COUNT(*) FROM USER_SEQUENCES WHERE SEQUENCE_NAME = :sequence_name",
+        {"sequence_name": sequence_name.upper()},
     )
     return cur.fetchone()[0] > 0
 
