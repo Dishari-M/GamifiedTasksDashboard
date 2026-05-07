@@ -49,6 +49,14 @@ To verify the frontend production build:
 npm run build
 ```
 
+From the project root on Windows, teammates can also use the checked-in helper:
+
+```powershell
+.\build-devquest-prod.cmd
+```
+
+This installs frontend dependencies when missing, runs `npm run build`, and verifies `frontend/build/index.html` exists.
+
 If port `3000` is already in use, stop the existing frontend process or allow Create React App to choose another port when prompted.
 
 ## Start Backend
