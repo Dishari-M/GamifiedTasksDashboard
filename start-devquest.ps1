@@ -12,8 +12,9 @@ $runDir = Join-Path $root ".devquest"
 $backendPidFile = Join-Path $runDir "backend.pid"
 $frontendPidFile = Join-Path $runDir "frontend.pid"
 $oracleWalletDir = Join-Path $env:USERPROFILE ".oracle\wallet_tasksdb"
+$primaryOracleClientDir = "C:\oracle\instantclient_23_0"
 $oracleClientCandidates = @(
-    "C:\oracle\instantclient_23_0",
+    $primaryOracleClientDir,
     (Join-Path $env:USERPROFILE "Downloads\instantclient-basic-windows.x64-23.26.1.0.0\instantclient_23_0")
 )
 $oracleClientDir = $oracleClientCandidates |
@@ -126,6 +127,23 @@ function Set-OracleEnvironment {
     $env:DB_POOL_INCREMENT = "1"
 }
 
+function Test-OracleThickMode {
+    Push-Location $backendDir
+    try {
+        $checkScript = @"
+import os
+import oracledb
+wallet_dir = os.environ.get("DB_WALLET_DIR") or os.environ.get("TNS_ADMIN")
+client_dir = os.environ.get("ORACLE_CLIENT_LIB_DIR")
+oracledb.init_oracle_client(lib_dir=client_dir, config_dir=wallet_dir)
+print("python-oracledb mode=thick")
+"@
+        $checkScript | & $venvPython -
+    } finally {
+        Pop-Location
+    }
+}
+
 Write-Host "Starting DevQuest from $root" -ForegroundColor Cyan
 
 if (-not (Test-Path $backendDir)) {
@@ -156,6 +174,7 @@ Require-Path $oracleClientDir "Oracle Instant Client folder not found: $oracleCl
 Require-Path (Join-Path $oracleClientDir "oci.dll") "Oracle Instant Client is missing oci.dll at $oracleClientDir"
 
 Set-OracleEnvironment
+Test-OracleThickMode
 
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
