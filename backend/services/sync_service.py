@@ -312,14 +312,21 @@ async def _sync_jira(codex_config, user_id):
 
 
 def _jira_sync_prompt(codex_config, email):
+    project_keys = "HRA, HEPRT, HLM"
     return f"""
 You are a DevQuest Jira bulk sync worker.
 
 Use Jira MCP server: {codex_config.JIRA_MCP_SERVER}.
-Find all the open Jiras assigned to this email address only:
-{email}
+Find all Jira issues assigned to the logged-in DevQuest user in these projects:
+{project_keys}
 
-Include assigned open Jiras across all projects and prefixes, such as HRA, HEPRT, HLM, and any other project, as long as they are assigned to {email}.
+Search with this exact JQL:
+project IN ({project_keys}) AND assignee = "{email}"
+
+Then classify issues by status name only, not statusCategory and not resolution:
+- Closed if the status name contains: closed, done, complete
+- Open if the status name contains: work in progress, in-progress, to-do, to do, QA to dev, dev to QA, waiting, require development, awaiting, engineering, code hardware bug, open
+- If neither rule matches, list it separately as "uncertain" in the response metadata, but do not include it in "issues".
 
 Return only one valid JSON object, with no markdown, in this exact shape:
 {{
@@ -334,23 +341,30 @@ Return only one valid JSON object, with no markdown, in this exact shape:
       "labels": ["label"],
       "project_key": "ABC",
       "due_at": "YYYY-MM-DD or empty",
+      "created": "YYYY-MM-DD or empty",
+      "updated": "YYYY-MM-DD or empty",
       "assignee_email": "{email}"
+    }}
+  ],
+  "uncertain": [
+    {{
+      "jira_key": "ABC-456",
+      "status": "Jira status",
+      "priority": "Critical|High|Medium|Low",
+      "title": "Jira summary",
+      "created": "YYYY-MM-DD or empty",
+      "updated": "YYYY-MM-DD or empty"
     }}
   ]
 }}
 
-Open Jira definition:
-- A Jira is open when its status is not Closed and not Done.
-- Statuses such as "Development to QA" and "Require Documentation" are still open and must be included.
-- Do not exclude a Jira just because it is beyond initial development; exclude it only when it is Closed/Done-style or has a resolution set.
-
 Rules:
 1. Fetch real Jira data through the MCP server.
 2. Include only issues assigned to {email}.
-3. Include only open issues. Exclude issues whose status is Closed or Done, whose status category is Done, or whose resolution is set. Exclude Done, Closed, Resolved, Cancelled, Canceled, Duplicate, and Won't Do issues.
-4. Include all Jira project types/prefixes. Do not filter to a known prefix list.
-5. Fetch enough fields for each issue to populate a task: key, summary/title, description, priority, status, issue type, labels, project key, and due date when available.
-6. If no issue is available, return {{"issues": []}}.
+3. Include only open issues in "issues" using the status-name rules above.
+4. Do not use statusCategory or resolution to classify open vs closed.
+5. Fetch enough fields for each issue to populate a task: key, summary/title, description, priority, status, issue type, labels, project key, due date, created, and updated when available.
+6. If no open issue is available, return {{"issues": [], "uncertain": []}}.
 """
 
 
@@ -371,9 +385,7 @@ def _normalize_jira_issues(payload, codex_config, assignee_email=""):
             continue
         jira_key = str(raw_issue.get("jira_key") or raw_issue.get("key") or raw_issue.get("external_id") or "").strip().upper()
         status = _jira_field_text(raw_issue.get("status"))
-        status_category = _jira_status_category(raw_issue.get("status"))
-        resolution = _jira_field_text(raw_issue.get("resolution"))
-        if not jira_key or jira_key in seen or _is_closed_jira_status(status, status_category, resolution):
+        if not jira_key or jira_key in seen or not _is_open_jira_status_name(status):
             continue
         title = str(raw_issue.get("title") or raw_issue.get("summary") or jira_key).strip()
         description = str(raw_issue.get("description") or raw_issue.get("body") or title).strip()
@@ -437,17 +449,26 @@ def _jira_status_category(status):
     return _jira_field_text(category)
 
 
-def _is_closed_jira_status(status, status_category="", resolution=""):
-    if resolution:
-        return True
-    if str(status_category or "").strip().lower() == "done":
-        return True
+def _is_open_jira_status_name(status):
     normalized = str(status or "").strip().lower()
-    if normalized in {"development to qa", "require documentation", "requires documentation"}:
+    if any(closed in normalized for closed in ("closed", "done", "complete")):
         return False
     return any(
-        closed in normalized
-        for closed in ("done", "closed", "resolved", "cancelled", "canceled", "duplicate", "won't do", "wont do", "rejected")
+        open_status in normalized
+        for open_status in (
+            "work in progress",
+            "in-progress",
+            "to-do",
+            "to do",
+            "qa to dev",
+            "dev to qa",
+            "waiting",
+            "require development",
+            "awaiting",
+            "engineering",
+            "code hardware bug",
+            "open",
+        )
     )
 
 
