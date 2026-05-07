@@ -53,7 +53,7 @@ import { deriveTaskXpBreakdown, levelProgressFromXp, streakHeat } from "./featur
 import { NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
 import { buildProgressSnapshot, mergeMonotonicTotalXp } from "./features/progress/progressModel";
 import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, hasGeneratedQuestRun, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
-import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusMinutesByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
+import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusRewardsByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
 import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, rcaTshirtSizes, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
@@ -165,6 +165,11 @@ const multiplierSliderValue = (value) => {
   const multiplier = Number(value);
   if (!Number.isFinite(multiplier)) return FOCUS_XP_MULTIPLIER;
   return Math.min(3, Math.max(0.25, multiplier));
+};
+
+const focusMultiplierFromUser = (user) => {
+  const multiplier = Number(user?.focus_xp_multiplier);
+  return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : FOCUS_XP_MULTIPLIER;
 };
 
 const mergeSettingsIntoUser = (user, settings) => ({
@@ -1393,12 +1398,12 @@ const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
   );
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading, showProgressGuide, onDismissProgressGuide }) => {
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading, showProgressGuide, onDismissProgressGuide }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
   const filteredTasks = useMemo(() => filterDashboardTasks(tasks, activeTaskFilter), [tasks, activeTaskFilter]);
-  const totalXp = dashboardStats?.total_xp ?? earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions);
+  const totalXp = dashboardStats?.total_xp ?? earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions, null, focusMultiplier);
   const focusedToday = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
   const meetingMinutes = dashboardStats?.meeting_minutes;
   const nextQuest = getNextQuest(questRun);
@@ -1578,7 +1583,7 @@ const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEv
   </main>
 );
 
-const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
+const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
   const todaySessions = sessionsForDay(focusSessions);
   const weekStart = startOfWeekKey();
   const weekSessions = focusSessions.filter((session) => {
@@ -1625,7 +1630,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
                 <NavLink className="ghost-button" to="/focus/analytics" data-testid="view-focus-analytics-button"><TrendUp size={18} weight="duotone" aria-hidden="true" /> View analytics</NavLink>
               </div>
             </div>
-            {!activeSession && <FocusSavedQuestPanel savedQuest={savedQuest} savedQuestTask={savedQuestTask} onStartFocus={onStartFocus} />}
+            {!activeSession && <FocusSavedQuestPanel savedQuest={savedQuest} savedQuestTask={savedQuestTask} onStartFocus={onStartFocus} focusMultiplier={focusMultiplier} />}
             {savingFocusState && (
               <div className="focus-saving-panel" data-testid="focus-saving-panel" role="status" aria-live="polite">
                 <Hourglass size={20} weight="duotone" aria-hidden="true" />
@@ -1688,7 +1693,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
   );
 };
 
-const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, completingQuestId, onGenerateQuests, onClearQuests, onStartQuestFocus, onCompleteQuest, onSkipQuest, onActivateQuest, showProgressGuide, onDismissProgressGuide }) => {
+const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, completingQuestId, focusMultiplier, onGenerateQuests, onClearQuests, onStartQuestFocus, onCompleteQuest, onSkipQuest, onActivateQuest, showProgressGuide, onDismissProgressGuide }) => {
   const navigate = useNavigate();
   const [skipReason, setSkipReason] = useState(skipReasons[0]);
   if (isLoading) {
@@ -1749,6 +1754,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
               onCompleteQuest={onCompleteQuest}
               onSkipQuest={onSkipQuest}
               onSkipReasonChange={setSkipReason}
+              focusMultiplier={focusMultiplier}
             />
             <QuestSummaryPanel summary={summary} />
           </div>
@@ -1766,7 +1772,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
   );
 };
 
-const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
+const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights }) => {
   const fallbackStandupNote = useMemo(() => generateStandupNote(tasks), [tasks]);
   const [standupNote, setStandupNote] = useState(() => fallbackStandupNote);
   const [standupStatus, setStandupStatus] = useState("loading");
@@ -1777,7 +1783,7 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const todayTasks = tasks.filter((task) => task.workingToday);
   const completed = completedTodayTasks(tasks);
-  const completedXp = earnedXpForTasks(completed, focusSessions);
+  const completedXp = earnedXpForTasks(completed, focusSessions, null, focusMultiplier);
   const topPriority = [...todayTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))[0];
   const backendTaskInsights = todayInsight?.task_insights || [];
   const displayedInsights = backendTaskInsights.length ? backendTaskInsights : todayTasks.map((task) => ({
@@ -1951,7 +1957,7 @@ const reflectionDraftFrom = (source = {}, fallback = {}) => ({
   wentWrong: listToDraftText(source.went_wrong ?? fallback.wentWrong),
 });
 
-const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
+const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverviewChange }) => {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
   const [dailyData, setDailyData] = useState(null);
@@ -1974,9 +1980,9 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   const fallbackDailyFocusMinutes = focusMinutesForSessions(fallbackDailyFocus);
   const fallbackWeeklyFocusMinutes = focusMinutesForSessions(fallbackWeeklyFocus);
   const topFocus = topFocusedTask(fallbackDailyFocus);
-  const focusByTask = focusMinutesByTaskId(focusSessions);
-  const fallbackDailyXp = earnedXpForTasks(fallbackCompletedDay, focusSessions, selectedDate);
-  const fallbackWeeklyXp = earnedXpForTasks(fallbackCompletedWeek, focusSessions);
+  const focusRewardsByTask = focusRewardsByTaskId(focusSessions);
+  const fallbackDailyXp = earnedXpForTasks(fallbackCompletedDay, focusSessions, selectedDate, focusMultiplier);
+  const fallbackWeeklyXp = earnedXpForTasks(fallbackCompletedWeek, focusSessions, null, focusMultiplier);
 
   useEffect(() => {
     let cancelled = false;
@@ -2128,7 +2134,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
         </div>
         <div className="accomplished-list">
           {dailyTasks.map((task) => {
-            const reward = task.id ? taskRewardDetails(task, focusByTask[task.id] || 0) : null;
+            const focusReward = task.id ? focusRewardsByTask[task.id] : null;
+            const reward = task.id ? taskRewardDetails(task, focusReward?.focusMinutes || 0, focusReward?.rewardMultiplier, focusMultiplier) : null;
             const earnedXp = reward?.rewardXp ?? task.xp_value ?? task.xp;
             return <article key={task.task_id || task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completed_at || task.completedAt)} - {task.actual_minutes || task.actualMinutes || task.time} mins - {earnedXp} XP{reward?.hasFocusReward ? ` (${formatFocusMultiplier(reward.rewardMultiplier)} focus)` : ""}</span><p>{task.notes}</p></article>;
           })}
@@ -2231,6 +2238,7 @@ const SettingsPage = ({ currentUser, onUserUpdate }) => {
         const nextSettings = settingsFormFromApi(settings);
         setForm(nextSettings);
         setSavedSettings(nextSettings);
+        onUserUpdate?.((user) => mergeSettingsIntoUser(user, settings));
       })
       .catch((error) => {
         if (cancelled) return;
@@ -2369,11 +2377,12 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [theme, setTheme] = useState(readInitialTheme);
   const [isProgressGuideDismissed, setIsProgressGuideDismissed] = useState(readProgressGuideDismissed);
   const [persistedXpFloor, setPersistedXpFloor] = useState(() => readPersistedXpForUser(currentUser?.user_id));
+  const focusXpMultiplier = focusMultiplierFromUser(currentUser);
   const previousLevelRef = useRef(null);
   const hasInitializedLevelRef = useRef(false);
   const rawProgressSnapshot = useMemo(
-    () => buildProgressSnapshot({ tasks, focusSessions, questProgress, questRun }),
-    [tasks, focusSessions, questProgress, questRun],
+    () => buildProgressSnapshot({ tasks, focusSessions, focusMultiplier: focusXpMultiplier, questProgress, questRun }),
+    [tasks, focusSessions, focusXpMultiplier, questProgress, questRun],
   );
   const progressSnapshot = useMemo(
     () => ({
@@ -3004,7 +3013,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         rewardMultiplier: completedQuest.rewardMultiplier,
         hasFocusReward: completedQuest.hasFocusReward,
         focusMinutes: completedQuest.focusMinutes,
-      } : taskRewardDetailsFromSessions(task, focusSessions, todayKey());
+      } : taskRewardDetailsFromSessions(task, focusSessions, todayKey(), focusXpMultiplier);
       const completedCount = nextRun?.quests?.filter((item) => item.state === "completed").length || 0;
       const totalCount = nextRun?.quests?.length || 0;
       setFloatingNotice({
@@ -3180,13 +3189,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
-          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
-          <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
-          <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
-          <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
-          <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
+          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
+          <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} />} />
+          <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} focusMultiplier={focusXpMultiplier} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
+          <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} onRefreshInsights={handleRefreshInsights} />} />
+          <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage syncRun={syncRun} syncingSource={syncingSource} onRunSync={handleRunSync} />} />
           <Route path="/settings" element={<SettingsPage currentUser={currentUser} onUserUpdate={onUserUpdate} />} />
         </Routes>

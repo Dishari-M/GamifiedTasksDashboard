@@ -12,8 +12,8 @@ const uniqueSortedDates = (dates = []) => [...new Set(
     .filter(Boolean),
 )].sort();
 
-export const deriveTotalXp = (tasks = [], focusSessions = []) => (
-  earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions)
+export const deriveTotalXp = (tasks = [], focusSessions = [], focusMultiplier) => (
+  earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions, null, focusMultiplier)
 );
 
 export const mergeMonotonicTotalXp = (derivedTotalXp = 0, persistedTotalXp = 0) => (
@@ -42,13 +42,14 @@ export const deriveQuestStreak = ({ completedQuestDates = [], questRun = null, r
 export const buildProgressSnapshot = ({
   tasks = [],
   focusSessions = [],
+  focusMultiplier,
   questProgress = null,
   questRun = null,
   referenceDate = todayKey(),
 } = {}) => {
   const completedQuestDates = mergeCompletedQuestDates(questProgress?.completedQuestDates || [], questRun);
   return {
-    totalXp: deriveTotalXp(tasks, focusSessions),
+    totalXp: deriveTotalXp(tasks, focusSessions, focusMultiplier),
     streakDays: deriveQuestStreak({ completedQuestDates, referenceDate }),
     completedQuestDates,
     completedQuestDays: completedQuestDates.length,

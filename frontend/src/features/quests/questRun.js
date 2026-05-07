@@ -2,7 +2,7 @@ import { formatDateTime, formatMinutes, nowIso, todayKey } from "../../utils/dat
 import { parseNumber } from "../../utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "../../utils/storage";
 import { sessionsForDay } from "../focus/focusSessions";
-import { focusMinutesByTaskId, taskRewardDetails } from "../rewards/xpRewards";
+import { FOCUS_XP_MULTIPLIER, focusRewardsByTaskId, taskRewardDetails } from "../rewards/xpRewards";
 
 export const QUEST_PLAN_STORAGE_KEY = "devquest.questPlan.v1";
 export const QUEST_RUN_STORAGE_KEY = "devquest.questRun.v1";
@@ -88,9 +88,9 @@ const questFocusTargetMinutes = (task) => {
   return Math.min(90, Math.max(25, Math.ceil((effort * 0.55) / 5) * 5));
 };
 
-const buildQuestForTask = (task, index) => {
+const buildQuestForTask = (task, index, focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   const reason = questReason(task, index);
-  const reward = taskRewardDetails(task, 0);
+  const reward = taskRewardDetails(task, 0, null, focusMultiplier);
   return {
     id: questIdForTask(task.id),
     taskId: task.id,
@@ -158,17 +158,18 @@ export const isQuestRunSynced = (tasks, questRun) => {
   return true;
 };
 
-export const deriveQuestProgress = (run, tasks, focusSessions = []) => {
+export const deriveQuestProgress = (run, tasks, focusSessions = [], focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   if (!isCurrentQuestRun(run)) return null;
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const todaySessions = sessionsForDay(focusSessions, run.workDate);
-  const focusByTask = focusMinutesByTaskId(todaySessions);
+  const focusByTask = focusRewardsByTaskId(todaySessions);
   const synced = isQuestRunSynced(tasks, run);
   const quests = (run.quests || []).map((quest) => {
     const task = taskById.get(quest.taskId);
-    const focusMinutes = focusByTask[quest.taskId] || 0;
+    const focusReward = focusByTask[quest.taskId] || { focusMinutes: 0, rewardMultiplier: quest.rewardMultiplier || null };
+    const focusMinutes = focusReward.focusMinutes || 0;
     if (!task) return { ...quest, focusMinutes, state: quest.state === "active" ? "queued" : quest.state };
-    const reward = taskRewardDetails(task, focusMinutes);
+    const reward = taskRewardDetails(task, focusMinutes, focusReward.rewardMultiplier, focusMultiplier);
     if (quest.state === "skipped") return { ...quest, focusMinutes, baseXp: reward.baseXp, rewardXp: reward.rewardXp, focusBonusXp: reward.focusBonusXp, rewardMultiplier: reward.rewardMultiplier, hasFocusReward: reward.hasFocusReward, actionLabel: questActionLabel(task), focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task) };
     const isCompleted = task.status === "Done";
     return {
@@ -188,7 +189,7 @@ export const deriveQuestProgress = (run, tasks, focusSessions = []) => {
   return applyActiveQuest({ ...run, quests, status: synced ? run.status : "needs_update" });
 };
 
-export const generateQuestRun = (tasks, focusSessions = []) => {
+export const generateQuestRun = (tasks, focusSessions = [], focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   const orderedTasks = defaultQuestOrder(tasks);
   const run = {
     id: `quest-run-${todayKey()}-${Date.now()}`,
@@ -197,12 +198,12 @@ export const generateQuestRun = (tasks, focusSessions = []) => {
     sourceTaskIds: sortedTaskIds(workingTodayTasks(tasks)),
     activeQuestId: null,
     status: orderedTasks.length ? "active" : "not_generated",
-    quests: orderedTasks.map(buildQuestForTask),
+    quests: orderedTasks.map((task, index) => buildQuestForTask(task, index, focusMultiplier)),
   };
-  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions);
+  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions, focusMultiplier);
 };
 
-const migrateQuestPlan = (questPlan, tasks, focusSessions = []) => {
+const migrateQuestPlan = (questPlan, tasks, focusSessions = [], focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   if (!questPlan || questPlan.workDate !== todayKey()) return null;
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const orderedTasks = (questPlan.orderedTaskIds || []).map((id) => taskById.get(id)).filter(Boolean);
@@ -213,15 +214,15 @@ const migrateQuestPlan = (questPlan, tasks, focusSessions = []) => {
     sourceTaskIds: questPlan.sourceTaskIds || sortedTaskIds(orderedTasks),
     activeQuestId: null,
     status: orderedTasks.length ? "active" : "not_generated",
-    quests: orderedTasks.map(buildQuestForTask),
+    quests: orderedTasks.map((task, index) => buildQuestForTask(task, index, focusMultiplier)),
   };
-  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions);
+  return deriveQuestProgress(applyActiveQuest(run), tasks, focusSessions, focusMultiplier);
 };
 
-export const readQuestRun = (tasks, focusSessions = []) => {
+export const readQuestRun = (tasks, focusSessions = [], focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   const storedRun = readStoredJson(QUEST_RUN_STORAGE_KEY, null);
-  if (storedRun?.workDate === todayKey() && Array.isArray(storedRun.quests)) return deriveQuestProgress(storedRun, tasks, focusSessions);
-  return migrateQuestPlan(readStoredJson(QUEST_PLAN_STORAGE_KEY, null), tasks, focusSessions);
+  if (storedRun?.workDate === todayKey() && Array.isArray(storedRun.quests)) return deriveQuestProgress(storedRun, tasks, focusSessions, focusMultiplier);
+  return migrateQuestPlan(readStoredJson(QUEST_PLAN_STORAGE_KEY, null), tasks, focusSessions, focusMultiplier);
 };
 
 export const saveQuestRun = (run) => {

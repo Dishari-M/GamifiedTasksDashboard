@@ -16,7 +16,7 @@ export const FocusQuestBadge = ({ quest }) => {
   );
 };
 
-export const FocusSavedQuestPanel = ({ savedQuest, savedQuestTask, onStartFocus }) => {
+export const FocusSavedQuestPanel = ({ savedQuest, savedQuestTask, onStartFocus, focusMultiplier = FOCUS_XP_MULTIPLIER }) => {
   if (!savedQuest || !savedQuestTask || savedQuest.state === "completed" || savedQuest.state === "skipped" || savedQuestTask.status === "Done") return null;
   const percent = Math.min(100, Math.round((savedQuest.focusMinutes / Math.max(1, savedQuest.focusTargetMinutes)) * 100));
   const focusUnlockMinutes = focusUnlockThresholdMinutes(savedQuestTask.time || savedQuestTask.estimatedMinutes || 60);
@@ -27,7 +27,7 @@ export const FocusSavedQuestPanel = ({ savedQuest, savedQuestTask, onStartFocus 
         <strong>{savedQuestTask.title}</strong>
         <p>
           {formatMinutes(savedQuest.focusMinutes)} logged toward a {formatMinutes(savedQuest.focusTargetMinutes)} target. {percent}% complete.
-          {savedQuest.hasFocusReward ? ` ${formatFocusMultiplier(savedQuest.rewardMultiplier)} focus reward is active.` : ` Unlock up to ${formatFocusMultiplier(FOCUS_XP_MULTIPLIER)} after ${formatMinutes(focusUnlockMinutes)} of focus.`}
+          {savedQuest.hasFocusReward ? ` ${formatFocusMultiplier(savedQuest.rewardMultiplier)} focus reward is active.` : ` Unlock up to ${formatFocusMultiplier(focusMultiplier)} after ${formatMinutes(focusUnlockMinutes)} of focus.`}
         </p>
         <div className="progress-track focus-saved-progress" aria-label="Saved session quest progress">
           <span className="progress-fill" style={{ width: `${percent}%` }} />
