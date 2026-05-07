@@ -1,7 +1,7 @@
 # Project Brief
 
 ## Overview
-This workspace (`c:\Oracle_Repo`) is a multi-project collection of Oracle-related codebases. It includes legacy Java/Ant/Gradle services, Oracle JET UI applications, database script bundles, and a patch installer repository.
+This workspace is the codebase folder selected by the user for the current RCA run. It is expected to be a multi-project collection of Oracle-related codebases and may include legacy Java/Ant/Gradle services, Oracle JET UI applications, database script bundles, and a patch installer repository.
 
 ## In-Scope Projects (Observed)
 - `Legacy_ANT`: legacy multi-module Java codebase with Ant/Gradle build files and numerous subprojects (e.g., Agent, Posting, installer, weatherApp).
@@ -17,6 +17,7 @@ This workspace (`c:\Oracle_Repo`) is a multi-project collection of Oracle-relate
 - Maintain a clear, accurate Memory Bank across sessions.
 - Capture per-project context to speed onboarding and reduce rediscovery.
 - Identify the active project when work begins.
+- Keep all path assumptions relative to the runtime-selected workspace root.
 
 ## Non-Goals
 - Detailed feature documentation for every subproject without specific request.

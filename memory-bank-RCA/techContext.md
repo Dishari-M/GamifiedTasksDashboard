@@ -15,7 +15,7 @@
 - CycloneDX SBOM Gradle plugin and Oracle Parfait Gradle plugin (SBOM + static analysis)
 
 ## Development Setup
-- Workspace root: `c:\Oracle_Repo`
+- Workspace root: the codebase folder selected by the user at task creation time.
 - Shell: PowerShell
 - Node engine (per UI apps): `>=12.21.0`
 

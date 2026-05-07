@@ -12,6 +12,7 @@ Perform deep RCA across multi-module enterprise codebases and produce precise, f
 - Use `memory-bank/` as the primary reference. Each subfolder represents a module. Extract code flow, architecture, known issues, and integration points.
 - Analyze all relevant `build.gradle` files to determine module dependencies and inter-module relationships. If module A depends on B, include both in analysis.
 - Expand the scope to all related modules based on dependencies and code flow; do not stop at the entry module.
+- Use the runtime-selected codebase path from the caller as the workspace root. Do not assume any fixed local path; any paths in examples or memory-bank notes are illustrative and must be resolved relative to the selected workspace root.
 
 ## Module Entry Mapping
 Use these mappings as a starting point only. Always expand via dependencies and code flow.
@@ -53,7 +54,7 @@ Use these mappings as a starting point only. Always expand via dependencies and 
 ## RCA Workflow
 1. If a Jira ticket is provided (eg. HEPRT-123, HRA-123), get the Jira details **and comments** using MCP tools otherwise use the input. Parse the bug description, error messages, stack traces, logs, **and comments**. Extract keywords. If Jira includes **Affects Version**, use it to select UI code locations per the UI repo split rule.
 2. Identify the entry module using the mapping rules, then expand using `build.gradle` dependencies.
-3. Trace code flow end-to-end: UI -> API -> Service -> DAO Impl -> sql query. Track data transformations, null handling, conditions, and exception flows.
+3. Trace code flow end-to-end from the selected workspace root: UI -> API -> Service -> DAO Impl -> sql query. Track data transformations, null handling, conditions, and exception flows.
 4. Perform cross-module analysis. Identify where data is produced, modified, and consumed.
 5. Validate against evidence (logs, stack traces, DB queries). Do not assume.
 6. Identify the root cause (the specific reason it failed, not symptoms).
