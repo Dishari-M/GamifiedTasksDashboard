@@ -932,14 +932,14 @@ def _list_oracle_calendar_events(user_id, work_date):
                 EXTERNAL_ID,
                 TITLE,
                 DESCRIPTION,
-                START_AT,
-                END_AT,
+                TO_CHAR(START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS START_AT,
+                TO_CHAR(END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS END_AT,
                 DURATION_MINUTES,
                 IS_MEETING,
                 IS_FOCUS_BLOCK,
                 ATTENDEE_COUNT,
-                CREATED_AT,
-                UPDATED_AT,
+                TO_CHAR(CREATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS CREATED_AT,
+                TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT,
                 ROW_VERSION
             FROM CALENDAR_EVENTS
             WHERE USER_ID = :user_id
@@ -973,14 +973,14 @@ def _fetch_oracle_calendar_event(user_id, event_id):
                 EXTERNAL_ID,
                 TITLE,
                 DESCRIPTION,
-                START_AT,
-                END_AT,
+                TO_CHAR(START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS START_AT,
+                TO_CHAR(END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS END_AT,
                 DURATION_MINUTES,
                 IS_MEETING,
                 IS_FOCUS_BLOCK,
                 ATTENDEE_COUNT,
-                CREATED_AT,
-                UPDATED_AT,
+                TO_CHAR(CREATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS CREATED_AT,
+                TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT,
                 ROW_VERSION
             FROM CALENDAR_EVENTS
             WHERE USER_ID = :user_id
@@ -1068,14 +1068,14 @@ def _calendar_event_row(row):
         "external_id": row[3],
         "title": row[4],
         "description": str(row[5] or ""),
-        "start_at": row[6].isoformat() if row[6] else None,
-        "end_at": row[7].isoformat() if row[7] else None,
+        "start_at": row[6],
+        "end_at": row[7],
         "duration_minutes": row[8] or 0,
         "is_meeting": bool(row[9]),
         "is_focus_block": bool(row[10]),
         "attendee_count": row[11] or 0,
-        "created_at": row[12].isoformat() if row[12] else None,
-        "updated_at": row[13].isoformat() if row[13] else None,
+        "created_at": row[12],
+        "updated_at": row[13],
         "row_version": row[14] or 1,
     }
 

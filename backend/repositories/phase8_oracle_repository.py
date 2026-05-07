@@ -170,8 +170,8 @@ def _get_calendar_events(cur, user_id, work_date):
         SELECT
             EVENT_ID,
             TITLE,
-            START_AT,
-            END_AT,
+            TO_CHAR(START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS START_AT,
+            TO_CHAR(END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS END_AT,
             DURATION_MINUTES,
             IS_MEETING,
             IS_FOCUS_BLOCK,
@@ -188,8 +188,8 @@ def _get_calendar_events(cur, user_id, work_date):
         {
             "event_id": row[0],
             "title": row[1],
-            "start_at": row[2].isoformat() if row[2] else None,
-            "end_at": row[3].isoformat() if row[3] else None,
+            "start_at": row[2],
+            "end_at": row[3],
             "duration_minutes": row[4] or 0,
             "is_meeting": bool(row[5]),
             "is_focus_block": bool(row[6]),

@@ -90,7 +90,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM DAILY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND OVERVIEW_DATE = TO_DATE(:overview_date, 'YYYY-MM-DD')
@@ -111,7 +111,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
         "went_well": _json_list(row[7]),
         "went_wrong": _json_list(row[8]),
         "summary": _text(row[9]),
-        "updated_at": row[10].isoformat() if row[10] else None,
+        "updated_at": row[10],
     }
 
 
@@ -133,7 +133,7 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM WEEKLY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND WEEK_START_DATE = TO_DATE(:week_start, 'YYYY-MM-DD')
@@ -158,7 +158,7 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
         "went_well": _json_list(row[11]),
         "went_wrong": _json_list(row[12]),
         "summary": _text(row[13]),
-        "updated_at": row[14].isoformat() if row[14] else None,
+        "updated_at": row[14],
     }
 
 
@@ -179,7 +179,7 @@ def fetch_completed_tasks(cur, user_id, start_date, end_date):
             LABELS_JSON,
             AI_CATEGORY,
             AI_INSIGHT,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Done'
@@ -209,7 +209,7 @@ def fetch_worked_tasks(cur, user_id, start_date, end_date):
             w.LABELS_JSON,
             w.AI_CATEGORY,
             w.AI_INSIGHT,
-            w.COMPLETED_AT,
+            TO_CHAR(w.COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT,
             TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD') AS WORK_DATE,
             d.PLANNED_MINUTES
         FROM WORK_ITEM_WORK_DATES d
@@ -234,8 +234,8 @@ def fetch_calendar_events(cur, user_id, start_date, end_date):
         SELECT
             EVENT_ID,
             TITLE,
-            START_AT,
-            END_AT,
+            TO_CHAR(START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS START_AT,
+            TO_CHAR(END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS END_AT,
             DURATION_MINUTES,
             IS_MEETING,
             IS_FOCUS_BLOCK,
@@ -253,8 +253,8 @@ def fetch_calendar_events(cur, user_id, start_date, end_date):
         {
             "event_id": row[0],
             "title": row[1],
-            "start_at": row[2].isoformat() if row[2] else None,
-            "end_at": row[3].isoformat() if row[3] else None,
+            "start_at": row[2],
+            "end_at": row[3],
             "duration_minutes": row[4] or 0,
             "is_meeting": bool(row[5]),
             "is_focus_block": bool(row[6]),
@@ -275,8 +275,8 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             f.TASK_ID,
             w.TITLE,
             f.SESSION_DATE,
-            f.STARTED_AT,
-            f.ENDED_AT,
+            TO_CHAR(f.STARTED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS STARTED_AT,
+            TO_CHAR(f.ENDED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS ENDED_AT,
             f.PLANNED_MINUTES,
             f.ACTUAL_MINUTES,
             f.STATUS,
@@ -299,13 +299,13 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             "task_id": row[1],
             "task_title": row[2] or "Focus session",
             "session_date": row[3].isoformat()[:10] if row[3] else None,
-            "started_at": row[4].isoformat() if row[4] else None,
-            "ended_at": row[5].isoformat() if row[5] else None,
+            "started_at": row[4],
+            "ended_at": row[5],
             "planned_minutes": row[6] or 0,
             "actual_minutes": row[7] or 0,
             "status": row[8],
             "xp_awarded": row[9] or 0,
-            "notes": row[10] or "",
+            "notes": _text(row[10]),
         }
         for row in cur.fetchall()
     ]
@@ -326,7 +326,7 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM DAILY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND OVERVIEW_DATE BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD')
@@ -346,7 +346,7 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             "went_well": _json_list(row[6]),
             "went_wrong": _json_list(row[7]),
             "summary": _text(row[8]),
-            "updated_at": row[9].isoformat() if row[9] else None,
+            "updated_at": row[9],
         }
         for row in cur.fetchall()
     ]
@@ -571,7 +571,7 @@ def _task_row(row, work_date=None, planned_minutes=None):
         "labels": _json_list(row[10]),
         "ai_category": row[11],
         "ai_insight": _text(row[12]),
-        "completed_at": row[13].isoformat() if row[13] else None,
+        "completed_at": row[13],
         "work_date": work_date,
         "planned_minutes": planned_minutes,
     }

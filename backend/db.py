@@ -5,7 +5,7 @@ from threading import Lock
 import oracledb
 
 
-DEFAULT_POOL_SIZE = 10
+DEFAULT_POOL_SIZE = 1
 
 _POOL = None
 _POOL_LOCK = Lock()
