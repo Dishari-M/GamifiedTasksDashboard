@@ -1,6 +1,9 @@
 import json
 
 
+_EXISTING_TABLE_CACHE = set()
+
+
 def fetch_daily_overview_row(cur, user_id, overview_date):
     cur.execute(
         """
@@ -528,11 +531,17 @@ def _text(value):
 
 
 def table_exists(cur, table_name):
+    normalized = table_name.upper()
+    if normalized in _EXISTING_TABLE_CACHE:
+        return True
     cur.execute(
         "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name",
-        {"table_name": table_name.upper()},
+        {"table_name": normalized},
     )
-    return cur.fetchone()[0] > 0
+    exists = cur.fetchone()[0] > 0
+    if exists:
+        _EXISTING_TABLE_CACHE.add(normalized)
+    return exists
 
 
 def _overview_binds(user_id, overview_date, ai_run_id, overview):

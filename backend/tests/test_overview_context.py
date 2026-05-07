@@ -169,11 +169,12 @@ class OverviewContextTests(unittest.TestCase):
             patch("services.overview_service._get_connection", return_value=conn),
             patch("services.overview_service.overview_repository.fetch_weekly_overview_row", return_value=None) as fetch_weekly,
             patch("services.overview_service.overview_repository.fetch_daily_overviews_for_week", return_value=[]),
-            patch("services.overview_service._oracle_context", return_value=context),
+            patch("services.overview_service._oracle_context", return_value=context) as build_context,
         ):
             response = overview_service._oracle_weekly_overview("2026-05-04", "2026-05-10", user_id=42, generate=False)
 
         fetch_weekly.assert_called_once_with(cur, 42, "2026-05-04")
+        build_context.assert_called_once_with(cur, 42, "2026-05-04", "2026-05-10", include_worked_tasks=False)
         self.assertEqual(response["week_start"], "2026-05-04")
 
 
