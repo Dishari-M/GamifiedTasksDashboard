@@ -99,6 +99,21 @@ if ($missing) {
     throw "Missing required environment variables in ${EnvFile}: $($missing -join ', ')"
 }
 
+$DefaultEnv = [ordered]@{
+    "DB_POOL_SIZE" = "10"
+    "DB_POOL_MIN" = "2"
+    "DB_POOL_MAX" = "10"
+    "DB_POOL_INCREMENT" = "1"
+    "OCI_GENAI_CONNECT_TIMEOUT_SECONDS" = "5"
+    "OCI_GENAI_READ_TIMEOUT_SECONDS" = "20"
+}
+
+foreach ($entry in $DefaultEnv.GetEnumerator()) {
+    if (-not [Environment]::GetEnvironmentVariable($entry.Key, "Process")) {
+        [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, "Process")
+    }
+}
+
 $existingPid = Get-ListenerPid -LocalPort $Port
 if ($existingPid) {
     if ($Restart) {
@@ -124,6 +139,10 @@ $BatchLines = @(
     "set `"DB_DSN=$env:DB_DSN`"",
     "set `"DB_WALLET_DIR=$env:DB_WALLET_DIR`"",
     "set `"DB_WALLET_PASSWORD=$env:DB_WALLET_PASSWORD`"",
+    "set `"DB_POOL_SIZE=$env:DB_POOL_SIZE`"",
+    "set `"DB_POOL_MIN=$env:DB_POOL_MIN`"",
+    "set `"DB_POOL_MAX=$env:DB_POOL_MAX`"",
+    "set `"DB_POOL_INCREMENT=$env:DB_POOL_INCREMENT`"",
     "set `"DEVQUEST_DATA_MODE=$env:DEVQUEST_DATA_MODE`"",
     "set `"DEVQUEST_AI_MODE=$env:DEVQUEST_AI_MODE`"",
     "set `"DEVQUEST_AI_PROVIDER=$env:DEVQUEST_AI_PROVIDER`"",
@@ -136,6 +155,8 @@ $BatchLines = @(
     "set `"OCI_GENAI_SERVING_MODE=$env:OCI_GENAI_SERVING_MODE`"",
     "set `"OCI_GENAI_REQUEST_FORMAT=$env:OCI_GENAI_REQUEST_FORMAT`"",
     "set `"OCI_GENAI_MODEL_ID=$env:OCI_GENAI_MODEL_ID`"",
+    "set `"OCI_GENAI_CONNECT_TIMEOUT_SECONDS=$env:OCI_GENAI_CONNECT_TIMEOUT_SECONDS`"",
+    "set `"OCI_GENAI_READ_TIMEOUT_SECONDS=$env:OCI_GENAI_READ_TIMEOUT_SECONDS`"",
     "`"$PythonExe`" -m uvicorn main:app --host $HostAddress --port $Port > `"$OutLog`" 2> `"$ErrLog`""
 )
 Set-Content -LiteralPath $Runner -Value $BatchLines -Encoding ASCII

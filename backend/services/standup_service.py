@@ -75,43 +75,48 @@ def _oracle_standup_note(work_date, user_id, force=False):
             note = _mock_note(context)
             return _response(context, note, force, standup_note_id=None, ai_run_id=None)
 
-        request = {
-            "run_type": "STANDUP_NOTE",
-            "model_id": get_oci_genai_model_id(),
-            "system_prompt": STANDUP_SYSTEM_PROMPT,
-            "context": context,
-            "force": bool(force),
-        }
-        ai_run_id = overview_repository.insert_ai_run(cur, oracle_user_id, "STANDUP_NOTE", get_oci_genai_model_id(), request)
-        conn.commit()
-
-        note = _real_note(context) if get_ai_mode() == "real" else _mock_note(context)
-        note["full_note"] = " ".join(_exactly_five(note["sentences"]))
-        overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", note)
-        conn.commit()
-
-        return _response(
-            context,
-            note,
-            force,
-            standup_note_id=None,
-            ai_run_id=ai_run_id,
+        ai_run_id = overview_repository.insert_ai_run(
+            cur,
+            oracle_user_id,
+            "STANDUP_NOTE",
+            get_oci_genai_model_id(),
+            {
+                "run_type": "STANDUP_NOTE",
+                "model_id": get_oci_genai_model_id(),
+                "system_prompt": STANDUP_SYSTEM_PROMPT,
+                "context": context,
+                "force": bool(force),
+            },
         )
+        conn.commit()
     except HTTPException:
         if conn:
             conn.rollback()
-        if ai_run_id:
-            _mark_ai_run_failed(ai_run_id, "Standup generation failed.")
         raise
     except Exception as exc:
         if conn:
             conn.rollback()
-        if ai_run_id:
-            _mark_ai_run_failed(ai_run_id, "Standup generation failed.")
         raise HTTPException(status_code=503, detail="Standup note storage is unavailable.") from exc
     finally:
         if conn:
             conn.close()
+
+    try:
+        note = _real_note(context) if get_ai_mode() == "real" else _mock_note(context)
+        note["full_note"] = " ".join(_exactly_five(note["sentences"]))
+        _update_ai_run_success(ai_run_id, note)
+    except Exception as exc:
+        note = _mock_note(context)
+        note["full_note"] = " ".join(_exactly_five(note["sentences"]))
+        _mark_ai_run_failed(ai_run_id, f"Standup generation failed: {_exception_message(exc)}")
+
+    return _response(
+        context,
+        note,
+        force,
+        standup_note_id=None,
+        ai_run_id=ai_run_id,
+    )
 
 
 def _standup_context(work_date, user_id):
@@ -252,6 +257,21 @@ def _response(context, note, force, standup_note_id=None, ai_run_id=None, genera
     }
 
 
+def _update_ai_run_success(ai_run_id, response_payload):
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload)
+        conn.commit()
+    except Exception:
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+
+
 def _mark_ai_run_failed(ai_run_id, message):
     conn = None
     try:
@@ -265,6 +285,12 @@ def _mark_ai_run_failed(ai_run_id, message):
     finally:
         if conn:
             conn.close()
+
+
+def _exception_message(exc):
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return str(exc)
 
 
 def _normalize_task(task):

@@ -74,6 +74,14 @@ def build_weekly_ai_output(context):
     )
 
 
+def build_daily_fallback_output(context):
+    return _mock_output("daily", context)
+
+
+def build_weekly_fallback_output(context):
+    return _mock_output("weekly", context)
+
+
 def _build_ai_output(scope, system_prompt, user_prompt, context):
     mode = get_ai_mode()
     if mode == "mock":

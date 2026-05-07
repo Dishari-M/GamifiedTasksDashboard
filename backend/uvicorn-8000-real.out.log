@@ -1,1 +1,12 @@
-INFO:     127.0.0.1:58532 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59132 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64474 - "POST /api/v1/overviews/daily/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "GET /api/v1/dashboard/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "GET /api/v1/overviews/daily?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "GET /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "GET /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "POST /api/v1/standup-notes/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52176 - "POST /api/v1/overviews/daily/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50703 - "GET /api/v1/dashboard/today?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50703 - "GET /api/v1/overviews/daily?date=2026-05-07 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50703 - "GET /api/v1/overviews/weekly?week_start=2026-05-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50703 - "GET /api/v1/standup-notes?date=2026-05-07 HTTP/1.1" 200 OK

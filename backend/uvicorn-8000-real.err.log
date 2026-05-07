@@ -1,4 +1,60 @@
-INFO:     Started server process [1796]
+INFO:     Started server process [26712]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Dashboard insight OCI call failed; using deterministic fallback.
+Traceback (most recent call last):
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\services\phase8_ai_insight_service.py", line 120, in _real_insight
+    insight = oci_genai_client.generate_dashboard_insight(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\integrations\oci_genai_client.py", line 392, in generate_dashboard_insight
+    response = client.chat(chat_details)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\generative_ai_inference\generative_ai_inference_client.py", line 316, in chat
+    return retry_strategy.make_retrying_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\retry\retry.py", line 308, in make_retrying_call
+    response = func_ref(*func_args, **func_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 724, in call_api
+    response = self.request(request, allow_control_chars, operation_name, api_reference_link)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\circuitbreaker.py", line 146, in wrapper
+    return self.call(function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\circuitbreaker.py", line 188, in call
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 1039, in request
+    self.raise_service_error(request, response, service_code, message, operation_name, api_reference_link, target_service, request_endpoint, client_version, timestamp, deserialized_data)
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 1225, in raise_service_error
+    raise exceptions.ServiceError(
+oci.exceptions.ServiceError: {'target_service': 'generative_ai_inference', 'status': 401, 'code': '401', 'opc-request-id': '3412B617F78C4589BB5A73FADEDD4846/B403FFF58F05AE21F7142762B8804A7F/95F48760E9F13E3B3F2FEAE250B49B72', 'message': "The required information to complete authentication was not provided or was incorrect. Authentication failed. Error: 'INVALID_AUTHENTICATION_INFO'", 'operation_name': 'chat', 'timestamp': '2026-05-07T15:06:34.701037+00:00', 'client_version': 'Oracle-PythonSDK/2.173.1', 'request_endpoint': 'POST https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com/20231130/actions/chat', 'logging_tips': 'To get more info on the failing request, refer to https://docs.oracle.com/en-us/iaas/tools/python/latest/logging.html for ways to log the request/response details.', 'troubleshooting_tips': "See https://docs.oracle.com/iaas/Content/API/References/apierrors.htm#apierrors_401__401_401 for more information about resolving this error. Also see https://docs.oracle.com/iaas/api/#/en/generative-ai-inference/20231130/ChatResult/Chat for details on this operation's requirements. If you are unable to resolve this generative_ai_inference issue, please contact Oracle support and provide them this full error message."}
+Dashboard insight OCI call failed; using deterministic fallback.
+Traceback (most recent call last):
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\services\phase8_ai_insight_service.py", line 120, in _real_insight
+    insight = oci_genai_client.generate_dashboard_insight(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\integrations\oci_genai_client.py", line 392, in generate_dashboard_insight
+    response = client.chat(chat_details)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\generative_ai_inference\generative_ai_inference_client.py", line 316, in chat
+    return retry_strategy.make_retrying_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\retry\retry.py", line 308, in make_retrying_call
+    response = func_ref(*func_args, **func_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 724, in call_api
+    response = self.request(request, allow_control_chars, operation_name, api_reference_link)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\circuitbreaker.py", line 146, in wrapper
+    return self.call(function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\circuitbreaker.py", line 188, in call
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 1039, in request
+    self.raise_service_error(request, response, service_code, message, operation_name, api_reference_link, target_service, request_endpoint, client_version, timestamp, deserialized_data)
+  File "C:\Users\Dishari\Downloads\Tasks-Gamified-Dashboard-main\Tasks-Gamified-Dashboard-main\backend\.venv\Lib\site-packages\oci\base_client.py", line 1225, in raise_service_error
+    raise exceptions.ServiceError(
+oci.exceptions.ServiceError: {'target_service': 'generative_ai_inference', 'status': 401, 'code': '401', 'opc-request-id': '03E334359B12425CB21F02976C3DC340/7F6E6DFBD805A0C63A9C093F70D13014/D2E3682CA2EAFC5FC7FA21D31172E9A7', 'message': "The required information to complete authentication was not provided or was incorrect. Authentication failed. Error: 'INVALID_AUTHENTICATION_INFO'", 'operation_name': 'chat', 'timestamp': '2026-05-07T15:09:24.728426+00:00', 'client_version': 'Oracle-PythonSDK/2.173.1', 'request_endpoint': 'POST https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com/20231130/actions/chat', 'logging_tips': 'To get more info on the failing request, refer to https://docs.oracle.com/en-us/iaas/tools/python/latest/logging.html for ways to log the request/response details.', 'troubleshooting_tips': "See https://docs.oracle.com/iaas/Content/API/References/apierrors.htm#apierrors_401__401_401 for more information about resolving this error. Also see https://docs.oracle.com/iaas/api/#/en/generative-ai-inference/20231130/ChatResult/Chat for details on this operation's requirements. If you are unable to resolve this generative_ai_inference issue, please contact Oracle support and provide them this full error message."}

@@ -341,7 +341,7 @@ def update_ai_run(cur, ai_run_id, status, response_payload=None, error_code=None
             "status": status,
             "response_json": json.dumps(response_payload, separators=(",", ":"), default=str) if response_payload is not None else None,
             "error_code": error_code,
-            "error_message": error_message,
+            "error_message": str(error_message)[:1000] if error_message else None,
         },
     )
 

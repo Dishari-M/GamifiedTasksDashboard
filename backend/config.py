@@ -102,6 +102,30 @@ def get_oci_genai_request_format():
     return os.getenv("OCI_GENAI_REQUEST_FORMAT", "generic").strip().lower()
 
 
+def _get_float_env(name, default):
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def get_oci_genai_connect_timeout_seconds():
+    """Return the OCI GenAI connection timeout in seconds."""
+    return _get_float_env("OCI_GENAI_CONNECT_TIMEOUT_SECONDS", 5.0)
+
+
+def get_oci_genai_read_timeout_seconds():
+    """Return the OCI GenAI read timeout in seconds."""
+    return _get_float_env(
+        "OCI_GENAI_READ_TIMEOUT_SECONDS",
+        _get_float_env("OCI_GENAI_TIMEOUT_SECONDS", 20.0),
+    )
+
+
 def get_oci_user_ocid():
     """Return optional API-key auth user OCID for local temporary testing."""
     return os.getenv("OCI_USER_OCID", "").strip()
