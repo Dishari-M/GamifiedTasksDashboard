@@ -179,8 +179,7 @@ def _get_calendar_events(cur, user_id, work_date):
             EXTERNAL_SOURCE
         FROM CALENDAR_EVENTS
         WHERE USER_ID = :user_id
-          AND START_AT >= CAST(TO_DATE(:work_date, 'YYYY-MM-DD') AS TIMESTAMP)
-          AND START_AT < CAST(TO_DATE(:work_date, 'YYYY-MM-DD') + 1 AS TIMESTAMP)
+          AND TRUNC(CAST(START_AT AS TIMESTAMP)) = TO_DATE(:work_date, 'YYYY-MM-DD')
         ORDER BY START_AT
         """,
         {"user_id": user_id, "work_date": work_date},

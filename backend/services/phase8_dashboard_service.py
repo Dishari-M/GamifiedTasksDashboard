@@ -70,6 +70,19 @@ def _schedule_response(event):
     }
 
 
+def _focus_window_response(window):
+    return {
+        "event_id": f"focus-{window['start_at']}",
+        "title": "Focus Time Block",
+        "start_at": window["start_at"],
+        "end_at": window["end_at"],
+        "duration_minutes": window["duration_minutes"],
+        "is_meeting": False,
+        "is_focus_block": True,
+        "external_source": "Capacity",
+    }
+
+
 def _completed_on_date(task, work_date):
     completed_at = task.get("completed_at")
     return bool(completed_at and completed_at.startswith(work_date))
@@ -133,6 +146,9 @@ def build_dashboard(date=None, user_id=None):
     focus_minutes = max(capacity["available_focus_minutes"] - 10, 0)
     previous_focus_minutes = max(previous_capacity["available_focus_minutes"] - 10, 0)
     schedule = [_schedule_response(event) for event in events]
+    if not any(event.get("is_focus_block") for event in events):
+        schedule.extend(_focus_window_response(window) for window in capacity["suggested_focus_windows"])
+        schedule.sort(key=lambda item: item["start_at"])
     ai_insight = build_ai_insight(work_date, capacity, top_missions, dashboard_tasks, schedule, planned_tasks)
     stats = {
         "total_xp": total_xp,

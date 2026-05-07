@@ -55,8 +55,11 @@ export const buildAiFields = (task) => {
 
 export const normalizeTask = (task) => {
   const ai = buildAiFields(task);
+  const externalId = task.externalId || task.external_id || "";
+  const rcaTshirtSize = task.rcaTshirtSize || task.rca_tshirt_size || "";
   return {
     ...task,
+    externalId,
     source: task.source || "Custom",
     type: task.type || "Task",
     priority: task.priority || "Medium",
@@ -67,6 +70,13 @@ export const normalizeTask = (task) => {
     impact: ai.impact,
     priorityScore: ai.priorityScore,
     aiInsight: ai.aiInsight,
+    rcaTshirtSize,
+    rcaTshirtJustification: task.rcaTshirtJustification || task.rca_tshirt_justification || "",
+    rcaAffectedFiles: task.rcaAffectedFiles || task.rca_affected_files || [],
+    rcaCodeSuggestion: task.rcaCodeSuggestion || task.rca_code_suggestion || "",
+    sourceEnrichmentJobId: task.sourceEnrichmentJobId || task.source_enrichment_job_id || null,
+    jiraTshirtSize: task.jiraTshirtSize || task.jira_tshirt_size || task.jira_tshirt_sizing?.size || task.jiraTshirtSizing?.size || rcaTshirtSize,
+    jiraTshirtSizing: task.jiraTshirtSizing || task.jira_tshirt_sizing || null,
     notes: task.notes || "",
     rcaTshirtSize: task.rcaTshirtSize || "NA",
     labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
@@ -86,7 +96,6 @@ export const initialTasks = [
   normalizeTask({
     id: "PAY-2301",
     externalId: "PAY-2301",
-    projectKey: "PAY",
     title: "Fix payment gateway timeout issue",
     description: "Users face timeout while making payments on the checkout page.",
     source: "Jira",
@@ -105,7 +114,6 @@ export const initialTasks = [
   normalizeTask({
     id: "ORD-1587",
     externalId: "ORD-1587",
-    projectKey: "ORD",
     title: "Implement order tracking API",
     description: "Create a REST API to fetch real-time order status.",
     source: "Jira",
@@ -198,10 +206,16 @@ export const normalizeApiTask = (task) =>
     priorityScore: task.ai?.priority_score,
     difficulty: task.ai?.difficulty,
     aiInsight: task.ai?.insight,
-    rcaTshirtSize: task.rca_tshirt_size || "NA",
+    rcaReason: task.rca_reason || "",
+    rcaAffectedFiles: task.rca_affected_files || [],
+    rcaCodeSuggestion: task.rca_code_suggestion || "",
+    rcaRawOutput: task.rca_raw_output || "",
+    rcaTshirtSize: task.rca_tshirt_size || "",
     rcaFileChangeCount: task.rca_file_change_count,
     rcaComplexitySource: task.rca_complexity_source,
     rcaComplexityAt: task.rca_complexity_at,
+    rcaTshirtJustification: task.rca_tshirt_justification || "",
+    sourceEnrichmentJobId: task.source_enrichment_job_id,
     notes: task.notes || "",
     workedDates: task.worked_dates || [],
     labels: [],
@@ -209,6 +223,9 @@ export const normalizeApiTask = (task) =>
 
 export const normalizeApiSchedule = (events = []) =>
   events.map((event) => ({
+    id: event.event_id || event.id || event.external_id,
+    eventId: event.event_id || event.id,
+    externalId: event.external_id || "",
     time: formatTime(event.start_at),
     title: event.title,
     duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),
@@ -222,7 +239,7 @@ export const emptyTaskForm = {
   description: "",
   source: "Custom",
   externalId: "",
-  projectKey: "",
+  codeBaseLocation: "",
   type: "Task",
   priority: "Medium",
   status: "To Do",
@@ -243,7 +260,7 @@ export const formFromTask = (task) => ({
   description: task.description || "",
   source: task.source || "Custom",
   externalId: task.externalId || task.id || "",
-  projectKey: task.projectKey || "",
+  codeBaseLocation: task.codeBaseLocation || "",
   type: task.type || "Task",
   priority: task.priority || "Medium",
   status: task.status || "To Do",
@@ -256,7 +273,7 @@ export const formFromTask = (task) => ({
   labels: (task.labels || []).join(", "),
   notes: task.notes || "",
   workingToday: Boolean(task.workingToday),
-  runAiEnrichment: true,
+  runAiEnrichment: false,
 });
 
 export const taskFromForm = (form, existingTask) => {
@@ -267,7 +284,7 @@ export const taskFromForm = (form, existingTask) => {
     ...(existingTask || {}),
     id: existingTask?.id || makeTaskId(form.source, form.externalId),
     externalId: form.externalId || existingTask?.externalId || "",
-    projectKey: form.projectKey,
+    codeBaseLocation: form.codeBaseLocation || "",
     title: form.title.trim(),
     description: form.description,
     source: form.source,

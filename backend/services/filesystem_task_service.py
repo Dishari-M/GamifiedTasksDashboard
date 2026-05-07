@@ -30,6 +30,8 @@ ALIASES = {
     "workingToday": "working_today",
     "workedDates": "worked_dates",
     "runAiEnrichment": "run_ai_enrichment",
+    "jiraTshirtSize": "jira_tshirt_size",
+    "jiraTshirtSizing": "jira_tshirt_sizing",
     "rcaTshirtSize": "rca_tshirt_size",
     "rcaFileChangeCount": "rca_file_change_count",
     "rcaComplexitySource": "rca_complexity_source",
@@ -141,6 +143,55 @@ def get_filesystem_task(task_id, user_id=LOCAL_USER_ID):
         ]
         task_detail["audit_events"] = sorted(task_events, key=lambda event: event.get("created_at") or "")
         return task_detail
+
+    return with_store_lock(action)
+
+
+def find_filesystem_jira_task(jira_key, user_id=LOCAL_USER_ID):
+    def action():
+        normalized_key = str(jira_key or "").strip().upper()
+        tasks = read_records(WORK_ITEMS_FILE)
+        for task in tasks:
+            external_id = str(task.get("external_id") or task.get("externalId") or "").strip().upper()
+            if task.get("user_id") == user_id and task.get("external_source") == "Jira" and external_id == normalized_key:
+                return _response_task(task)
+        return None
+
+    return with_store_lock(action)
+
+
+def save_jira_tshirt_sizing(jira_key, sizing, user_id=LOCAL_USER_ID):
+    def action():
+        normalized_key = str(jira_key or "").strip().upper()
+        tasks = read_records(WORK_ITEMS_FILE)
+        events = read_records(WORK_ITEM_EVENTS_FILE)
+        task = None
+        for item in tasks:
+            external_id = str(item.get("external_id") or item.get("externalId") or "").strip().upper()
+            if item.get("user_id") == user_id and item.get("external_source") == "Jira" and external_id == normalized_key:
+                task = item
+                break
+
+        if task is None:
+            return None
+
+        now = _now_iso()
+        task["jira_tshirt_size"] = str((sizing or {}).get("size") or "").strip() or None
+        task["jira_tshirt_sizing"] = dict(sizing or {})
+        _finish_task_update(task, now)
+        events.append(
+            _create_change_event(
+                events,
+                _response_task(task),
+                "JIRA_TSHIRT_SIZING_UPDATED",
+                now,
+                {"jira_key": normalized_key, "jira_tshirt_sizing": task["jira_tshirt_sizing"]},
+            )
+        )
+
+        write_records(WORK_ITEMS_FILE, tasks)
+        write_records(WORK_ITEM_EVENTS_FILE, events)
+        return _response_task(task)
 
     return with_store_lock(action)
 
@@ -442,6 +493,8 @@ def _normalize_update_payload(payload):
         "notes",
         "labels",
         "worked_dates",
+        "jira_tshirt_size",
+        "jira_tshirt_sizing",
     }
     data = {field: raw[field] for field in allowed if field in raw}
 
@@ -489,6 +542,10 @@ def _normalize_update_payload(payload):
         data["labels"] = _normalize_labels(data["labels"])
     if "worked_dates" in data:
         data["worked_dates"] = _worked_dates_to_storage(_normalize_worked_dates(data["worked_dates"]))
+    if "jira_tshirt_size" in data:
+        data["jira_tshirt_size"] = _empty_to_none(data["jira_tshirt_size"])
+    if "jira_tshirt_sizing" in data and data["jira_tshirt_sizing"] is not None and not isinstance(data["jira_tshirt_sizing"], dict):
+        _validation_error("jira_tshirt_sizing must be an object.", {"field": "jira_tshirt_sizing"})
     return data
 
 
@@ -909,6 +966,8 @@ def _with_frontend_aliases(task):
     task["working_today"] = _is_working_on_date(task, _today_key(_now_iso()))
     task["workingToday"] = task["working_today"]
     task["completedAt"] = task["completed_at"]
+    task["jiraTshirtSize"] = task.get("jira_tshirt_size")
+    task["jiraTshirtSizing"] = task.get("jira_tshirt_sizing")
     if "priority_score" in task:
         task["priorityScore"] = task["priority_score"]
     if "ai_insight" in task:

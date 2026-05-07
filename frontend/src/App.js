@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
+  Bell,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -15,6 +16,7 @@ import {
   Fire,
   Flag,
   FloppyDisk,
+  FolderOpen,
   FunnelSimple,
   GearSix,
   House,
@@ -43,7 +45,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, overviewApi, questsApi, settingsApi, standupApi, tasksApi } from "./api/client";
+import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, settingsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
@@ -125,9 +127,14 @@ const readCurrentUser = () => {
   }
 };
 
-const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+const apiErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  return detail?.message || detail?.error || error?.message || fallback;
+};
+const authErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 const readProgressGuideDismissed = () => readStoredJson(PROGRESS_GUIDE_STORAGE_KEY, false);
-const settingsErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+const settingsErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const timeToMinutes = (value) => {
   const [hours, minutes] = String(value || "").split(":").map((part) => Number(part));
@@ -191,6 +198,13 @@ const validateSettingsForm = (form) => {
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+};
+
+const scheduleHeadingForDate = (dateKey) => {
+  const selected = dateKey || todayKey();
+  if (selected === todayKey()) return "Today's Schedule";
+  if (selected === addDaysKey(todayKey(), 1)) return "Tomorrow's Schedule";
+  return `${new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${selected}T00:00:00`))} Schedule`;
 };
 
 const Pill = ({ children, tone = "neutral", testId }) => (
@@ -384,7 +398,7 @@ const Sidebar = ({ open, onClose, levelProgress, streakDays }) => {
 );
 };
 
-const Topbar = ({currentUser, isLoggingOut, onLogout,onMenuClick, theme, onThemeToggle }) => {
+const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThemeToggle }) => {
   const location = useLocation();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -461,6 +475,9 @@ const StatCard = ({ label, value, detail, detailInsight, icon, tone, trend, down
 
 const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
+  const displayExternalId = task.externalId || task.external_id || task.id;
+  const missionDescription = task.description || task.aiInsight;
+  const tshirtSize = task.rcaTshirtSize || task.rca_tshirt_size || task.jiraTshirtSize || "";
   return (
     <article className={`mission-card mission-${task.accent}`} data-testid={`mission-card-${slug(task.id)}`}>
       <IconBadge icon={Icon} tone={task.accent} testId={`mission-icon-${slug(task.id)}`} />
@@ -470,13 +487,14 @@ const MissionCard = ({ task, index, questMeta }) => {
           <Pill tone={task.type.toLowerCase()} testId={`mission-type-${slug(task.id)}`}>{task.type}</Pill>
           <Pill tone={slug(task.status)} testId={`mission-status-${slug(task.id)}`}>{task.status}</Pill>
         </div>
-        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {task.id}</p>
-        <p data-testid={`mission-description-${slug(task.id)}`}>{task.aiInsight || task.description}</p>
+        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {displayExternalId}</p>
+        <p data-testid={`mission-description-${slug(task.id)}`}>{missionDescription}</p>
         {questMeta && <p className="quest-rationale" data-testid={`quest-rationale-${slug(task.id)}`}>{questMeta.rationale}</p>}
       </div>
       <div className="mission-score">
         {questMeta && <span className={`quest-action quest-action-${slug(task.status)}`} data-testid={`quest-action-${slug(task.id)}`}>{questMeta.action}</span>}
         <Pill tone={task.priority.toLowerCase()} testId={`mission-priority-${slug(task.id)}`}>{task.priority}</Pill>
+        {tshirtSize && <Pill tone={`tshirt-${slug(tshirtSize)}`} testId={`mission-tshirt-${slug(task.id)}`}>{tshirtSize}</Pill>}
         <span data-testid={`mission-time-${slug(task.id)}`}><Clock size={16} weight="duotone" aria-hidden="true" /> {task.time} mins</span>
         <strong data-testid={`mission-xp-${slug(task.id)}`}>{task.xp} XP</strong>
         <span className="mission-rank" data-testid={`mission-rank-${slug(task.id)}`}>#{index + 1}</span>
@@ -485,24 +503,115 @@ const MissionCard = ({ task, index, questMeta }) => {
   );
 };
 
-const SchedulePanel = ({ events = schedule }) => (
-  <section className="surface schedule-panel" data-testid="schedule-panel">
-    <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Schedule</h2><NavLink to="/calendar" data-testid="view-calendar-link">View Calendar</NavLink></div>
-    <div className="timeline" data-testid="schedule-timeline">
-      {events.map((event) => (
-        <div className="timeline-row" key={event.time} data-testid={`schedule-row-${slug(event.time)}`}>
-          <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
-          <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
-          <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
-            <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
-            <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
-            {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
-          </article>
+const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent, selectedDate = todayKey(), onDateChange, onFetchDate, isFetchingDate = false }) => {
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [savingEventId, setSavingEventId] = useState(null);
+
+  const startEditing = (event) => {
+    setEditingEventId(event.eventId);
+    setEditingTitle(event.title || "");
+  };
+  const cancelEditing = () => {
+    setEditingEventId(null);
+    setEditingTitle("");
+  };
+  const saveTitle = async (event) => {
+    const title = editingTitle.trim();
+    if (!title || !event.eventId) return;
+    setSavingEventId(event.eventId);
+    try {
+      await onUpdateEvent?.(event.eventId, title);
+      cancelEditing();
+    } finally {
+      setSavingEventId(null);
+    }
+  };
+
+  return (
+    <section className="surface schedule-panel" data-testid="schedule-panel">
+      <div className="section-heading schedule-heading">
+        <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> {scheduleHeadingForDate(selectedDate)}</h2>
+        {onFetchDate && (
+          <div className="schedule-date-controls">
+            <input type="date" value={selectedDate} onChange={(event) => onDateChange?.(event.target.value)} aria-label="Calendar date" data-testid="schedule-date-input" />
+            <button className="ghost-button" type="button" onClick={onFetchDate} disabled={isFetchingDate} data-testid="fetch-schedule-date-button">
+              {isFetchingDate ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={17} weight="duotone" aria-hidden="true" />}
+              {isFetchingDate ? "Fetching..." : "Fetch Calendar"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="timeline" data-testid="schedule-timeline">
+        {events.map((event) => {
+          const isEditing = editingEventId && String(editingEventId) === String(event.eventId);
+          const isSaving = savingEventId && String(savingEventId) === String(event.eventId);
+          return (
+            <div className="timeline-row" key={event.id || `${event.time}-${event.title}`} data-testid={`schedule-row-${slug(event.time)}`}>
+              <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
+              <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
+              <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
+                {isEditing ? (
+                  <input
+                    className="event-title-input"
+                    value={editingTitle}
+                    onChange={(inputEvent) => setEditingTitle(inputEvent.target.value)}
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.key === "Enter") saveTitle(event);
+                      if (keyEvent.key === "Escape") cancelEditing();
+                    }}
+                    aria-label={`Edit ${event.title} title`}
+                    data-testid={`schedule-title-input-${slug(event.title)}`}
+                    autoFocus
+                  />
+                ) : (
+                  <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
+                )}
+                <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
+                {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
+                {onUpdateEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-edit-button" type="button" onClick={() => startEditing(event)} aria-label={`Edit ${event.title} title`} data-testid={`edit-schedule-event-${slug(event.title)}`}>
+                    <PencilSimple size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+                {isEditing && (
+                  <>
+                    <button className="event-icon-button event-save-button" type="button" onClick={() => saveTitle(event)} disabled={isSaving || !editingTitle.trim()} aria-label={`Save ${event.title} title`} data-testid={`save-schedule-event-${slug(event.title)}`}>
+                      <CheckCircle size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                    <button className="event-icon-button event-cancel-button" type="button" onClick={cancelEditing} disabled={isSaving} aria-label={`Cancel editing ${event.title}`} data-testid={`cancel-schedule-event-${slug(event.title)}`}>
+                      <X size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+                {onRemoveEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-remove-button" type="button" onClick={() => onRemoveEvent(event.eventId)} aria-label={`Remove ${event.title} from today's schedule`} data-testid={`remove-schedule-event-${slug(event.title)}`}>
+                    <X size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+              </article>
+            </div>
+          );
+        })}
+        {!events.length && <p className="empty-state">No events in today&apos;s schedule.</p>}
+      </div>
+      {!!removedEvents.length && (
+        <div className="removed-events-panel" data-testid="removed-calendar-events">
+          <h3>Removed events</h3>
+          {removedEvents.map((event) => (
+            <article className="removed-event-row" key={event.id || event.eventId || event.title}>
+              <span>{event.time}</span>
+              <strong>{event.title}</strong>
+              <button className="ghost-button" type="button" onClick={() => onRestoreEvent?.(event.eventId)} data-testid={`restore-schedule-event-${slug(event.title)}`}>
+                <ArrowClockwise size={16} weight="bold" aria-hidden="true" /> Restore
+              </button>
+            </article>
+          ))}
         </div>
-      ))}
-    </div>
-  </section>
-);
+      )}
+    </section>
+  );
+};
 
 const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
@@ -645,7 +754,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   );
 };
 
-const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, editable = true }) => {
+const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, editable = true }) => {
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dirtyNotes, setDirtyNotes] = useState({});
   const [savingNoteId, setSavingNoteId] = useState(null);
@@ -692,6 +801,11 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
             const Icon = task.icon;
             const hasUnsavedNote = Boolean(dirtyNotes[task.id]);
             const isSavingNote = savingNoteId === task.id;
+            const isEnrichmentJob = Boolean(task.isEnrichmentJob);
+            const enrichmentJobId = task.enrichmentJobId || task.sourceEnrichmentJobId;
+            const enrichmentStatus = String(task.enrichmentStatus || "").toUpperCase();
+            const isTaskEnrichmentActive = activeEnrichmentStatuses.has(enrichmentStatus);
+            const canOpenEnrichmentDetails = Boolean(enrichmentJobId && onOpenEnrichmentDetails);
             return (
               <tr key={task.id} data-testid={`task-row-${slug(task.id)}`}>
                 <td data-testid={`task-title-cell-${slug(task.id)}`}>
@@ -702,18 +816,61 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                   <button
                     onClick={() => onToggleToday(task.id)}
                     className={`today-toggle ${task.status !== "Done" && task.workingToday ? "active" : ""}`}
-                    disabled={task.status === "Done"}
+                    disabled={task.status === "Done" || isEnrichmentJob}
                     data-testid={`task-today-button-${slug(task.id)}`}
                   >
-                    {task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
+                    {isEnrichmentJob ? "Pending" : task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
                   </button>
                 </td>
                 <td data-testid={`task-source-${slug(task.id)}`}>{task.source}</td>
                 <td><Pill tone={task.priority.toLowerCase()} testId={`task-priority-${slug(task.id)}`}>{task.priority}</Pill></td>
-                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}><span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span><span>{task.difficulty} - impact {task.impact}/10</span></td>
+                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}>
+                  {isEnrichmentJob ? (
+                    <>
+                      <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                      <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {isTaskEnrichmentActive ? (
+                        <>
+                          <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                          <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span>
+                          <span>{task.difficulty} - impact {task.impact}/10</span>
+                        </>
+                      )}
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td data-testid={`task-time-${slug(task.id)}`}>{task.time} mins</td>
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
-                <td data-testid={`task-completed-${slug(task.id)}`}>{formatDateTime(task.completedAt)}</td>
+                <td data-testid={`task-completed-${slug(task.id)}`}>{isEnrichmentJob ? task.enrichmentStatusLabel : formatDateTime(task.completedAt)}</td>
                 <td>
                   <select
                     className={`status-select status-select-${slug(task.status)}`}
@@ -721,6 +878,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     onChange={(event) => onStatusChange(task.id, event.target.value)}
                     data-testid={`task-status-${slug(task.id)}`}
                     aria-label={`Status for ${task.title}`}
+                    disabled={isEnrichmentJob}
                   >
                     {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
@@ -730,14 +888,16 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     className={`inline-notes ${editable ? "" : "inline-notes-readonly"}`}
                     value={noteDrafts[task.id] ?? task.notes ?? ""}
                     onChange={(event) => updateNoteDraft(task, event.target.value)}
-                    readOnly={!editable}
+                    readOnly={!editable || isEnrichmentJob}
                     aria-label={`Notes for ${task.title}`}
                     data-testid={`task-notes-${slug(task.id)}`}
                   />
                 </td>
                 {editable && (
                   <td className="action-menu-cell">
-                    {hasUnsavedNote ? (
+                    {isEnrichmentJob ? (
+                      <span className="row-action-placeholder" aria-hidden="true">-</span>
+                    ) : hasUnsavedNote ? (
                       <span className="row-action-group">
                         <button
                           className="row-icon-action row-icon-save"
@@ -781,12 +941,15 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
     </div>
   );
 };
-const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
+const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBase }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSelectingCodeBase, setIsSelectingCodeBase] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const submitInFlightRef = useRef(false);
+  const isJiraEnrichment = form.source === "Jira" && form.runAiEnrichment;
+  const isCodeBaseEnabled = form.source === "Jira";
   const xpPreview = useMemo(() => deriveTaskXpBreakdown({
     title: form.title,
     type: form.type,
@@ -798,13 +961,19 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
-    setFieldErrors({});
+    setIsSubmitting(false);
+    setIsSelectingCodeBase(false);
     setSubmitError("");
+    setFieldErrors({});
     submitInFlightRef.current = false;
   }, [task]);
 
   const update = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "source" && value !== "Jira" ? { codeBaseLocation: "" } : {}),
+    }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
     setSubmitError("");
   };
@@ -816,8 +985,24 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     if (!form.source) errors.source = "Source is required.";
     if (!form.priority) errors.priority = "Priority is required.";
     if (!form.status) errors.status = "Status is required.";
+    if (isJiraEnrichment && !form.externalId.trim()) errors.externalId = "External ID is required for Jira AI enrichment.";
+    if (isJiraEnrichment && !form.codeBaseLocation.trim()) errors.codeBaseLocation = "Code Base Location is required for Jira AI enrichment.";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const selectCodeBase = async () => {
+    if (!onSelectCodeBase || !isCodeBaseEnabled) return;
+    setIsSelectingCodeBase(true);
+    setSubmitError("");
+    try {
+      const path = await onSelectCodeBase(form.codeBaseLocation);
+      if (path) update("codeBaseLocation", path);
+    } catch (error) {
+      setSubmitError(apiErrorMessage(error, "Unable to select code base folder."));
+    } finally {
+      setIsSelectingCodeBase(false);
+    }
   };
 
   const submit = async (event) => {
@@ -834,7 +1019,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         setFieldErrors({});
       }
     } catch (error) {
-      setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
+      setSubmitError(apiErrorMessage(error, "Unable to save task."));
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
@@ -859,7 +1044,21 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
         {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
       </label>
-      <label>External ID<input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="HEPRT/HRA" /></label>
+      <label>
+        External ID
+        <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" aria-invalid={Boolean(fieldErrors.externalId)} aria-describedby={fieldErrors.externalId ? `${mode}-task-external-id-error` : undefined} />
+        {fieldErrors.externalId && <span className="field-error" id={`${mode}-task-external-id-error`}>{fieldErrors.externalId}</span>}
+      </label>
+      <label className="codebase-location-field">
+        Code Base Location
+        <span className="codebase-location-picker">
+          <input value={form.codeBaseLocation} onChange={(event) => update("codeBaseLocation", event.target.value)} placeholder="Select codebase folder" disabled={!isCodeBaseEnabled} aria-invalid={Boolean(fieldErrors.codeBaseLocation)} aria-describedby={fieldErrors.codeBaseLocation ? `${mode}-task-codebase-error` : undefined} data-testid={`${mode}-task-codebase-input`} />
+          <button className="ghost-button" type="button" onClick={selectCodeBase} disabled={!isCodeBaseEnabled || isSelectingCodeBase} data-testid={`${mode}-select-codebase-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingCodeBase ? "Selecting" : "Browse"}
+          </button>
+        </span>
+        {fieldErrors.codeBaseLocation && <span className="field-error" id={`${mode}-task-codebase-error`}>{fieldErrors.codeBaseLocation}</span>}
+      </label>
       <label>
         Priority
         <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
@@ -991,13 +1190,113 @@ const PageLoader = ({ title = "Loading", detail = "Getting the latest data ready
   </main>
 );
 
-const FloatingNotice = ({ notice }) => {
+const FloatingNotice = ({ notice, onDismiss }) => {
   if (!notice) return null;
   return (
     <div className={`floating-notice floating-notice-${notice.tone || "success"}`} role="status" aria-live="polite" data-testid="floating-notice">
-      <strong>{notice.title}</strong>
-      {notice.message && <span>{notice.message}</span>}
-      {notice.detail && <span>{notice.detail}</span>}
+      <div className="floating-notice-copy">
+        <strong>{notice.title}</strong>
+        {notice.message && <span>{notice.message}</span>}
+        {notice.detail && <span>{notice.detail}</span>}
+      </div>
+      <button className="floating-notice-close" type="button" onClick={onDismiss} aria-label="Dismiss notification" data-testid="floating-notice-close">
+        <X size={16} weight="bold" aria-hidden="true" />
+      </button>
+    </div>
+  );
+};
+
+const activeEnrichmentStatuses = new Set(["QUEUED", "RUNNING"]);
+const terminalEnrichmentStatuses = new Set(["SUCCEEDED", "FAILED", "AUTH_REQUIRED", "CANCELLED"]);
+
+const enrichmentJobId = (job) => job?.enrichment_job_id || job?.enrichmentJobId || job?.id;
+const enrichmentJobTaskId = (job) => {
+  const request = job?.request || {};
+  return job?.task_id || job?.taskId || request.existingTaskId || request.existing_task_id || request.taskId || request.task_id || null;
+};
+const enrichmentStatusLabel = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "QUEUED") return "Queued";
+  if (normalized === "RUNNING") return "AI enrichment in progress";
+  if (normalized === "SUCCEEDED") return "Completed";
+  if (normalized === "AUTH_REQUIRED") return "Jira sign-in required";
+  if (normalized === "CANCELLED") return "Cancelled";
+  if (normalized === "FAILED") return "Failed";
+  return "AI enrichment";
+};
+
+const jobToTask = (job) => {
+  const fields = job?.jira_fields || job?.jiraFields || {};
+  const request = job?.request || {};
+  const result = job?.rca_result || job?.rcaResult || {};
+  const status = String(job?.status || "QUEUED").toUpperCase();
+  return normalizeTask({
+    id: `enrichment-${enrichmentJobId(job)}`,
+    title: fields.title || request.title || job?.external_id || job?.externalId || "Jira enrichment",
+    description: status === "FAILED" || status === "AUTH_REQUIRED"
+      ? job?.error_message || job?.errorMessage || enrichmentStatusLabel(status)
+      : fields.description || "The task will appear after AI enrichment finishes.",
+    source: "Jira",
+    externalId: job?.external_id || job?.externalId || request.externalId || "",
+    type: fields.type || request.type || "Task",
+    priority: fields.priority || request.priority || "Medium",
+    status: status === "SUCCEEDED" ? "Done" : status === "FAILED" || status === "AUTH_REQUIRED" ? "Blocked" : "In Progress",
+    time: request.estimatedMinutes || 60,
+    xp: result.xp_value || 0,
+    workingToday: Boolean(request.workingToday ?? true),
+    notes: "",
+    isEnrichmentJob: true,
+    enrichmentJobId: enrichmentJobId(job),
+    enrichmentStatus: status,
+    enrichmentStatusLabel: enrichmentStatusLabel(status),
+    accent: status === "FAILED" || status === "AUTH_REQUIRED" ? "red" : "cyan",
+  });
+};
+
+const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
+  if (!job) return null;
+  const fields = job.jira_fields || job.jiraFields || {};
+  const result = job.rca_result || job.rcaResult || {};
+  const logs = Array.isArray(job.logs) ? job.logs : [];
+  const affectedFiles = result.affected_files || result.affectedFiles || result.rca_affected_files || result.rcaAffectedFiles || [];
+  const codeSuggestion = result.code_suggestion || result.codeSuggestion || result.code_fix_suggestion || result.codeFixSuggestion || result.rca_code_suggestion || result.rcaCodeSuggestion || "";
+  const tshirt = result.tshirt_sizing || result.tshirtSizing || result.jira_tshirt_sizing || result.jiraTshirtSizing || {};
+  const tshirtSize = result.tshirt_size || result.tshirtSize || result.rca_tshirt_size || result.rcaTshirtSize || tshirt.size || "";
+  const tshirtJustification = result.tshirt_justification || result.tshirtJustification || result.rca_tshirt_justification || result.rcaTshirtJustification || tshirt.reason || tshirt.justification || "";
+  const error = job.error_message || job.errorMessage || "";
+  return (
+    <div className="enrichment-modal-backdrop" role="presentation">
+      <section className="surface enrichment-modal" role="dialog" aria-modal="true" aria-labelledby="enrichment-modal-title" data-testid="enrichment-details-modal">
+        <div className="section-heading enrichment-modal-heading">
+          <div>
+            <h2 id="enrichment-modal-title"><Sparkle size={26} weight="duotone" aria-hidden="true" /> Enrichment Details</h2>
+            <p>{job.external_id || job.externalId} - {enrichmentStatusLabel(job.status)}</p>
+          </div>
+          <div className="editor-actions">
+            <button className="ghost-button" type="button" onClick={onRefresh} data-testid="refresh-enrichment-details-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="row-icon-action" type="button" onClick={onClose} aria-label="Close enrichment details" data-testid="close-enrichment-details-button"><X size={18} weight="bold" /></button>
+          </div>
+        </div>
+        <div className="enrichment-detail-stack">
+          <section className="enrichment-console-block">
+            <strong>Console</strong>
+            <pre className="codex-console enrichment-console" data-testid="enrichment-console-output">{logs.map((log) => log.message || log).join("\n") || "Waiting for enrichment output..."}</pre>
+          </section>
+          <section className="enrichment-summary-block">
+            <strong>Enrichment</strong>
+            <dl className="enrichment-details-list">
+              <dt>Title</dt><dd>{fields.title || "-"}</dd>
+              <dt>Description</dt><dd>{fields.description || "-"}</dd>
+              <dt>Root cause</dt><dd>{result.rca_reason || result.rcaReason || "-"}</dd>
+              <dt>Affected files</dt><dd>{affectedFiles.length ? affectedFiles.map((item) => item.path || item).join(", ") : "-"}</dd>
+              <dt>Code suggestion</dt><dd>{codeSuggestion || "-"}</dd>
+              <dt>T-shirt size</dt><dd>{tshirtSize || "-"}</dd>
+              <dt>Justification</dt><dd>{tshirtJustification || "-"}</dd>
+              {error && <><dt>Error</dt><dd className="enrichment-error-text">{error}</dd></>}
+            </dl>
+          </section>
+        </div>
+      </section>
     </div>
   );
 };
@@ -1139,11 +1438,47 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   );
 };
 
-const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
-  const filteredTasks = useMemo(() => filterUnifiedTasks(tasks, taskFilters), [tasks, taskFilters]);
+  const activeExistingEnrichmentJobs = useMemo(
+    () => enrichmentJobs.filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && enrichmentJobTaskId(job)),
+    [enrichmentJobs],
+  );
+  const activeEnrichmentByTaskId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => map.set(String(enrichmentJobTaskId(job)), job));
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const activeEnrichmentByExternalId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => {
+      const externalId = String(job.external_id || job.externalId || "").trim().toUpperCase();
+      if (externalId) map.set(externalId, job);
+    });
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const enrichmentTaskRows = useMemo(
+    () => enrichmentJobs
+      .filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && !enrichmentJobTaskId(job))
+      .map(jobToTask),
+    [enrichmentJobs],
+  );
+  const tasksWithActiveEnrichment = useMemo(() => tasks.map((task) => {
+    const job = activeEnrichmentByTaskId.get(String(task.taskId || task.id))
+      || activeEnrichmentByExternalId.get(String(task.externalId || "").trim().toUpperCase());
+    if (!job) return task;
+    const status = String(job.status || "").toUpperCase();
+    return {
+      ...task,
+      enrichmentJobId: enrichmentJobId(job),
+      enrichmentStatus: status,
+      enrichmentStatusLabel: enrichmentStatusLabel(status),
+    };
+  }), [tasks, activeEnrichmentByTaskId, activeEnrichmentByExternalId]);
+  const unifiedTasks = useMemo(() => [...enrichmentTaskRows, ...tasksWithActiveEnrichment], [enrichmentTaskRows, tasksWithActiveEnrichment]);
+  const filteredTasks = useMemo(() => filterUnifiedTasks(unifiedTasks, taskFilters), [unifiedTasks, taskFilters]);
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
@@ -1156,12 +1491,12 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
     <main className="page-stack" data-testid="tasks-page">
       <section className="surface form-card" data-testid="add-task-card">
         <div className="section-heading"><h2><Plus size={26} weight="duotone" aria-hidden="true" /> Add Task With Full Details</h2><span data-testid="task-count-label">{tasks.length} tasks loaded</span></div>
-        <TaskEditor mode="create" onSubmit={onAddTask} />
+        <TaskEditor mode="create" onSubmit={onAddTask} onSelectCodeBase={onSelectCodeBase} />
       </section>
       {editingTask && (
         <section className="surface form-card" data-testid="edit-task-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Edit Task</h2><span>{editingTask.id}</span></div>
-          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} />
+          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} onSelectCodeBase={onSelectCodeBase} />
         </section>
       )}
       <section className="surface" data-testid="unified-task-list-card">
@@ -1213,19 +1548,35 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
               </select>
             </label>
             <div className="task-filter-actions">
-              <span data-testid="task-filter-result-count">{filteredTasks.length} of {tasks.length} tasks</span>
+              <span data-testid="task-filter-result-count">{filteredTasks.length} of {unifiedTasks.length} tasks</span>
               <button className="ghost-button" type="button" onClick={resetFilters} disabled={!activeFilterCount} data-testid="task-filter-reset-button">Reset</button>
             </div>
           </div>
         )}
-        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} />
+        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} />
         {!filteredTasks.length && <p className="empty-state" data-testid="task-filter-empty-state">No tasks match the selected filters.</p>}
       </section>
+      <EnrichmentDetailsModal job={selectedEnrichmentJob} onClose={onCloseEnrichmentDetails} onRefresh={onRefreshEnrichmentDetails} />
     </main>
   );
 };
 
-const CalendarPage = () => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /></main>;
+const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent }) => (
+  <main className="page-stack calendar-page" data-testid="calendar-page">
+    <section className="surface weekly-panel" data-testid="weekly-overview-card">
+      <div className="section-heading">
+        <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+        <NavLink to="/overview">Open overview</NavLink>
+      </div>
+      <div className="weekly-grid calendar-weekly-grid">
+        <StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" />
+        <StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" />
+        <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" />
+      </div>
+    </section>
+    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} />
+  </main>
+);
 
 const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
   const todaySessions = sessionsForDay(focusSessions);
@@ -1521,7 +1872,7 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     }
   };
 
-  if (insightStatus === "loading" || standupStatus === "loading") {
+  if ((insightStatus === "loading" || standupStatus === "loading") && !tasks.length) {
     return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
   }
 
@@ -1809,7 +2160,55 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   );
 };
 
-const SyncPage = () => <main className="page-stack" data-testid="sync-page"><section className="surface sync-card" data-testid="sync-management-card"><div className="section-heading"><h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2><button className="primary-action" data-testid="run-sync-button"><CloudArrowDown size={19} weight="duotone" aria-hidden="true" /> Sync Now</button></div><div className="sync-grid">{["Jira", "Outlook Calendar"].map((source) => <article className="sync-source" key={source} data-testid={`sync-source-${slug(source)}`}><CheckCircle size={26} weight="duotone" aria-hidden="true" /><strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong><span data-testid={`sync-source-status-${slug(source)}`}>Ready to sync</span></article>)}</div></section></main>;
+const syncSources = ["Jira", "Outlook Calendar"];
+
+const sourceState = (syncRun, source, syncingSource) => {
+  const current = (syncRun?.sources || []).find((item) => item.source === source);
+  if (syncingSource === "ALL") return { source, status: "RUNNING", message: "Syncing..." };
+  if (syncingSource === source) return { source, status: "RUNNING", message: "Syncing..." };
+  if (current) return current;
+  return { source, status: "IDLE", message: "Ready to sync." };
+};
+
+const SyncStatusIcon = ({ status }) => {
+  if (status === "RUNNING") return <ArrowClockwise className="sync-spin" size={26} weight="bold" aria-hidden="true" />;
+  if (status === "FAILED") return <X size={26} weight="bold" aria-hidden="true" />;
+  return <CheckCircle size={26} weight="duotone" aria-hidden="true" />;
+};
+
+const SyncPage = ({ syncRun, syncingSource, onRunSync }) => (
+  <main className="page-stack" data-testid="sync-page">
+    <section className="surface sync-card" data-testid="sync-management-card">
+      <div className="section-heading sync-heading">
+        <h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2>
+        <div className="sync-action-stack">
+          <button className="primary-action" onClick={() => onRunSync()} disabled={Boolean(syncingSource)} data-testid="run-sync-button">
+            {syncingSource === "ALL" ? <ArrowClockwise className="sync-spin" size={19} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={19} weight="duotone" aria-hidden="true" />}
+            {syncingSource === "ALL" ? "Syncing Up..." : "Sync Up"}
+          </button>
+          <span data-testid="last-sync-time">{syncRun?.last_sync_at ? `Last synced ${formatDateTime(syncRun.last_sync_at)}` : "Not synced yet"}</span>
+        </div>
+      </div>
+      <div className="sync-grid">
+        {syncSources.map((source) => {
+          const state = sourceState(syncRun, source, syncingSource);
+          return (
+            <article className={`sync-source sync-source-${slug(state.status)}`} key={source} data-testid={`sync-source-${slug(source)}`}>
+              <SyncStatusIcon status={state.status} />
+              <strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong>
+              <span data-testid={`sync-source-status-${slug(source)}`}>{state.message}</span>
+              {state.error && <p className="sync-error" data-testid={`sync-source-error-${slug(source)}`}>{state.error}</p>}
+              <button className="ghost-button sync-source-action" onClick={() => onRunSync(source)} disabled={Boolean(syncingSource)} data-testid={`run-${slug(source)}-sync-button`}>
+                {syncingSource === source ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : source === "Jira" ? <Database size={17} weight="duotone" aria-hidden="true" /> : <CalendarBlank size={17} weight="duotone" aria-hidden="true" />}
+                Sync Up
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  </main>
+);
 
 const SettingsPage = ({ currentUser, onUserUpdate }) => {
   const initialSettings = settingsFormFromUser(currentUser);
@@ -1939,6 +2338,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [calendarSchedule, setCalendarSchedule] = useState(schedule);
+  const [removedCalendarEvents, setRemovedCalendarEvents] = useState([]);
+  const [calendarDate, setCalendarDate] = useState(todayKey());
+  const [isFetchingCalendarDate, setIsFetchingCalendarDate] = useState(false);
   const [dashboardInsight, setDashboardInsight] = useState(null);
   const [dashboardStatus, setDashboardStatus] = useState("loading");
   const [questProgress, setQuestProgress] = useState(null);
@@ -1947,9 +2350,20 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [questRun, setQuestRun] = useState(null);
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [savingFocusState, setSavingFocusState] = useState(null);
+  const [syncRun, setSyncRun] = useState(null);
+  const [syncingSource, setSyncingSource] = useState("");
+  const [enrichmentJobs, setEnrichmentJobs] = useState([]);
+  const [selectedEnrichmentJob, setSelectedEnrichmentJob] = useState(null);
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [completingQuestId, setCompletingQuestId] = useState(null);
   const [floatingNotice, setFloatingNotice] = useState(null);
+  const submittedEnrichmentJobIdsRef = useRef(new Set());
+  const notifiedEnrichmentJobIdsRef = useRef(new Set());
+  const enrichmentListRequestInFlightRef = useRef(false);
+  const enrichmentListFailureCountRef = useRef(0);
+  const selectedEnrichmentJobIdRef = useRef(null);
+  const selectedEnrichmentRequestInFlightRef = useRef(false);
+  const selectedEnrichmentFailureCountRef = useRef(0);
   const [levelUpNotice, setLevelUpNotice] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(readInitialTheme);
@@ -1970,6 +2384,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   );
   const levelProgress = levelProgressFromXp(progressSnapshot.totalXp);
   const isDistractionFreeFocus = location.pathname === "/focus" && Boolean(activeSession);
+  const hasActiveEnrichmentJobs = useMemo(
+    () => enrichmentJobs.some((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase())),
+    [enrichmentJobs],
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1994,9 +2412,16 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
 
   useEffect(() => {
     if (!floatingNotice) return undefined;
-    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 4200);
+    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [floatingNotice]);
+
+  const showFloatingNotice = (notice) => {
+    setFloatingNotice({
+      id: `${Date.now()}-${Math.random()}`,
+      ...notice,
+    });
+  };
 
   useEffect(() => {
     if (!levelUpNotice) return undefined;
@@ -2030,6 +2455,62 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     const loadedTasks = await tasksApi.list();
     const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
     setTasks(taskItems.map(normalizeTaskPayload));
+  };
+
+  const loadEnrichmentJobs = async ({ notify = false } = {}) => {
+    if (enrichmentListRequestInFlightRef.current) return enrichmentJobs;
+    enrichmentListRequestInFlightRef.current = true;
+    try {
+      const loadedJobs = await taskEnrichmentApi.list({ limit: 20 });
+      const jobItems = Array.isArray(loadedJobs) ? loadedJobs : loadedJobs?.items || [];
+      enrichmentListFailureCountRef.current = 0;
+      setEnrichmentJobs(jobItems);
+      if (notify) {
+        jobItems.forEach((job) => {
+          const id = enrichmentJobId(job);
+          const status = String(job.status || "").toUpperCase();
+          if (!submittedEnrichmentJobIdsRef.current.has(id) || !terminalEnrichmentStatuses.has(status) || notifiedEnrichmentJobIdsRef.current.has(id)) return;
+          notifiedEnrichmentJobIdsRef.current.add(id);
+          submittedEnrichmentJobIdsRef.current.delete(id);
+          if (status === "SUCCEEDED") {
+            showFloatingNotice({ title: "The task is added successfully", tone: "success" });
+            void loadTasks();
+          } else {
+            showFloatingNotice({
+              title: "AI enrichment failed",
+              message: job.error_message || job.errorMessage || enrichmentStatusLabel(status),
+              tone: "error",
+            });
+          }
+        });
+      }
+      return jobItems;
+    } catch (error) {
+      enrichmentListFailureCountRef.current += 1;
+      if (enrichmentListFailureCountRef.current >= 2) {
+        const message = apiErrorMessage(error, "Backend connection was lost while AI enrichment was running. Restart the backend and start AI enrichment again.");
+        setEnrichmentJobs((jobs) => jobs.map((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (!activeEnrichmentStatuses.has(status)) return job;
+          return {
+            ...job,
+            status: "FAILED",
+            error_message: message,
+            errorMessage: message,
+          };
+        }));
+        if (notify) {
+          showFloatingNotice({
+            title: "AI enrichment polling stopped",
+            message,
+            tone: "error",
+          });
+        }
+      }
+      throw error;
+    } finally {
+      enrichmentListRequestInFlightRef.current = false;
+    }
   };
 
   const loadQuestRun = async (date = todayKey()) => {
@@ -2068,6 +2549,68 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       isActive = false;
     };
   }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    let isActive = true;
+    loadEnrichmentJobs()
+      .then((jobs) => {
+        if (!isActive) return;
+        jobs.forEach((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (terminalEnrichmentStatuses.has(status)) notifiedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!hasActiveEnrichmentJobs) return undefined;
+    const intervalId = window.setInterval(() => {
+      void loadEnrichmentJobs({ notify: true }).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveEnrichmentJobs, currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!selectedEnrichmentJob) return undefined;
+    const id = enrichmentJobId(selectedEnrichmentJob);
+    const status = String(selectedEnrichmentJob.status || "").toUpperCase();
+    if (!activeEnrichmentStatuses.has(status)) return undefined;
+    selectedEnrichmentJobIdRef.current = String(id);
+    let cancelled = false;
+    const refreshSelectedJob = async () => {
+      if (selectedEnrichmentRequestInFlightRef.current) return;
+      selectedEnrichmentRequestInFlightRef.current = true;
+      try {
+        const job = await taskEnrichmentApi.get(id);
+        if (!cancelled && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          selectedEnrichmentFailureCountRef.current = 0;
+          setSelectedEnrichmentJob(job);
+        }
+      } catch (error) {
+        selectedEnrichmentFailureCountRef.current += 1;
+        if (!cancelled && selectedEnrichmentFailureCountRef.current >= 2 && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          const message = apiErrorMessage(error, "Backend connection was lost while reading enrichment logs. Polling has stopped.");
+          setSelectedEnrichmentJob((job) => job ? {
+            ...job,
+            status: "FAILED",
+            error_message: job.error_message || job.errorMessage || message,
+            errorMessage: job.errorMessage || job.error_message || message,
+          } : job);
+        }
+      } finally {
+        selectedEnrichmentRequestInFlightRef.current = false;
+      }
+    };
+    const intervalId = window.setInterval(refreshSelectedJob, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedEnrichmentJob?.enrichment_job_id, selectedEnrichmentJob?.id, selectedEnrichmentJob?.status]);
 
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
@@ -2118,13 +2661,254 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleEditTask = async (id, form) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || !form) return;
+    if (form.source === "Jira" && form.runAiEnrichment) {
+      const taskId = task.taskId || task.task_id || task.id;
+      const job = await taskEnrichmentApi.start({
+        ...form,
+        source: "Jira",
+        externalId: form.externalId || task.externalId || task.external_id,
+        existingTaskId: taskId,
+        taskId,
+      });
+      const jobId = enrichmentJobId(job);
+      submittedEnrichmentJobIdsRef.current.add(jobId);
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== jobId)]);
+      setSelectedEnrichmentJob(job);
+      selectedEnrichmentJobIdRef.current = String(jobId);
+      showFloatingNotice({
+        title: "The task will be updated after the AI enrichment",
+        tone: "info",
+      });
+      return;
+    }
     const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
     setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleSelectCodeBase = async (initialPath = "") => {
+    const result = await jiraApi.selectRcaWorkspace(initialPath);
+    return result?.code_base_path || result?.codeBasePath || "";
+  };
+
+  const handleOpenEnrichmentDetails = async (jobId) => {
+    if (!jobId) return;
+    selectedEnrichmentJobIdRef.current = String(jobId);
+    try {
+      const job = await taskEnrichmentApi.get(jobId);
+      if (String(selectedEnrichmentJobIdRef.current) === String(jobId)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } catch (error) {
+      showFloatingNotice({
+        title: "Unable to open enrichment details",
+        message: apiErrorMessage(error, "Please try again."),
+        tone: "error",
+      });
+    }
+  };
+
+  const handleCloseEnrichmentDetails = () => {
+    selectedEnrichmentJobIdRef.current = null;
+    selectedEnrichmentFailureCountRef.current = 0;
+    setSelectedEnrichmentJob(null);
+  };
+
+  const handleRefreshSelectedEnrichment = async () => {
+    const id = selectedEnrichmentJobIdRef.current || enrichmentJobId(selectedEnrichmentJob);
+    if (!id) return;
+    if (selectedEnrichmentRequestInFlightRef.current) return;
+    selectedEnrichmentRequestInFlightRef.current = true;
+    try {
+      const job = await taskEnrichmentApi.get(id);
+      if (String(selectedEnrichmentJobIdRef.current) === String(id)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } finally {
+      selectedEnrichmentRequestInFlightRef.current = false;
+    }
+  };
+
   const handleAddTask = async (form) => {
+    if (form?.source === "Jira" && form?.runAiEnrichment) {
+      const job = await taskEnrichmentApi.start(form);
+      submittedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== enrichmentJobId(job))]);
+      showFloatingNotice({
+        title: "The Task will be added after the AI enrichment",
+        tone: "info",
+      });
+      return job;
+    }
     const createdTask = await tasksApi.create(form);
     setTasks((items) => [normalizeTaskPayload(createdTask), ...items]);
+    return createdTask;
+  };
+  const handleRunSync = (source) => {
+    const selectedSources = source ? [source] : ["Jira", "Outlook Calendar"];
+    const syncingKey = source || "ALL";
+    setSyncingSource(syncingKey);
+    showFloatingNotice({
+      title: "Sync Up started in background.",
+      message: "You can continue using the app.",
+      tone: "info",
+    });
+    setSyncRun((current) => ({
+      ...(current || {}),
+      status: "RUNNING",
+      sources: [
+        { source: "Jira", status: selectedSources.includes("Jira") ? "RUNNING" : "IDLE", message: selectedSources.includes("Jira") ? "Syncing Jira issues..." : "Ready to sync." },
+        { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "RUNNING" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Fetching today's Outlook meetings." : "Ready to sync." },
+      ],
+    }));
+
+    syncApi.run(source ? { sources: selectedSources } : {})
+      .then(async (result) => {
+        setSyncRun(result);
+        const events = result?.calendar_events || result?.calendarEvents || [];
+        if (selectedSources.includes("Outlook Calendar") || events.length) {
+          const normalizedEvents = normalizeApiSchedule(events);
+          setCalendarSchedule(normalizedEvents);
+          setDashboardSchedule(normalizedEvents);
+        }
+        if (selectedSources.includes("Jira")) {
+          const refreshedTasks = await tasksApi.list();
+          const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
+          setTasks(taskItems.map(normalizeTask));
+        }
+        setTaskLoadError("");
+        const failedSources = (result?.sources || []).filter((item) => item?.status === "FAILED");
+        if (result?.status === "FAILED" || failedSources.length) {
+          showFloatingNotice({
+            title: "Sync finished with issues",
+            message: failedSources[0]?.error || failedSources[0]?.message || "Please check the Sync page for details.",
+            tone: "error",
+          });
+          return;
+        }
+        showFloatingNotice({
+          title: "Sync Successfully",
+          tone: "success",
+        });
+      })
+      .catch((error) => {
+        const detail = error.response?.data?.detail;
+        setSyncRun({
+          status: "FAILED",
+          last_sync_at: nowIso(),
+          sources: [
+            { source: "Jira", status: selectedSources.includes("Jira") ? "FAILED" : "IDLE", message: selectedSources.includes("Jira") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Jira") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+            { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "FAILED" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Outlook Calendar") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+          ],
+        });
+        showFloatingNotice({
+          title: "Sync finished with issues",
+          message: typeof detail === "string" ? detail : detail?.message || error.message || "Please check the Sync page for details.",
+          tone: "error",
+        });
+      })
+      .finally(() => {
+        setSyncingSource("");
+      });
+  };
+  const renameScheduleEvent = (items, eventId, title) =>
+    items.map((event) => (String(event.eventId) === String(eventId) ? { ...event, title } : event));
+
+  const handleUpdateCalendarEvent = async (eventId, title) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    setCalendarSchedule((items) => renameScheduleEvent(items, eventId, title));
+    if (calendarDate === todayKey()) setDashboardSchedule((items) => renameScheduleEvent(items, eventId, title));
+    try {
+      const result = await calendarApi.updateEvent(eventId, { title });
+      const updatedEvent = result?.event;
+      if (updatedEvent) {
+        const normalizedEvent = normalizeApiSchedule([updatedEvent])[0];
+        setCalendarSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        if (calendarDate === todayKey()) {
+          setDashboardSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        }
+      }
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update calendar event.");
+      throw error;
+    }
+  };
+
+  const handleRemoveCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const removedEvent = calendarSchedule.find((event) => String(event.eventId) === String(eventId));
+    setCalendarSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    if (calendarDate === todayKey()) {
+      setDashboardSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    }
+    if (removedEvent) setRemovedCalendarEvents((items) => [removedEvent, ...items]);
+    try {
+      await calendarApi.removeEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to remove calendar event.");
+    }
+  };
+  const handleRestoreCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const restoredEvent = removedCalendarEvents.find((event) => String(event.eventId) === String(eventId));
+    if (restoredEvent) {
+      setRemovedCalendarEvents((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+      setCalendarSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      if (calendarDate === todayKey()) {
+        setDashboardSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      }
+    }
+    try {
+      await calendarApi.restoreEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to restore calendar event.");
+    }
+  };
+  const handleFetchCalendarDate = async () => {
+    setIsFetchingCalendarDate(true);
+    setTaskLoadError("");
+    try {
+      const result = await calendarApi.fetchEvents({ date: calendarDate });
+      const events = Array.isArray(result) ? result : result?.items || [];
+      const normalizedEvents = normalizeApiSchedule(events);
+      setCalendarSchedule(normalizedEvents);
+      if (calendarDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents([]);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setTaskLoadError(typeof detail === "string" ? detail : detail?.error || detail?.message || error?.message || "Unable to fetch calendar events.");
+    } finally {
+      setIsFetchingCalendarDate(false);
+    }
+  };
+  const handleCalendarDateChange = async (nextDate) => {
+    setCalendarDate(nextDate);
+    try {
+      const data = await calendarApi.events({ date: nextDate });
+      const events = Array.isArray(data) ? data : data?.items || [];
+      const removedEvents = data?.removed_items || data?.removedItems || [];
+      const normalizedEvents = events.length ? normalizeApiSchedule(events) : [];
+      setCalendarSchedule(normalizedEvents);
+      if (nextDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+    } catch {
+      setCalendarSchedule([]);
+      setRemovedCalendarEvents([]);
+    }
   };
 
   const handleGenerateQuests = async () => {
@@ -2323,6 +3107,17 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (location.pathname !== "/") return undefined;
 
     let cancelled = false;
+    const loadTodayCalendarSchedule = () =>
+      calendarApi.events({ date: todayKey() })
+        .then((data) => {
+          if (cancelled) return;
+          const events = Array.isArray(data) ? data : data?.items || [];
+          const normalizedEvents = normalizeApiSchedule(events);
+          setDashboardSchedule(normalizedEvents);
+          setCalendarSchedule(normalizedEvents);
+        })
+        .catch(() => {});
+
     setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
       .then((data) => {
@@ -2342,6 +3137,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       })
       .catch(() => {
         if (cancelled) return;
+        loadTodayCalendarSchedule();
         setDashboardStatus("fallback");
         setDashboardStatInsights(null);
       });
@@ -2350,6 +3146,29 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     };
   }, [location.pathname]);
 
+  useEffect(() => {
+    let cancelled = false;
+    syncApi.runs()
+      .then((data) => {
+        if (!cancelled) setSyncRun(data);
+      })
+      .catch(() => {});
+    calendarApi.events({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        const events = Array.isArray(data) ? data : data?.items || [];
+        const removedEvents = data?.removed_items || data?.removedItems || [];
+        const normalizedEvents = normalizeApiSchedule(events);
+        setCalendarSchedule(normalizedEvents);
+        setDashboardSchedule(normalizedEvents);
+        setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""}`} data-theme={theme} data-testid="app-shell">
       {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} />}
@@ -2357,18 +3176,18 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""}`} data-testid="workspace">
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
         <LevelUpBanner levelUp={levelUpNotice} />
-        <FloatingNotice notice={floatingNotice} />
+        <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
-          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
-          <Route path="/sync" element={<SyncPage />} />
+          <Route path="/sync" element={<SyncPage syncRun={syncRun} syncingSource={syncingSource} onRunSync={handleRunSync} />} />
           <Route path="/settings" element={<SettingsPage currentUser={currentUser} onUserUpdate={onUserUpdate} />} />
         </Routes>
       </div>
