@@ -1,5 +1,6 @@
 from datetime import date as date_type
 from datetime import datetime, timedelta
+import logging
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -16,7 +17,9 @@ from services.overview_ai_service import (
     DAILY_OVERVIEW_SYSTEM_PROMPT,
     WEEKLY_OVERVIEW_SYSTEM_PROMPT,
     build_daily_ai_output,
+    build_daily_fallback_output,
     build_weekly_ai_output,
+    build_weekly_fallback_output,
 )
 from services.phase8_data_provider import (
     get_calendar_events,
@@ -24,6 +27,9 @@ from services.phase8_data_provider import (
     get_work_items,
     resolve_work_date,
 )
+
+
+logger = logging.getLogger(__name__)
 
 def daily_overview_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
@@ -147,7 +153,6 @@ def _oracle_daily_overview(work_date, user_id, generate=False, request_payload=N
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_daily_overview_row(cur, user_id, work_date)
         context = _oracle_context(cur, user_id, work_date, work_date)
         if _include_daily_overviews(request_payload):
@@ -171,11 +176,31 @@ def _oracle_daily_overview(work_date, user_id, generate=False, request_payload=N
             request,
         )
         conn.commit()
-        ai = build_daily_ai_output(context)
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except _oracle_database_error() as exc:
+        if conn:
+            conn.rollback()
+        logger.exception("Oracle daily overview generation storage write failed for user_id=%s date=%s", user_id, work_date)
+        raise HTTPException(status_code=503, detail="Overview storage is unavailable.") from exc
+    finally:
+        if conn:
+            conn.close()
+
+    ai, ai_error = _generate_ai_output(build_daily_ai_output, build_daily_fallback_output, context)
+    overview = _daily_response(context, ai)
+
+    conn = None
+    try:
+        conn = _get_connection()
         cur = conn.cursor()
-        overview = _daily_response(context, ai)
         overview_repository.upsert_daily_overview(cur, user_id, work_date, ai_run_id, overview)
-        overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
+        if ai_error:
+            overview_repository.update_ai_run(cur, ai_run_id, "FAILED", None, "AI_PROVIDER_ERROR", ai_error)
+        else:
+            overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
         conn.commit()
         cur = conn.cursor()
         refreshed = overview_repository.fetch_daily_overview_row(cur, user_id, work_date) or {}
@@ -187,12 +212,11 @@ def _oracle_daily_overview(work_date, user_id, generate=False, request_payload=N
     except HTTPException:
         if conn:
             conn.rollback()
-        if ai_run_id:
-            _mark_ai_failed(ai_run_id, "FAILED", "AI_PROVIDER_ERROR", "Overview AI generation failed.")
         raise
     except _oracle_database_error() as exc:
         if conn:
             conn.rollback()
+        logger.exception("Oracle daily overview generation storage write failed for user_id=%s date=%s", user_id, work_date)
         raise HTTPException(status_code=503, detail="Overview storage is unavailable.") from exc
     finally:
         if conn:
@@ -205,15 +229,15 @@ def _oracle_weekly_overview(week_start, week_end, user_id, generate=False, reque
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_weekly_overview_row(cur, user_id, week_start)
-        context = _oracle_context(cur, user_id, week_start, week_end)
+        force = bool((request_payload or {}).get("force"))
+        needs_ai_context = generate and (force or not saved)
+        context = _oracle_context(cur, user_id, week_start, week_end, include_worked_tasks=needs_ai_context)
         if _include_daily_overviews(request_payload):
             _with_daily_overviews(
                 context,
                 overview_repository.fetch_daily_overviews_for_week(cur, user_id, week_start, week_end),
             )
-        force = bool((request_payload or {}).get("force"))
         if saved and (not generate or not force):
             overview = _apply_saved_overview_metrics(_weekly_response(context, saved), saved)
             return {**overview, "weekly_overview_id": saved["weekly_overview_id"], "ai_run_id": saved["source_ai_run_id"]}
@@ -229,11 +253,31 @@ def _oracle_weekly_overview(week_start, week_end, user_id, generate=False, reque
             request,
         )
         conn.commit()
-        ai = build_weekly_ai_output(context)
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except _oracle_database_error() as exc:
+        if conn:
+            conn.rollback()
+        logger.exception("Oracle weekly overview generation storage write failed for user_id=%s week_start=%s", user_id, week_start)
+        raise HTTPException(status_code=503, detail="Overview storage is unavailable.") from exc
+    finally:
+        if conn:
+            conn.close()
+
+    ai, ai_error = _generate_ai_output(build_weekly_ai_output, build_weekly_fallback_output, context)
+    overview = _weekly_response(context, ai)
+
+    conn = None
+    try:
+        conn = _get_connection()
         cur = conn.cursor()
-        overview = _weekly_response(context, ai)
         overview_repository.upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overview)
-        overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
+        if ai_error:
+            overview_repository.update_ai_run(cur, ai_run_id, "FAILED", None, "AI_PROVIDER_ERROR", ai_error)
+        else:
+            overview_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", ai)
         conn.commit()
         cur = conn.cursor()
         refreshed = overview_repository.fetch_weekly_overview_row(cur, user_id, week_start) or {}
@@ -245,8 +289,6 @@ def _oracle_weekly_overview(week_start, week_end, user_id, generate=False, reque
     except HTTPException:
         if conn:
             conn.rollback()
-        if ai_run_id:
-            _mark_ai_failed(ai_run_id, "FAILED", "AI_PROVIDER_ERROR", "Weekly overview AI generation failed.")
         raise
     except _oracle_database_error() as exc:
         if conn:
@@ -262,7 +304,6 @@ def _oracle_save_daily_overview(work_date, payload, user_id):
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_daily_overview_row(cur, user_id, work_date)
         context = _oracle_context(cur, user_id, work_date, work_date)
         overview = _daily_response(context, _manual_daily_ai_payload(payload, saved))
@@ -291,9 +332,9 @@ def _oracle_save_daily_overview(work_date, payload, user_id):
             conn.close()
 
 
-def _oracle_context(cur, user_id, start_date, end_date):
+def _oracle_context(cur, user_id, start_date, end_date, include_worked_tasks=True):
     completed = overview_repository.fetch_completed_tasks(cur, user_id, start_date, end_date)
-    worked = overview_repository.fetch_worked_tasks(cur, user_id, start_date, end_date)
+    worked = overview_repository.fetch_worked_tasks(cur, user_id, start_date, end_date) if include_worked_tasks else []
     events = overview_repository.fetch_calendar_events(cur, user_id, start_date, end_date)
     focus_sessions = overview_repository.fetch_focus_sessions(cur, user_id, start_date, end_date)
     return _context(start_date, end_date, completed, worked, events, focus_sessions, [])
@@ -559,6 +600,19 @@ def _ai_request_payload(run_type, system_prompt, context, request_payload):
         "request": request_payload or {},
         "context": context,
     }
+
+
+def _generate_ai_output(generator, fallback_generator, context):
+    try:
+        return generator(context), None
+    except Exception as exc:
+        return fallback_generator(context), _exception_message(exc)
+
+
+def _exception_message(exc):
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return str(exc)
 
 
 def _mark_ai_failed(ai_run_id, status, error_code, error_message):

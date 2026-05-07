@@ -22,6 +22,58 @@ def _task_impact_score(task):
     return ai.get("impact_score", 0)
 
 
+def _task_priority_score(task):
+    if "ai_priority_score" in task and task["ai_priority_score"] is not None:
+        return task["ai_priority_score"]
+    ai = task.get("ai") or {}
+    return ai.get("priority_score", 0)
+
+
+def _compact_task(task):
+    ai = task.get("ai") or {}
+    return {
+        "task_id": task.get("task_id"),
+        "title": task.get("title", ""),
+        "priority": task.get("priority", "Medium"),
+        "status": task.get("status", "To Do"),
+        "estimated_minutes": task.get("estimated_minutes", 0),
+        "xp_value": task.get("xp_value", 0),
+        "working_today": bool(task.get("working_today")),
+        "impact_score": _task_impact_score(task),
+        "priority_score": _task_priority_score(task),
+        "insight": ai.get("insight") or task.get("ai_insight") or "",
+    }
+
+
+def _compact_tasks(tasks, limit=12):
+    ranked = sorted(
+        tasks,
+        key=lambda task: (
+            not bool(task.get("working_today")),
+            str(task.get("status") or "") == "Done",
+            -float(_task_priority_score(task) or 0),
+            -float(_task_impact_score(task) or 0),
+            -float(task.get("xp_value") or 0),
+            str(task.get("title") or ""),
+        ),
+    )
+    return [_compact_task(task) for task in ranked[:limit]]
+
+
+def _compact_schedule(schedule, limit=12):
+    return [
+        {
+            "title": item.get("title", ""),
+            "start_at": item.get("start_at"),
+            "end_at": item.get("end_at"),
+            "duration_minutes": item.get("duration_minutes", 0),
+            "is_meeting": bool(item.get("is_meeting")),
+            "is_focus_block": bool(item.get("is_focus_block")),
+        }
+        for item in schedule[:limit]
+    ]
+
+
 def _mock_insight(capacity, top_missions, planned_tasks):
     """Build a deterministic dashboard insight without calling an AI provider."""
     impact_score = max((_task_impact_score(task) for task in planned_tasks), default=0)
@@ -40,8 +92,8 @@ def _prompt_payload(work_date, capacity, top_missions, tasks, schedule):
         "date": work_date,
         "capacity": capacity,
         "top_missions": top_missions,
-        "tasks": tasks,
-        "schedule": schedule,
+        "tasks": _compact_tasks(tasks),
+        "schedule": _compact_schedule(schedule),
         "instruction": (
             "Generate one concise dashboard insight for a developer. "
             "Use the available focus minutes, meetings, and top missions. "

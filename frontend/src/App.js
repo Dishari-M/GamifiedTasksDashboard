@@ -1949,8 +1949,8 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
                     <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
                   </div>
                   <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
-                    <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
-                    <span>{task.xp_value} XP</span>
+                    <span>{Math.round((task.priority_score || 0) * 100)} priority</span>{" "}
+                    <span>{task.xp_value} XP</span>{" "}
                     <span>{task.effort_minutes} min</span>
                   </div>
                 </article>
@@ -1964,9 +1964,9 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
         <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
         <div className="standup-snapshot-grid">
-          <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
-          <span><strong>In Progress</strong>{standupNote.inProgress}</span>
-          <span><strong>Blockers</strong>{standupNote.blockers}</span>
+          <span><strong>Accomplished </strong>{standupNote.accomplished}</span>
+          <span><strong>In Progress </strong>{standupNote.inProgress}</span>
+          <span><strong>Blockers </strong>{standupNote.blockers}</span>
         </div>
       </section>
     </main>

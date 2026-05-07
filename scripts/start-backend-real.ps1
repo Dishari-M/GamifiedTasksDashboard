@@ -127,28 +127,20 @@ if ($missing) {
     throw "Missing required environment variables in ${EnvFile}: $($missing -join ', ')"
 }
 
-$oracleClientLibDir = [Environment]::GetEnvironmentVariable("ORACLE_CLIENT_LIB_DIR", "Process")
-if (-not (Test-Path -LiteralPath (Join-Path $oracleClientLibDir "oci.dll"))) {
-    throw "Oracle Instant Client is missing oci.dll at $oracleClientLibDir"
+$DefaultEnv = [ordered]@{
+    "DB_POOL_SIZE" = "10"
+    "DB_POOL_MIN" = "2"
+    "DB_POOL_MAX" = "10"
+    "DB_POOL_INCREMENT" = "1"
+    "OCI_GENAI_CONNECT_TIMEOUT_SECONDS" = "5"
+    "OCI_GENAI_READ_TIMEOUT_SECONDS" = "20"
 }
 
-$walletDir = [Environment]::GetEnvironmentVariable("DB_WALLET_DIR", "Process")
-foreach ($walletFile in @("tnsnames.ora", "sqlnet.ora")) {
-    if (-not (Test-Path -LiteralPath (Join-Path $walletDir $walletFile))) {
-        throw "Oracle wallet is missing $walletFile at $walletDir"
+foreach ($entry in $DefaultEnv.GetEnumerator()) {
+    if (-not [Environment]::GetEnvironmentVariable($entry.Key, "Process")) {
+        [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, "Process")
     }
 }
-
-$thickModeCheck = @"
-import os
-import oracledb
-oracledb.init_oracle_client(
-    lib_dir=os.environ["ORACLE_CLIENT_LIB_DIR"],
-    config_dir=os.environ.get("TNS_ADMIN") or os.environ["DB_WALLET_DIR"],
-)
-print("python-oracledb mode=thick")
-"@
-$thickModeCheck | & $PythonExe -
 
 $existingPid = Get-ListenerPid -LocalPort $Port
 if ($existingPid) {
@@ -175,7 +167,10 @@ $BatchLines = @(
     "set `"DB_DSN=$env:DB_DSN`"",
     "set `"DB_WALLET_DIR=$env:DB_WALLET_DIR`"",
     "set `"DB_WALLET_PASSWORD=$env:DB_WALLET_PASSWORD`"",
-    "set `"TNS_ADMIN=$env:TNS_ADMIN`"",
+    "set `"DB_POOL_SIZE=$env:DB_POOL_SIZE`"",
+    "set `"DB_POOL_MIN=$env:DB_POOL_MIN`"",
+    "set `"DB_POOL_MAX=$env:DB_POOL_MAX`"",
+    "set `"DB_POOL_INCREMENT=$env:DB_POOL_INCREMENT`"",
     "set `"DEVQUEST_DATA_MODE=$env:DEVQUEST_DATA_MODE`"",
     "set `"DEVQUEST_AI_MODE=$env:DEVQUEST_AI_MODE`"",
     "set `"DEVQUEST_AI_PROVIDER=$env:DEVQUEST_AI_PROVIDER`"",
@@ -188,11 +183,8 @@ $BatchLines = @(
     "set `"OCI_GENAI_SERVING_MODE=$env:OCI_GENAI_SERVING_MODE`"",
     "set `"OCI_GENAI_REQUEST_FORMAT=$env:OCI_GENAI_REQUEST_FORMAT`"",
     "set `"OCI_GENAI_MODEL_ID=$env:OCI_GENAI_MODEL_ID`"",
-    "set `"ORACLE_DB_THICK_MODE=$env:ORACLE_DB_THICK_MODE`"",
-    "set `"ORACLE_CLIENT_LIB_DIR=$env:ORACLE_CLIENT_LIB_DIR`"",
-    "set `"DB_POOL_MIN=$env:DB_POOL_MIN`"",
-    "set `"DB_POOL_MAX=$env:DB_POOL_MAX`"",
-    "set `"DB_POOL_INCREMENT=$env:DB_POOL_INCREMENT`"",
+    "set `"OCI_GENAI_CONNECT_TIMEOUT_SECONDS=$env:OCI_GENAI_CONNECT_TIMEOUT_SECONDS`"",
+    "set `"OCI_GENAI_READ_TIMEOUT_SECONDS=$env:OCI_GENAI_READ_TIMEOUT_SECONDS`"",
     "`"$PythonExe`" -m uvicorn main:app --host $HostAddress --port $Port > `"$OutLog`" 2> `"$ErrLog`""
 )
 Set-Content -LiteralPath $Runner -Value $BatchLines -Encoding ASCII
