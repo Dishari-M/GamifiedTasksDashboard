@@ -23,7 +23,7 @@ def build_context(cur, user_id, work_date):
             w.LABELS_JSON,
             w.AI_INSIGHT,
             w.AI_PRIORITY_SCORE,
-            w.COMPLETED_AT
+            TO_CHAR(w.COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEM_WORK_DATES d
         JOIN WORK_ITEMS w
           ON w.TASK_ID = d.TASK_ID
@@ -54,7 +54,7 @@ def build_context(cur, user_id, work_date):
             LABELS_JSON,
             AI_INSIGHT,
             AI_PRIORITY_SCORE,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Done'
@@ -83,7 +83,7 @@ def build_context(cur, user_id, work_date):
             LABELS_JSON,
             AI_INSIGHT,
             AI_PRIORITY_SCORE,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Blocked'
@@ -153,7 +153,7 @@ def _task_rows(cur, sql, binds):
             "labels": _json_list(row[12]),
             "ai_insight": _text(row[13]),
             "priority_score": float(row[14] or 0),
-            "completed_at": row[15].isoformat() if row[15] else None,
+            "completed_at": row[15] if row[15] else None,
         }
         for row in cur.fetchall()
     ]
