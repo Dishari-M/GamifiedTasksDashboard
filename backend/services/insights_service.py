@@ -132,7 +132,8 @@ def _context(work_date, user_id):
     sorted_worked = sorted(
         worked_tasks,
         key=lambda task: (
-            -float(task.get("priority_score") or 0),
+            -_due_urgency(task, work_date),
+            -_priority_score(task),
             -_priority_weight(task.get("priority")),
             -resolve_xp_value(task),
             int(task.get("estimated_minutes") or 0),
@@ -166,7 +167,8 @@ def _context_from_tasks(work_date, tasks, user_id=None):
     sorted_worked = sorted(
         worked_tasks,
         key=lambda task: (
-            -float(task.get("priority_score") or 0),
+            -_due_urgency(task, work_date),
+            -_priority_score(task),
             -_priority_weight(task.get("priority")),
             -resolve_xp_value(task),
             int(task.get("estimated_minutes") or 0),
@@ -267,6 +269,8 @@ def _task_insight(task):
         "priority": task.get("priority"),
         "status": task.get("status"),
         "task_type": task.get("task_type"),
+        "due_date": _date_value(task, "due_at", "dueDate", "due_date"),
+        "start_date": _date_value(task, "start_at", "startDate", "start_date"),
         "priority_score": float(task.get("priority_score") or task.get("priorityScore") or ai.get("priority_score") or 0),
         "effort_minutes": int(task.get("estimated_minutes") or 0),
         "xp_value": xp_value,
@@ -287,6 +291,38 @@ def _xp_source(task):
     if has_applicable_tshirt_size(task.get("rca_tshirt_size") or task.get("rcaTshirtSize")):
         return "rca_tshirt_size"
     return "default"
+
+
+def _date_value(task, *keys):
+    for key in keys:
+        value = task.get(key)
+        if value:
+            return str(value)[:10]
+    return None
+
+
+def _due_urgency(task, work_date):
+    due_date = _date_value(task, "due_at", "dueDate", "due_date")
+    if not due_date or not work_date:
+        return 0
+    if due_date <= work_date:
+        return 3
+    try:
+        due = datetime.fromisoformat(due_date)
+        current = datetime.fromisoformat(work_date)
+    except ValueError:
+        return 0
+    days_until_due = (due.date() - current.date()).days
+    if days_until_due <= 1:
+        return 2
+    if days_until_due <= 3:
+        return 1
+    return 0
+
+
+def _priority_score(task):
+    ai = task.get("ai") or {}
+    return float(task.get("priority_score") or task.get("priorityScore") or ai.get("priority_score") or 0)
 
 
 def _response_task(task, work_date):

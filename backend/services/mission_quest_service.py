@@ -335,7 +335,7 @@ def _candidate_tasks(tasks, user_id, work_date, request_payload):
         if respect_working_today and work_date not in _worked_dates(task.get("worked_dates")):
             continue
         filtered.append(task)
-    return _default_rank(filtered)
+    return _default_rank(filtered, work_date)
 
 
 def _oracle_candidate_tasks(cur, user_id, work_date, request_payload):
@@ -360,6 +360,8 @@ def _ai_task(task):
         "priority": task.get("priority") or "",
         "status": task.get("status") or "",
         "task_type": task.get("task_type") or "",
+        "due_date": _date_value(task, "due_at", "dueDate", "due_date"),
+        "start_date": _date_value(task, "start_at", "startDate", "start_date"),
         "effort_minutes": int(task.get("estimated_minutes") or task.get("time") or 0),
         "xp_value": xp_value,
         "xp_source": _xp_source(task),
@@ -373,12 +375,13 @@ def _ai_task(task):
     }
 
 
-def _default_rank(tasks):
+def _default_rank(tasks, work_date=None):
     return sorted(
         tasks,
         key=lambda task: (
-            -float(task.get("priority_score") or task.get("ai_priority_score") or 0),
-            -float(task.get("impact") or task.get("ai_impact_score") or 0),
+            -_due_urgency(task, work_date),
+            -_priority_score(task),
+            -_impact_score(task),
             -_priority_weight(task.get("priority")),
             int(task.get("estimated_minutes") or task.get("time") or 0),
             -resolve_xp_value(task),
@@ -392,6 +395,43 @@ def _xp_source(task):
     if has_applicable_tshirt_size(task.get("rca_tshirt_size") or task.get("rcaTshirtSize")):
         return "rca_tshirt_size"
     return "default"
+
+
+def _date_value(task, *keys):
+    for key in keys:
+        value = task.get(key)
+        if value:
+            return str(value)[:10]
+    return None
+
+
+def _due_urgency(task, work_date):
+    due_date = _date_value(task, "due_at", "dueDate", "due_date")
+    if not due_date or not work_date:
+        return 0
+    if due_date <= work_date:
+        return 3
+    try:
+        due = datetime.fromisoformat(due_date)
+        current = datetime.fromisoformat(work_date)
+    except ValueError:
+        return 0
+    days_until_due = (due.date() - current.date()).days
+    if days_until_due <= 1:
+        return 2
+    if days_until_due <= 3:
+        return 1
+    return 0
+
+
+def _priority_score(task):
+    ai = task.get("ai") or {}
+    return float(task.get("priority_score") or task.get("priorityScore") or task.get("ai_priority_score") or ai.get("priority_score") or 0)
+
+
+def _impact_score(task):
+    ai = task.get("ai") or {}
+    return float(task.get("impact") or task.get("ai_impact_score") or ai.get("impact_score") or 0)
 
 
 def _validated_missions(missions, tasks, max_items):
