@@ -50,8 +50,8 @@ class StandupContextTests(unittest.TestCase):
         self.assertIn("55 focus minutes across 2 session(s)", full_note)
         self.assertIn("1 meeting(s) totaling 30 minutes", full_note)
 
-    def test_oracle_standup_uses_request_user_and_ensures_storage(self):
-        cur = object()
+    def test_oracle_standup_uses_request_user_and_generates_without_storage(self):
+        cur = Mock()
         conn = Mock()
         conn.cursor.return_value = cur
         context = {
@@ -73,22 +73,18 @@ class StandupContextTests(unittest.TestCase):
         with (
             patch("services.standup_service.get_connection", return_value=conn),
             patch("services.standup_service.get_ai_mode", return_value="mock"),
-            patch("services.standup_service.standup_repository.ensure_standup_storage") as ensure_storage,
-            patch("services.standup_service.standup_repository.fetch_standup_note", side_effect=[None, {"standup_note_id": 77, "updated_at": "2026-05-06T10:00:00"}]) as fetch_note,
             patch("services.standup_service.standup_repository.build_context", return_value=context) as build_context,
-            patch("services.standup_service.standup_repository.upsert_standup_note") as upsert_note,
             patch("services.standup_service.overview_repository.insert_ai_run", return_value=88) as insert_ai_run,
-            patch("services.standup_service.overview_repository.update_ai_run"),
+            patch("services.standup_service.overview_repository.update_ai_run") as update_ai_run,
         ):
             response = standup_service._oracle_standup_note("2026-05-06", user_id=42, force=True)
 
-        ensure_storage.assert_called_once_with(cur)
-        fetch_note.assert_any_call(cur, 42, "2026-05-06")
         build_context.assert_called_once_with(cur, 42, "2026-05-06")
         insert_ai_run.assert_called_once()
         self.assertEqual(insert_ai_run.call_args.args[1], 42)
-        self.assertEqual(upsert_note.call_args.args[:3], (cur, 42, "2026-05-06"))
-        self.assertEqual(response["standup_note_id"], 77)
+        update_ai_run.assert_called_once()
+        self.assertIsNone(response["standup_note_id"])
+        self.assertEqual(response["ai_run_id"], 88)
 
 
 if __name__ == "__main__":

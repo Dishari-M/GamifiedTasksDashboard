@@ -147,7 +147,6 @@ def _oracle_daily_overview(work_date, user_id, generate=False, request_payload=N
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_daily_overview_row(cur, user_id, work_date)
         context = _oracle_context(cur, user_id, work_date, work_date)
         if _include_daily_overviews(request_payload):
@@ -205,7 +204,6 @@ def _oracle_weekly_overview(week_start, week_end, user_id, generate=False, reque
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_weekly_overview_row(cur, user_id, week_start)
         context = _oracle_context(cur, user_id, week_start, week_end)
         if _include_daily_overviews(request_payload):
@@ -262,7 +260,6 @@ def _oracle_save_daily_overview(work_date, payload, user_id):
     try:
         conn = _get_connection()
         cur = conn.cursor()
-        overview_repository.ensure_overview_storage(cur)
         saved = overview_repository.fetch_daily_overview_row(cur, user_id, work_date)
         context = _oracle_context(cur, user_id, work_date, work_date)
         overview = _daily_response(context, _manual_daily_ai_payload(payload, saved))
