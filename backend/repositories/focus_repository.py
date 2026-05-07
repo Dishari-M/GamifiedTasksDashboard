@@ -68,12 +68,12 @@ def resolve_quest_item_id(cur, user_id, client_quest_item_id):
     return int(row[0]) if row else None
 
 
-def fetch_task_xp(cur, user_id, task_id):
+def fetch_task_reward_context(cur, user_id, task_id):
     if not task_id:
-        return 0
+        return {"xp_value": 0, "estimated_minutes": 60, "title": ""}
     cur.execute(
         """
-        SELECT NVL(XP_VALUE, 0)
+        SELECT NVL(XP_VALUE, 0), NVL(ESTIMATED_MINUTES, 60), TITLE
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND TO_CHAR(TASK_ID) = :task_id
@@ -82,7 +82,13 @@ def fetch_task_xp(cur, user_id, task_id):
         {"user_id": user_id, "task_id": str(task_id)},
     )
     row = cur.fetchone()
-    return int(row[0] or 0) if row else 0
+    if not row:
+        return {"xp_value": 0, "estimated_minutes": 60, "title": ""}
+    return {
+        "xp_value": int(row[0] or 0),
+        "estimated_minutes": int(row[1] or 60),
+        "title": row[2] or "",
+    }
 
 
 def fetch_focus_multiplier(cur, user_id):
@@ -211,8 +217,8 @@ def sync_quest_focus(cur, quest_item_id, duration_minutes, xp_multiplier, xp_awa
         """
         UPDATE QUEST_ITEMS
         SET FOCUS_MINUTES = NVL(FOCUS_MINUTES, 0) + :duration_minutes,
-            HAS_FOCUS_REWARD = CASE WHEN :duration_minutes > 0 THEN 1 ELSE HAS_FOCUS_REWARD END,
-            REWARD_MULTIPLIER = CASE WHEN :duration_minutes > 0 THEN :xp_multiplier ELSE REWARD_MULTIPLIER END,
+            HAS_FOCUS_REWARD = CASE WHEN :xp_multiplier > 1 THEN 1 ELSE HAS_FOCUS_REWARD END,
+            REWARD_MULTIPLIER = CASE WHEN :xp_multiplier > 1 THEN :xp_multiplier ELSE REWARD_MULTIPLIER END,
             FOCUS_BONUS_XP = GREATEST(0, :xp_awarded - NVL(BASE_XP, 0)),
             REWARD_XP = CASE WHEN :xp_awarded > NVL(REWARD_XP, 0) THEN :xp_awarded ELSE REWARD_XP END,
             UPDATED_AT = SYSTIMESTAMP,

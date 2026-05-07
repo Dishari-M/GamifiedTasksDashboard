@@ -132,41 +132,8 @@ def _context(work_date, user_id):
     sorted_worked = sorted(
         worked_tasks,
         key=lambda task: (
-            -float(task.get("priority_score") or 0),
-            -_priority_weight(task.get("priority")),
-            -resolve_xp_value(task),
-            int(task.get("estimated_minutes") or 0),
-        ),
-    )
-    capacity = build_capacity(work_date, user_id=user_id)
-    previous_capacity = build_capacity(previous_date, user_id=user_id)
-    events = get_calendar_events(work_date, user_id)
-    metrics = {
-        "task_count": len(tasks),
-        "working_today_count": len(worked_tasks),
-        "completed_count": len(completed_tasks),
-        "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
-        "meeting_minutes": capacity.get("meeting_minutes", 0),
-        "available_focus_minutes": capacity.get("available_focus_minutes", 0),
-    }
-
-
-def _oracle_context(cur, work_date, user_id):
-    tasks = task_repository.list_tasks(cur, user_id, {"page": 1, "page_size": 500}, work_date)["items"]
-    return _context_from_tasks(work_date, tasks, user_id)
-
-
-def _context_from_tasks(work_date, tasks, user_id=None):
-    tasks = [_response_task(task, work_date) for task in tasks]
-    previous_date = previous_date_key(work_date)
-    worked_tasks = [task for task in tasks if task["working_today"]]
-    completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == work_date]
-    previous_worked_tasks = [task for task in tasks if task.get("status") != "Done" and previous_date in _worked_dates(task.get("worked_dates"))]
-    previous_completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == previous_date]
-    sorted_worked = sorted(
-        worked_tasks,
-        key=lambda task: (
-            -float(task.get("priority_score") or 0),
+            -_due_urgency(task, work_date),
+            -_priority_score(task),
             -_priority_weight(task.get("priority")),
             -resolve_xp_value(task),
             int(task.get("estimated_minutes") or 0),
@@ -199,6 +166,41 @@ def _context_from_tasks(work_date, tasks, user_id=None):
         "calendar_events": events,
         "metrics": metrics,
         "previous_metrics": previous_metrics,
+    }
+
+
+def _oracle_context(cur, work_date, user_id):
+    tasks = task_repository.list_tasks(cur, user_id, {"page": 1, "page_size": 500}, work_date)["items"]
+    return _context_from_tasks(work_date, tasks, user_id)
+
+
+def _context_from_tasks(work_date, tasks, user_id=None):
+    tasks = [_response_task(task, work_date) for task in tasks]
+    previous_date = previous_date_key(work_date)
+    worked_tasks = [task for task in tasks if task["working_today"]]
+    completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == work_date]
+    previous_worked_tasks = [task for task in tasks if task.get("status") != "Done" and previous_date in _worked_dates(task.get("worked_dates"))]
+    previous_completed_tasks = [task for task in tasks if _date_part(task.get("completed_at")) == previous_date]
+    sorted_worked = sorted(
+        worked_tasks,
+        key=lambda task: (
+            -_due_urgency(task, work_date),
+            -_priority_score(task),
+            -_priority_weight(task.get("priority")),
+            -resolve_xp_value(task),
+            int(task.get("estimated_minutes") or 0),
+        ),
+    )
+    capacity = build_capacity(work_date, user_id=user_id)
+    previous_capacity = build_capacity(previous_date, user_id=user_id)
+    events = get_calendar_events(work_date, user_id)
+    metrics = {
+        "task_count": len(tasks),
+        "working_today_count": len(worked_tasks),
+        "completed_count": len(completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
+        "meeting_minutes": capacity.get("meeting_minutes", 0),
+        "available_focus_minutes": capacity.get("available_focus_minutes", 0),
     }
     previous_metrics = {
         "task_count": len(tasks),
@@ -260,21 +262,24 @@ def _fallback_ai(context):
 
 def _task_insight(task):
     xp_value = resolve_xp_value(task)
+    ai = task.get("ai") or {}
     return {
         "task_id": task["task_id"],
         "title": task["title"],
         "priority": task.get("priority"),
         "status": task.get("status"),
         "task_type": task.get("task_type"),
-        "priority_score": float(task.get("priority_score") or 0),
+        "due_date": _date_value(task, "due_at", "dueDate", "due_date"),
+        "start_date": _date_value(task, "start_at", "startDate", "start_date"),
+        "priority_score": float(task.get("priority_score") or task.get("priorityScore") or ai.get("priority_score") or 0),
         "effort_minutes": int(task.get("estimated_minutes") or 0),
         "xp_value": xp_value,
         "xp_source": _xp_source(task),
         "rca_tshirt_size": task.get("rca_tshirt_size") or task.get("rcaTshirtSize"),
         "rca_file_change_count": task.get("rca_file_change_count") or task.get("rcaFileChangeCount"),
         "rca_complexity_source": task.get("rca_complexity_source") or task.get("rcaComplexitySource"),
-        "impact_score": float(task.get("impact") or 0),
-        "insight": task.get("ai_insight") or "",
+        "impact_score": float(task.get("impact") or task.get("ai_impact_score") or ai.get("impact_score") or 0),
+        "insight": task.get("ai_insight") or task.get("aiInsight") or ai.get("insight") or "",
         "notes": task.get("notes") or "",
         "labels": task.get("labels") or [],
     }
@@ -286,6 +291,38 @@ def _xp_source(task):
     if has_applicable_tshirt_size(task.get("rca_tshirt_size") or task.get("rcaTshirtSize")):
         return "rca_tshirt_size"
     return "default"
+
+
+def _date_value(task, *keys):
+    for key in keys:
+        value = task.get(key)
+        if value:
+            return str(value)[:10]
+    return None
+
+
+def _due_urgency(task, work_date):
+    due_date = _date_value(task, "due_at", "dueDate", "due_date")
+    if not due_date or not work_date:
+        return 0
+    if due_date <= work_date:
+        return 3
+    try:
+        due = datetime.fromisoformat(due_date)
+        current = datetime.fromisoformat(work_date)
+    except ValueError:
+        return 0
+    days_until_due = (due.date() - current.date()).days
+    if days_until_due <= 1:
+        return 2
+    if days_until_due <= 3:
+        return 1
+    return 0
+
+
+def _priority_score(task):
+    ai = task.get("ai") or {}
+    return float(task.get("priority_score") or task.get("priorityScore") or ai.get("priority_score") or 0)
 
 
 def _response_task(task, work_date):

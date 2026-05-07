@@ -50,7 +50,7 @@ def build_standup_note(work_date, user_id="local-user", force=False):
         return _oracle_standup_note(work_date, user_id, force=force)
 
     context = _standup_context(work_date, user_id)
-    if get_ai_mode() == "mock":
+    if not force or get_ai_mode() == "mock":
         note = _mock_note(context)
     elif get_ai_mode() == "real":
         note = _real_note(context)
@@ -74,6 +74,9 @@ def _oracle_standup_note(work_date, user_id, force=False):
         context = standup_repository.build_context(cur, oracle_user_id, work_date)
         if saved and not force:
             return _saved_response(context, saved, force)
+        if not force:
+            note = _mock_note(context)
+            return _response(context, note, force, standup_note_id=None, ai_run_id=None)
 
         request = {
             "run_type": "STANDUP_NOTE",

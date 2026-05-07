@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
+  Bell,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -15,6 +16,7 @@ import {
   Fire,
   Flag,
   FloppyDisk,
+  FolderOpen,
   FunnelSimple,
   GearSix,
   House,
@@ -43,15 +45,16 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, overviewApi, questsApi, settingsApi, standupApi, tasksApi } from "./api/client";
+import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, settingsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
+import { deriveTaskXpBreakdown, levelProgressFromXp, streakHeat } from "./features/progress/progressionMath";
 import { NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
-import { buildProgressSnapshot } from "./features/progress/progressModel";
-import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
+import { buildProgressSnapshot, mergeMonotonicTotalXp } from "./features/progress/progressModel";
+import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, hasGeneratedQuestRun, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
 import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusMinutesByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
-import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeTask, priorities, rcaTshirtSizes, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
+import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, rcaTshirtSizes, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
 import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
@@ -70,12 +73,33 @@ const navItems = [
 const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
 
 const THEME_STORAGE_KEY = "devquest.theme.v1";
+const PROGRESS_GUIDE_STORAGE_KEY = "devquest.progressGuide.dismissed.v2";
+const XP_LEDGER_STORAGE_KEY = "devquest.progress.totalXpByUser.v1";
 
 const readInitialTheme = () => {
   const stored = readStoredJson(THEME_STORAGE_KEY, null);
   if (stored === "light" || stored === "dark") return stored;
   if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
   return "dark";
+};
+
+const readPersistedXpLedger = () => readStoredJson(XP_LEDGER_STORAGE_KEY, {});
+
+const readPersistedXpForUser = (userId) => {
+  if (!userId) return 0;
+  const ledger = readPersistedXpLedger();
+  return parseNumber(ledger?.[String(userId)], 0);
+};
+
+const persistXpForUser = (userId, totalXp) => {
+  if (!userId) return;
+  const ledger = readPersistedXpLedger();
+  const key = String(userId);
+  const nextTotal = mergeMonotonicTotalXp(totalXp, ledger?.[key]);
+  writeStoredJson(XP_LEDGER_STORAGE_KEY, {
+    ...ledger,
+    [key]: nextTotal,
+  });
 };
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -103,8 +127,14 @@ const readCurrentUser = () => {
   }
 };
 
-const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
-const settingsErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+const apiErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  return detail?.message || detail?.error || error?.message || fallback;
+};
+const authErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
+const readProgressGuideDismissed = () => readStoredJson(PROGRESS_GUIDE_STORAGE_KEY, false);
+const settingsErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const timeToMinutes = (value) => {
   const [hours, minutes] = String(value || "").split(":").map((part) => Number(part));
@@ -170,31 +200,11 @@ const truncateText = (value, maxLength = 46) => {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 };
 
-const levelProgressFromXp = (xpValue) => {
-  const totalXp = Math.max(0, parseNumber(xpValue, 0));
-  let level = 1;
-  let currentLevelStartXp = 0;
-  let nextLevelAtXp = 50;
-
-  while (totalXp >= nextLevelAtXp) {
-    level += 1;
-    currentLevelStartXp = nextLevelAtXp;
-    const nextStep = level < 5 ? 50 : level < 15 ? 100 : 200;
-    nextLevelAtXp += nextStep;
-  }
-
-  const currentLevelXp = totalXp - currentLevelStartXp;
-  const xpForNextLevel = nextLevelAtXp - currentLevelStartXp;
-  const progressPercent = Math.min(100, Math.round((currentLevelXp / xpForNextLevel) * 100));
-
-  return {
-    level,
-    totalXp,
-    currentLevelXp,
-    xpForNextLevel,
-    nextLevelAtXp,
-    progressPercent,
-  };
+const scheduleHeadingForDate = (dateKey) => {
+  const selected = dateKey || todayKey();
+  if (selected === todayKey()) return "Today's Schedule";
+  if (selected === addDaysKey(todayKey(), 1)) return "Tomorrow's Schedule";
+  return `${new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${selected}T00:00:00`))} Schedule`;
 };
 
 const Pill = ({ children, tone = "neutral", testId }) => (
@@ -341,7 +351,9 @@ const AuthPage = ({ onAuthenticated }) => {
   );
 };
 
-const Sidebar = ({ open, onClose, levelProgress, streakDays }) => (
+const Sidebar = ({ open, onClose, levelProgress, streakDays }) => {
+  const streakState = streakHeat(streakDays);
+  return (
   <aside className={`sidebar ${open ? "sidebar-open" : ""}`} data-testid="app-sidebar">
     <div className="brand" data-testid="app-brand">
       <span className="brand-mark" data-testid="app-brand-mark">
@@ -362,10 +374,11 @@ const Sidebar = ({ open, onClose, levelProgress, streakDays }) => (
       })}
     </nav>
 
-    <div className="sidebar-card streak-card" data-testid="sidebar-streak-card">
+    <div className={`sidebar-card streak-card streak-card-${streakState.tone}`} data-testid="sidebar-streak-card">
       <div className="mini-title"><Fire size={20} weight="fill" aria-hidden="true" /> Streak</div>
       <strong data-testid="streak-days-value">{streakDays} day{streakDays === 1 ? "" : "s"}</strong>
-      <p>{streakDays > 0 ? "Keep the quest streak alive." : "Complete a quest today to start your streak."}</p>
+      <span className="streak-heat-label" data-testid="streak-heat-label">{streakState.label}</span>
+      <p>{streakState.description}</p>
     </div>
 
     <div className="sidebar-card level-card" data-testid="sidebar-level-card">
@@ -383,8 +396,9 @@ const Sidebar = ({ open, onClose, levelProgress, streakDays }) => (
     </div>
   </aside>
 );
+};
 
-const Topbar = ({currentUser, isLoggingOut, onLogout,onMenuClick, theme, onThemeToggle }) => {
+const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThemeToggle }) => {
   const location = useLocation();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -461,6 +475,9 @@ const StatCard = ({ label, value, detail, detailInsight, icon, tone, trend, down
 
 const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
+  const displayExternalId = task.externalId || task.external_id || task.id;
+  const missionDescription = task.description || task.aiInsight;
+  const tshirtSize = task.rcaTshirtSize || task.rca_tshirt_size || task.jiraTshirtSize || "";
   return (
     <article className={`mission-card mission-${task.accent}`} data-testid={`mission-card-${slug(task.id)}`}>
       <IconBadge icon={Icon} tone={task.accent} testId={`mission-icon-${slug(task.id)}`} />
@@ -470,13 +487,14 @@ const MissionCard = ({ task, index, questMeta }) => {
           <Pill tone={task.type.toLowerCase()} testId={`mission-type-${slug(task.id)}`}>{task.type}</Pill>
           <Pill tone={slug(task.status)} testId={`mission-status-${slug(task.id)}`}>{task.status}</Pill>
         </div>
-        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {task.id}</p>
-        <p data-testid={`mission-description-${slug(task.id)}`}>{task.aiInsight || task.description}</p>
+        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {displayExternalId}</p>
+        <p data-testid={`mission-description-${slug(task.id)}`}>{missionDescription}</p>
         {questMeta && <p className="quest-rationale" data-testid={`quest-rationale-${slug(task.id)}`}>{questMeta.rationale}</p>}
       </div>
       <div className="mission-score">
         {questMeta && <span className={`quest-action quest-action-${slug(task.status)}`} data-testid={`quest-action-${slug(task.id)}`}>{questMeta.action}</span>}
         <Pill tone={task.priority.toLowerCase()} testId={`mission-priority-${slug(task.id)}`}>{task.priority}</Pill>
+        {tshirtSize && <Pill tone={`tshirt-${slug(tshirtSize)}`} testId={`mission-tshirt-${slug(task.id)}`}>{tshirtSize}</Pill>}
         <span data-testid={`mission-time-${slug(task.id)}`}><Clock size={16} weight="duotone" aria-hidden="true" /> {task.time} mins</span>
         <strong data-testid={`mission-xp-${slug(task.id)}`}>{task.xp} XP</strong>
         <span className="mission-rank" data-testid={`mission-rank-${slug(task.id)}`}>#{index + 1}</span>
@@ -485,24 +503,115 @@ const MissionCard = ({ task, index, questMeta }) => {
   );
 };
 
-const SchedulePanel = ({ events = schedule }) => (
-  <section className="surface schedule-panel" data-testid="schedule-panel">
-    <div className="section-heading"><h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Schedule</h2><NavLink to="/calendar" data-testid="view-calendar-link">View Calendar</NavLink></div>
-    <div className="timeline" data-testid="schedule-timeline">
-      {events.map((event) => (
-        <div className="timeline-row" key={event.time} data-testid={`schedule-row-${slug(event.time)}`}>
-          <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
-          <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
-          <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
-            <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
-            <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
-            {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
-          </article>
+const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent, selectedDate = todayKey(), onDateChange, onFetchDate, isFetchingDate = false }) => {
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [savingEventId, setSavingEventId] = useState(null);
+
+  const startEditing = (event) => {
+    setEditingEventId(event.eventId);
+    setEditingTitle(event.title || "");
+  };
+  const cancelEditing = () => {
+    setEditingEventId(null);
+    setEditingTitle("");
+  };
+  const saveTitle = async (event) => {
+    const title = editingTitle.trim();
+    if (!title || !event.eventId) return;
+    setSavingEventId(event.eventId);
+    try {
+      await onUpdateEvent?.(event.eventId, title);
+      cancelEditing();
+    } finally {
+      setSavingEventId(null);
+    }
+  };
+
+  return (
+    <section className="surface schedule-panel" data-testid="schedule-panel">
+      <div className="section-heading schedule-heading">
+        <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> {scheduleHeadingForDate(selectedDate)}</h2>
+        {onFetchDate && (
+          <div className="schedule-date-controls">
+            <input type="date" value={selectedDate} onChange={(event) => onDateChange?.(event.target.value)} aria-label="Calendar date" data-testid="schedule-date-input" />
+            <button className="ghost-button" type="button" onClick={onFetchDate} disabled={isFetchingDate} data-testid="fetch-schedule-date-button">
+              {isFetchingDate ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={17} weight="duotone" aria-hidden="true" />}
+              {isFetchingDate ? "Fetching..." : "Fetch Calendar"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="timeline" data-testid="schedule-timeline">
+        {events.map((event) => {
+          const isEditing = editingEventId && String(editingEventId) === String(event.eventId);
+          const isSaving = savingEventId && String(savingEventId) === String(event.eventId);
+          return (
+            <div className="timeline-row" key={event.id || `${event.time}-${event.title}`} data-testid={`schedule-row-${slug(event.time)}`}>
+              <time data-testid={`schedule-time-${slug(event.time)}`}>{event.time}</time>
+              <span className={`timeline-dot timeline-${event.color}`} data-testid={`schedule-dot-${slug(event.time)}`} />
+              <article className={`event-card event-${event.color}`} data-testid={`schedule-event-${slug(event.title)}`}>
+                {isEditing ? (
+                  <input
+                    className="event-title-input"
+                    value={editingTitle}
+                    onChange={(inputEvent) => setEditingTitle(inputEvent.target.value)}
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.key === "Enter") saveTitle(event);
+                      if (keyEvent.key === "Escape") cancelEditing();
+                    }}
+                    aria-label={`Edit ${event.title} title`}
+                    data-testid={`schedule-title-input-${slug(event.title)}`}
+                    autoFocus
+                  />
+                ) : (
+                  <strong data-testid={`schedule-title-${slug(event.title)}`}>{event.title}</strong>
+                )}
+                <span data-testid={`schedule-duration-${slug(event.title)}`}>{event.duration}</span>
+                {event.focus && <Lightning size={22} weight="fill" aria-hidden="true" />}
+                {onUpdateEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-edit-button" type="button" onClick={() => startEditing(event)} aria-label={`Edit ${event.title} title`} data-testid={`edit-schedule-event-${slug(event.title)}`}>
+                    <PencilSimple size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+                {isEditing && (
+                  <>
+                    <button className="event-icon-button event-save-button" type="button" onClick={() => saveTitle(event)} disabled={isSaving || !editingTitle.trim()} aria-label={`Save ${event.title} title`} data-testid={`save-schedule-event-${slug(event.title)}`}>
+                      <CheckCircle size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                    <button className="event-icon-button event-cancel-button" type="button" onClick={cancelEditing} disabled={isSaving} aria-label={`Cancel editing ${event.title}`} data-testid={`cancel-schedule-event-${slug(event.title)}`}>
+                      <X size={16} weight="bold" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+                {onRemoveEvent && event.eventId && !isEditing && (
+                  <button className="event-icon-button event-remove-button" type="button" onClick={() => onRemoveEvent(event.eventId)} aria-label={`Remove ${event.title} from today's schedule`} data-testid={`remove-schedule-event-${slug(event.title)}`}>
+                    <X size={16} weight="bold" aria-hidden="true" />
+                  </button>
+                )}
+              </article>
+            </div>
+          );
+        })}
+        {!events.length && <p className="empty-state">No events in today&apos;s schedule.</p>}
+      </div>
+      {!!removedEvents.length && (
+        <div className="removed-events-panel" data-testid="removed-calendar-events">
+          <h3>Removed events</h3>
+          {removedEvents.map((event) => (
+            <article className="removed-event-row" key={event.id || event.eventId || event.title}>
+              <span>{event.time}</span>
+              <strong>{event.title}</strong>
+              <button className="ghost-button" type="button" onClick={() => onRestoreEvent?.(event.eventId)} data-testid={`restore-schedule-event-${slug(event.title)}`}>
+                <ArrowClockwise size={16} weight="bold" aria-hidden="true" /> Restore
+              </button>
+            </article>
+          ))}
         </div>
-      ))}
-    </div>
-  </section>
-);
+      )}
+    </section>
+  );
+};
 
 const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
@@ -578,39 +687,60 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   }
 
   return (
-    <section className={`surface focus-widget ${compact ? "focus-compact" : ""}`} data-testid="focus-widget">
-      <div className="section-heading focus-heading">
-        <h2><Timer size={26} weight="duotone" aria-hidden="true" /> Current session</h2>
-        <span data-testid="focus-today-pill">{formatMinutes(focusedToday)} today</span>
-      </div>
-      <div className="focus-hero-grid">
-        <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-          <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+    <section className={`surface focus-widget focus-launcher-card ${compact ? "focus-compact" : ""}`} data-testid="focus-widget">
+      <div className="focus-launcher-head">
+        <div>
+          <h2><Timer size={26} weight="duotone" aria-hidden="true" /> Start a focus session</h2>
+          <p>Choose a task and begin deep work.</p>
         </div>
       </div>
-      <label className="focus-task-picker">
-        Focus task
-        <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
-          {taskOptions.map((task) => <option key={task.id} value={task.id}>{task.workingToday ? "Today - " : ""}{truncateText(task.title, 24)}</option>)}
-          {!taskOptions.length && <option value="">No open tasks</option>}
-        </select>
-      </label>
-      {!compact && selectedTask && (
-        <article className="focus-selected-task" data-testid="focus-selected-task">
-          <div>
-            <span>{selectedTask.source}</span>
-            <strong>{selectedTask.title}</strong>
-            <p>{selectedTask.description}</p>
+      <div className="focus-launcher-layout" data-testid="focus-session-layout">
+        <div className="focus-hero-grid focus-launcher-hero">
+          <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
+            <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
           </div>
-          <div className="focus-selected-meta" aria-label="Selected task details">
-            <Pill tone={selectedTask.priority.toLowerCase()}>{selectedTask.priority}</Pill>
-            <span>{plannedMinutes}</span>
-            <span>{formatMinutes(selectedTaskFocusedToday)} today</span>
-            <FocusQuestBadge quest={selectedQuest ? { ...selectedQuest, focusMinutes: selectedQuestFocusMinutes, focusTargetMinutes: selectedQuestTargetMinutes } : null} />
+        </div>
+        <div className="focus-launcher-panel">
+          <label className="focus-task-picker">
+            Focus task
+            <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
+              {taskOptions.map((task) => <option key={task.id} value={task.id}>{task.workingToday ? "Today - " : ""}{truncateText(task.title, 24)}</option>)}
+              {!taskOptions.length && <option value="">No open tasks</option>}
+            </select>
+          </label>
+          {!compact && selectedTask && (
+            <article className="focus-selected-task focus-launcher-selected" data-testid="focus-selected-task">
+              <div className="focus-selected-copy">
+                <span>{selectedTask.source}</span>
+                <strong>{selectedTask.title}</strong>
+                {selectedTask.description ? <p>{selectedTask.description}</p> : <p>{selectedTask.priority} priority work ready for a focused block.</p>}
+              </div>
+              <div className="focus-selected-meta" aria-label="Selected task details">
+                <Pill tone={selectedTask.priority.toLowerCase()}>{selectedTask.priority}</Pill>
+                <span>{plannedMinutes}</span>
+                <span>{formatMinutes(selectedTaskFocusedToday)} today</span>
+                <FocusQuestBadge quest={selectedQuest ? { ...selectedQuest, focusMinutes: selectedQuestFocusMinutes, focusTargetMinutes: selectedQuestTargetMinutes } : null} />
+              </div>
+            </article>
+          )}
+          {!compact && !selectedTask && (
+            <div className="focus-empty-state" data-testid="focus-empty-state">
+              <strong>No tasks ready for focus.</strong>
+              <p>Create a task or open My Tasks to make Focus Mode actionable.</p>
+              <div className="focus-empty-actions">
+                <NavLink className="ghost-button" to="/tasks" data-testid="focus-create-task-link">Create task</NavLink>
+                <NavLink className="ghost-button" to="/tasks" data-testid="focus-view-tasks-link">View My Tasks</NavLink>
+              </div>
+            </div>
+          )}
+          <div className="focus-actions focus-launcher-actions">
+            {!activeSession && <button className="primary-action focus-start-primary" onClick={startFocus} disabled={!selectedTask} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> Start focus session</button>}
+            {activeSession?.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
+            {activeSession && !activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
+            {activeSession && <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>}
           </div>
-        </article>
-      )}
-      {!compact && !selectedTask && <p className="focus-helper-text" data-testid="focus-helper-text">Choose a task to start a session.</p>}
+        </div>
+      </div>
       {!compact && activeSession && (
         <div className="focus-outcome-panel" data-testid="focus-outcome-panel">
           <span>Wrap up session</span>
@@ -620,17 +750,11 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
           <textarea value={outcomeNote} onChange={(event) => setOutcomeNote(event.target.value)} placeholder="What changed during this session?" data-testid="focus-outcome-note" />
         </div>
       )}
-      <div className="focus-actions">
-        {!activeSession && <button className="primary-action" onClick={startFocus} disabled={!selectedTask} data-testid="focus-start-pause-button"><Play size={20} weight="fill" aria-hidden="true" /> Start session</button>}
-        {activeSession?.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
-        {activeSession && !activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
-        {activeSession && <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>}
-      </div>
     </section>
   );
 };
 
-const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, editable = true }) => {
+const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, editable = true }) => {
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dirtyNotes, setDirtyNotes] = useState({});
   const [savingNoteId, setSavingNoteId] = useState(null);
@@ -677,6 +801,11 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
             const Icon = task.icon;
             const hasUnsavedNote = Boolean(dirtyNotes[task.id]);
             const isSavingNote = savingNoteId === task.id;
+            const isEnrichmentJob = Boolean(task.isEnrichmentJob);
+            const enrichmentJobId = task.enrichmentJobId || task.sourceEnrichmentJobId;
+            const enrichmentStatus = String(task.enrichmentStatus || "").toUpperCase();
+            const isTaskEnrichmentActive = activeEnrichmentStatuses.has(enrichmentStatus);
+            const canOpenEnrichmentDetails = Boolean(enrichmentJobId && onOpenEnrichmentDetails);
             return (
               <tr key={task.id} data-testid={`task-row-${slug(task.id)}`}>
                 <td data-testid={`task-title-cell-${slug(task.id)}`}>
@@ -687,18 +816,61 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                   <button
                     onClick={() => onToggleToday(task.id)}
                     className={`today-toggle ${task.status !== "Done" && task.workingToday ? "active" : ""}`}
-                    disabled={task.status === "Done"}
+                    disabled={task.status === "Done" || isEnrichmentJob}
                     data-testid={`task-today-button-${slug(task.id)}`}
                   >
-                    {task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
+                    {isEnrichmentJob ? "Pending" : task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
                   </button>
                 </td>
                 <td data-testid={`task-source-${slug(task.id)}`}>{task.source}</td>
                 <td><Pill tone={task.priority.toLowerCase()} testId={`task-priority-${slug(task.id)}`}>{task.priority}</Pill></td>
-                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}><span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span><span>{task.difficulty} - impact {task.impact}/10</span></td>
+                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}>
+                  {isEnrichmentJob ? (
+                    <>
+                      <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                      <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {isTaskEnrichmentActive ? (
+                        <>
+                          <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                          <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span>
+                          <span>{task.difficulty} - impact {task.impact}/10</span>
+                        </>
+                      )}
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td data-testid={`task-time-${slug(task.id)}`}>{task.time} mins</td>
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
-                <td data-testid={`task-completed-${slug(task.id)}`}>{formatDateTime(task.completedAt)}</td>
+                <td data-testid={`task-completed-${slug(task.id)}`}>{isEnrichmentJob ? task.enrichmentStatusLabel : formatDateTime(task.completedAt)}</td>
                 <td>
                   <select
                     className={`status-select status-select-${slug(task.status)}`}
@@ -706,6 +878,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     onChange={(event) => onStatusChange(task.id, event.target.value)}
                     data-testid={`task-status-${slug(task.id)}`}
                     aria-label={`Status for ${task.title}`}
+                    disabled={isEnrichmentJob}
                   >
                     {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
@@ -715,14 +888,16 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     className={`inline-notes ${editable ? "" : "inline-notes-readonly"}`}
                     value={noteDrafts[task.id] ?? task.notes ?? ""}
                     onChange={(event) => updateNoteDraft(task, event.target.value)}
-                    readOnly={!editable}
+                    readOnly={!editable || isEnrichmentJob}
                     aria-label={`Notes for ${task.title}`}
                     data-testid={`task-notes-${slug(task.id)}`}
                   />
                 </td>
                 {editable && (
                   <td className="action-menu-cell">
-                    {hasUnsavedNote ? (
+                    {isEnrichmentJob ? (
+                      <span className="row-action-placeholder" aria-hidden="true">-</span>
+                    ) : hasUnsavedNote ? (
                       <span className="row-action-group">
                         <button
                           className="row-icon-action row-icon-save"
@@ -766,22 +941,39 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
     </div>
   );
 };
-const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
+const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBase }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSelectingCodeBase, setIsSelectingCodeBase] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const submitInFlightRef = useRef(false);
+  const isJiraEnrichment = form.source === "Jira" && form.runAiEnrichment;
+  const isCodeBaseEnabled = form.source === "Jira";
+  const xpPreview = useMemo(() => deriveTaskXpBreakdown({
+    title: form.title,
+    type: form.type,
+    priority: form.priority,
+    estimatedMinutes: form.estimatedMinutes,
+    rcaTshirtSize: form.rcaTshirtSize,
+    notes: form.notes,
+  }), [form]);
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
-    setFieldErrors({});
+    setIsSubmitting(false);
+    setIsSelectingCodeBase(false);
     setSubmitError("");
+    setFieldErrors({});
     submitInFlightRef.current = false;
   }, [task]);
 
   const update = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "source" && value !== "Jira" ? { codeBaseLocation: "" } : {}),
+    }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
     setSubmitError("");
   };
@@ -793,8 +985,24 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     if (!form.source) errors.source = "Source is required.";
     if (!form.priority) errors.priority = "Priority is required.";
     if (!form.status) errors.status = "Status is required.";
+    if (isJiraEnrichment && !form.externalId.trim()) errors.externalId = "External ID is required for Jira AI enrichment.";
+    if (isJiraEnrichment && !form.codeBaseLocation.trim()) errors.codeBaseLocation = "Code Base Location is required for Jira AI enrichment.";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const selectCodeBase = async () => {
+    if (!onSelectCodeBase || !isCodeBaseEnabled) return;
+    setIsSelectingCodeBase(true);
+    setSubmitError("");
+    try {
+      const path = await onSelectCodeBase(form.codeBaseLocation);
+      if (path) update("codeBaseLocation", path);
+    } catch (error) {
+      setSubmitError(apiErrorMessage(error, "Unable to select code base folder."));
+    } finally {
+      setIsSelectingCodeBase(false);
+    }
   };
 
   const submit = async (event) => {
@@ -811,7 +1019,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         setFieldErrors({});
       }
     } catch (error) {
-      setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
+      setSubmitError(apiErrorMessage(error, "Unable to save task."));
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
@@ -836,7 +1044,21 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
         {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
       </label>
-      <label>External ID<input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="HEPRT/HRA" /></label>
+      <label>
+        External ID
+        <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" aria-invalid={Boolean(fieldErrors.externalId)} aria-describedby={fieldErrors.externalId ? `${mode}-task-external-id-error` : undefined} />
+        {fieldErrors.externalId && <span className="field-error" id={`${mode}-task-external-id-error`}>{fieldErrors.externalId}</span>}
+      </label>
+      <label className="codebase-location-field">
+        Code Base Location
+        <span className="codebase-location-picker">
+          <input value={form.codeBaseLocation} onChange={(event) => update("codeBaseLocation", event.target.value)} placeholder="Select codebase folder" disabled={!isCodeBaseEnabled} aria-invalid={Boolean(fieldErrors.codeBaseLocation)} aria-describedby={fieldErrors.codeBaseLocation ? `${mode}-task-codebase-error` : undefined} data-testid={`${mode}-task-codebase-input`} />
+          <button className="ghost-button" type="button" onClick={selectCodeBase} disabled={!isCodeBaseEnabled || isSelectingCodeBase} data-testid={`${mode}-select-codebase-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingCodeBase ? "Selecting" : "Browse"}
+          </button>
+        </span>
+        {fieldErrors.codeBaseLocation && <span className="field-error" id={`${mode}-task-codebase-error`}>{fieldErrors.codeBaseLocation}</span>}
+      </label>
       <label>
         Priority
         <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
@@ -856,6 +1078,10 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       <label className="checkbox-field"><input type="checkbox" checked={form.runAiEnrichment} onChange={(event) => update("runAiEnrichment", event.target.checked)} /> Run AI enrichment</label>
       {submitError && <p className="form-error" role="alert">{submitError}</p>}
       <div className="editor-actions">
+        <div className="task-xp-preview" data-testid={`${mode}-task-xp-preview`}>
+          <strong>{xpPreview.xp} XP projected</strong>
+          <span>{formatMinutes(xpPreview.estimatedMinutes)} effort | {xpPreview.difficulty} difficulty | focus bonus after {formatMinutes(xpPreview.focusUnlockMinutes)}</span>
+        </div>
         {onCancel && <button type="button" className="ghost-button" onClick={onCancel} disabled={isSubmitting} data-testid={`${mode}-task-cancel-button`}>Cancel</button>}
         <button className="primary-action" type="submit" disabled={isSubmitting} data-testid={`${mode}-task-submit-button`}>
           {mode === "create" && <Plus size={19} weight="bold" aria-hidden="true" />}
@@ -871,6 +1097,20 @@ const completedTodayTasks = (tasks) => tasks.filter((task) => task.status === "D
 const uniqueTasksById = (tasks) => [...new Map(tasks.filter(Boolean).map((task) => [task.id, task])).values()];
 
 const dashboardTaskFilters = ["All", "Working Today", "Done"];
+
+const normalizeTaskPayload = (task) => (
+  task && (
+    Object.prototype.hasOwnProperty.call(task, "task_id")
+    || Object.prototype.hasOwnProperty.call(task, "working_today")
+    || Object.prototype.hasOwnProperty.call(task, "external_source")
+    || Object.prototype.hasOwnProperty.call(task, "estimated_minutes")
+  )
+    ? normalizeApiTask(task)
+    : normalizeTask(task)
+);
+
+const taskBackendKey = (task) => String(task?.taskId || task?.id || "").trim();
+const taskMatchesBackendKey = (task, backendKey) => String(taskBackendKey(task)) === String(backendKey || "").trim();
 
 const filterDashboardTasks = (tasks, filter) => {
   if (filter === "Working Today") return tasks.filter((task) => task.workingToday);
@@ -950,18 +1190,210 @@ const PageLoader = ({ title = "Loading", detail = "Getting the latest data ready
   </main>
 );
 
-const FloatingNotice = ({ notice }) => {
+const FloatingNotice = ({ notice, onDismiss }) => {
   if (!notice) return null;
   return (
     <div className={`floating-notice floating-notice-${notice.tone || "success"}`} role="status" aria-live="polite" data-testid="floating-notice">
-      <strong>{notice.title}</strong>
-      {notice.message && <span>{notice.message}</span>}
-      {notice.detail && <span>{notice.detail}</span>}
+      <div className="floating-notice-copy">
+        <strong>{notice.title}</strong>
+        {notice.message && <span>{notice.message}</span>}
+        {notice.detail && <span>{notice.detail}</span>}
+      </div>
+      <button className="floating-notice-close" type="button" onClick={onDismiss} aria-label="Dismiss notification" data-testid="floating-notice-close">
+        <X size={16} weight="bold" aria-hidden="true" />
+      </button>
     </div>
   );
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading }) => {
+const activeEnrichmentStatuses = new Set(["QUEUED", "RUNNING"]);
+const terminalEnrichmentStatuses = new Set(["SUCCEEDED", "FAILED", "AUTH_REQUIRED", "CANCELLED"]);
+
+const enrichmentJobId = (job) => job?.enrichment_job_id || job?.enrichmentJobId || job?.id;
+const enrichmentJobTaskId = (job) => {
+  const request = job?.request || {};
+  return job?.task_id || job?.taskId || request.existingTaskId || request.existing_task_id || request.taskId || request.task_id || null;
+};
+const enrichmentStatusLabel = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "QUEUED") return "Queued";
+  if (normalized === "RUNNING") return "AI enrichment in progress";
+  if (normalized === "SUCCEEDED") return "Completed";
+  if (normalized === "AUTH_REQUIRED") return "Jira sign-in required";
+  if (normalized === "CANCELLED") return "Cancelled";
+  if (normalized === "FAILED") return "Failed";
+  return "AI enrichment";
+};
+
+const jobToTask = (job) => {
+  const fields = job?.jira_fields || job?.jiraFields || {};
+  const request = job?.request || {};
+  const result = job?.rca_result || job?.rcaResult || {};
+  const status = String(job?.status || "QUEUED").toUpperCase();
+  return normalizeTask({
+    id: `enrichment-${enrichmentJobId(job)}`,
+    title: fields.title || request.title || job?.external_id || job?.externalId || "Jira enrichment",
+    description: status === "FAILED" || status === "AUTH_REQUIRED"
+      ? job?.error_message || job?.errorMessage || enrichmentStatusLabel(status)
+      : fields.description || "The task will appear after AI enrichment finishes.",
+    source: "Jira",
+    externalId: job?.external_id || job?.externalId || request.externalId || "",
+    type: fields.type || request.type || "Task",
+    priority: fields.priority || request.priority || "Medium",
+    status: status === "SUCCEEDED" ? "Done" : status === "FAILED" || status === "AUTH_REQUIRED" ? "Blocked" : "In Progress",
+    time: request.estimatedMinutes || 60,
+    xp: result.xp_value || 0,
+    workingToday: Boolean(request.workingToday ?? true),
+    notes: "",
+    isEnrichmentJob: true,
+    enrichmentJobId: enrichmentJobId(job),
+    enrichmentStatus: status,
+    enrichmentStatusLabel: enrichmentStatusLabel(status),
+    accent: status === "FAILED" || status === "AUTH_REQUIRED" ? "red" : "cyan",
+  });
+};
+
+const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
+  if (!job) return null;
+  const fields = job.jira_fields || job.jiraFields || {};
+  const result = job.rca_result || job.rcaResult || {};
+  const logs = Array.isArray(job.logs) ? job.logs : [];
+  const affectedFiles = result.affected_files || result.affectedFiles || result.rca_affected_files || result.rcaAffectedFiles || [];
+  const codeSuggestion = result.code_suggestion || result.codeSuggestion || result.code_fix_suggestion || result.codeFixSuggestion || result.rca_code_suggestion || result.rcaCodeSuggestion || "";
+  const tshirt = result.tshirt_sizing || result.tshirtSizing || result.jira_tshirt_sizing || result.jiraTshirtSizing || {};
+  const tshirtSize = result.tshirt_size || result.tshirtSize || result.rca_tshirt_size || result.rcaTshirtSize || tshirt.size || "";
+  const tshirtJustification = result.tshirt_justification || result.tshirtJustification || result.rca_tshirt_justification || result.rcaTshirtJustification || tshirt.reason || tshirt.justification || "";
+  const error = job.error_message || job.errorMessage || "";
+  return (
+    <div className="enrichment-modal-backdrop" role="presentation">
+      <section className="surface enrichment-modal" role="dialog" aria-modal="true" aria-labelledby="enrichment-modal-title" data-testid="enrichment-details-modal">
+        <div className="section-heading enrichment-modal-heading">
+          <div>
+            <h2 id="enrichment-modal-title"><Sparkle size={26} weight="duotone" aria-hidden="true" /> Enrichment Details</h2>
+            <p>{job.external_id || job.externalId} - {enrichmentStatusLabel(job.status)}</p>
+          </div>
+          <div className="editor-actions">
+            <button className="ghost-button" type="button" onClick={onRefresh} data-testid="refresh-enrichment-details-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="row-icon-action" type="button" onClick={onClose} aria-label="Close enrichment details" data-testid="close-enrichment-details-button"><X size={18} weight="bold" /></button>
+          </div>
+        </div>
+        <div className="enrichment-detail-stack">
+          <section className="enrichment-console-block">
+            <strong>Console</strong>
+            <pre className="codex-console enrichment-console" data-testid="enrichment-console-output">{logs.map((log) => log.message || log).join("\n") || "Waiting for enrichment output..."}</pre>
+          </section>
+          <section className="enrichment-summary-block">
+            <strong>Enrichment</strong>
+            <dl className="enrichment-details-list">
+              <dt>Title</dt><dd>{fields.title || "-"}</dd>
+              <dt>Description</dt><dd>{fields.description || "-"}</dd>
+              <dt>Root cause</dt><dd>{result.rca_reason || result.rcaReason || "-"}</dd>
+              <dt>Affected files</dt><dd>{affectedFiles.length ? affectedFiles.map((item) => item.path || item).join(", ") : "-"}</dd>
+              <dt>Code suggestion</dt><dd>{codeSuggestion || "-"}</dd>
+              <dt>T-shirt size</dt><dd>{tshirtSize || "-"}</dd>
+              <dt>Justification</dt><dd>{tshirtJustification || "-"}</dd>
+              {error && <><dt>Error</dt><dd className="enrichment-error-text">{error}</dd></>}
+            </dl>
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const LevelUpBanner = ({ levelUp }) => {
+  if (!levelUp) return null;
+  return (
+    <div className="level-up-banner" role="status" aria-live="assertive" data-testid="level-up-banner">
+      <span className="level-up-kicker">Level up</span>
+      <strong>Level {levelUp.level} unlocked</strong>
+      <p>{levelUp.message}</p>
+    </div>
+  );
+};
+
+const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
+  const guideCopy = page === "quests"
+    ? {
+        title: "Quest flow in one glance",
+        caption: "Generate once for today's Working tasks, then clear quests one by one.",
+        highlights: [
+          {
+            title: "Daily run order",
+            body: "Generated quests become your sequence for today, so you can move from one clear target to the next.",
+          },
+          {
+            title: "Focus unlocks bonus XP",
+            body: "A short timer is not enough. You need meaningful focus on the task before the multiplier kicks in.",
+          },
+          {
+            title: "Regenerate only when scope changes",
+            body: "If you add or remove Working Today tasks, regenerate. Otherwise keep progressing through the current run.",
+          },
+        ],
+      }
+    : page === "focus"
+      ? {
+          title: "Focus mode pays off with intent",
+          caption: "The timer starts instantly, but the XP bonus only unlocks after meaningful focus.",
+          highlights: [
+            {
+              title: "Each task has a threshold",
+              body: "The unlock point is based on task estimate, so longer work needs more focus before bonus XP starts.",
+            },
+            {
+              title: "Deeper work earns more",
+              body: "Once unlocked, the multiplier climbs as you cover more of the task, up to your profile cap.",
+            },
+            {
+              title: "Save before switching context",
+              body: "Saving syncs the minutes, quest progress, and earned reward back into the rest of the app.",
+            },
+          ],
+        }
+      : {
+          title: "How DevQuest progression works",
+          caption: "A quick primer for new users.",
+          highlights: [
+            {
+              title: "XP reflects real task weight",
+              body: "Estimate, priority, impact, type, and complexity all shape the XP value instead of using a flat reward.",
+            },
+            {
+              title: "Levels are paced like a game",
+              body: "Early levels move quickly, then the curve slows down so later progress feels more meaningful.",
+            },
+            {
+              title: "Streaks are quest-based",
+              body: "A streak only grows on days where you complete at least one quest from your generated run.",
+            },
+          ],
+        };
+
+  return (
+    <section className={`surface progress-guide progress-guide-${page}`} data-testid={`progress-guide-${page}`}>
+      <div className="section-heading progress-guide-heading">
+        <div>
+          <h2><Sparkle size={24} weight="duotone" aria-hidden="true" /> {guideCopy.title}</h2>
+          <p>{guideCopy.caption}</p>
+        </div>
+        <button type="button" className="ghost-button progress-guide-dismiss" onClick={onDismiss} data-testid={`progress-guide-dismiss-${page}`}>
+          <X size={16} weight="bold" aria-hidden="true" /> Got it
+        </button>
+      </div>
+      <div className="progress-guide-grid">
+        {guideCopy.highlights.map((highlight) => (
+          <article key={highlight.title} className="progress-guide-item">
+            <strong>{highlight.title}</strong>
+            <p>{highlight.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading, showProgressGuide, onDismissProgressGuide }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
@@ -972,13 +1404,14 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
   const orderedQuestTasks = getQuestOrderedTasks(tasks, questRun);
-  const completedToday = completedTodayTasks(tasks);
   const runMissionTasks = isCurrentQuestRun(questRun) ? [
     nextQuestTask,
     ...(questRun.quests || []).filter((quest) => quest.id !== nextQuest?.id).map((quest) => getQuestTask(tasks, quest)),
-  ].filter(Boolean) : [];
-  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedQuestTasks.length ? orderedQuestTasks : [...tasks].sort(compareQuestTasks);
-  const topMissions = uniqueTasksById([...missionSourceTasks.slice(0, 3), ...completedToday]);
+  ].filter((task) => task && task.status !== "Done") : [];
+  const orderedOpenQuestTasks = orderedQuestTasks.filter((task) => task.status !== "Done");
+  const rankedOpenTasks = [...tasks].filter((task) => task.status !== "Done").sort(compareQuestTasks);
+  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedOpenQuestTasks.length ? orderedOpenQuestTasks : rankedOpenTasks;
+  const topMissions = uniqueTasksById(missionSourceTasks.slice(0, 3));
 
   if (isLoading) {
     return <PageLoader title="Loading dashboard" detail="Fetching tasks, capacity, calendar, and AI insight data." steps={["Tasks", "Calendar", "AI"]} />;
@@ -986,6 +1419,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
 
   return (
     <main className="dashboard-page" data-testid="dashboard-page">
+      {showProgressGuide && <ProgressGuideCard page="dashboard" onDismiss={onDismissProgressGuide} />}
       <section className="stats-grid" aria-label="Daily productivity metrics">
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" detailInsight={dashboardStatInsights?.total_xp} icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" detailInsight={dashboardStatInsights?.tasks_completed} icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
@@ -1004,11 +1438,47 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   );
 };
 
-const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
-  const filteredTasks = useMemo(() => filterUnifiedTasks(tasks, taskFilters), [tasks, taskFilters]);
+  const activeExistingEnrichmentJobs = useMemo(
+    () => enrichmentJobs.filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && enrichmentJobTaskId(job)),
+    [enrichmentJobs],
+  );
+  const activeEnrichmentByTaskId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => map.set(String(enrichmentJobTaskId(job)), job));
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const activeEnrichmentByExternalId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => {
+      const externalId = String(job.external_id || job.externalId || "").trim().toUpperCase();
+      if (externalId) map.set(externalId, job);
+    });
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const enrichmentTaskRows = useMemo(
+    () => enrichmentJobs
+      .filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && !enrichmentJobTaskId(job))
+      .map(jobToTask),
+    [enrichmentJobs],
+  );
+  const tasksWithActiveEnrichment = useMemo(() => tasks.map((task) => {
+    const job = activeEnrichmentByTaskId.get(String(task.taskId || task.id))
+      || activeEnrichmentByExternalId.get(String(task.externalId || "").trim().toUpperCase());
+    if (!job) return task;
+    const status = String(job.status || "").toUpperCase();
+    return {
+      ...task,
+      enrichmentJobId: enrichmentJobId(job),
+      enrichmentStatus: status,
+      enrichmentStatusLabel: enrichmentStatusLabel(status),
+    };
+  }), [tasks, activeEnrichmentByTaskId, activeEnrichmentByExternalId]);
+  const unifiedTasks = useMemo(() => [...enrichmentTaskRows, ...tasksWithActiveEnrichment], [enrichmentTaskRows, tasksWithActiveEnrichment]);
+  const filteredTasks = useMemo(() => filterUnifiedTasks(unifiedTasks, taskFilters), [unifiedTasks, taskFilters]);
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
@@ -1021,12 +1491,12 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
     <main className="page-stack" data-testid="tasks-page">
       <section className="surface form-card" data-testid="add-task-card">
         <div className="section-heading"><h2><Plus size={26} weight="duotone" aria-hidden="true" /> Add Task With Full Details</h2><span data-testid="task-count-label">{tasks.length} tasks loaded</span></div>
-        <TaskEditor mode="create" onSubmit={onAddTask} />
+        <TaskEditor mode="create" onSubmit={onAddTask} onSelectCodeBase={onSelectCodeBase} />
       </section>
       {editingTask && (
         <section className="surface form-card" data-testid="edit-task-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Edit Task</h2><span>{editingTask.id}</span></div>
-          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} />
+          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} onSelectCodeBase={onSelectCodeBase} />
         </section>
       )}
       <section className="surface" data-testid="unified-task-list-card">
@@ -1078,21 +1548,37 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
               </select>
             </label>
             <div className="task-filter-actions">
-              <span data-testid="task-filter-result-count">{filteredTasks.length} of {tasks.length} tasks</span>
+              <span data-testid="task-filter-result-count">{filteredTasks.length} of {unifiedTasks.length} tasks</span>
               <button className="ghost-button" type="button" onClick={resetFilters} disabled={!activeFilterCount} data-testid="task-filter-reset-button">Reset</button>
             </div>
           </div>
         )}
-        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} />
+        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} />
         {!filteredTasks.length && <p className="empty-state" data-testid="task-filter-empty-state">No tasks match the selected filters.</p>}
       </section>
+      <EnrichmentDetailsModal job={selectedEnrichmentJob} onClose={onCloseEnrichmentDetails} onRefresh={onRefreshEnrichmentDetails} />
     </main>
   );
 };
 
-const CalendarPage = () => <main className="page-stack" data-testid="calendar-page"><SchedulePanel /></main>;
+const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent }) => (
+  <main className="page-stack calendar-page" data-testid="calendar-page">
+    <section className="surface weekly-panel" data-testid="weekly-overview-card">
+      <div className="section-heading">
+        <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+        <NavLink to="/overview">Open overview</NavLink>
+      </div>
+      <div className="weekly-grid calendar-weekly-grid">
+        <StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" />
+        <StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" />
+        <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" />
+      </div>
+    </section>
+    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} />
+  </main>
+);
 
-const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus }) => {
+const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
   const todaySessions = sessionsForDay(focusSessions);
   const weekStart = startOfWeekKey();
   const weekSessions = focusSessions.filter((session) => {
@@ -1108,40 +1594,101 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
   const savedQuest = getQuestById(questRun, lastSavedFocus?.quest_id);
   const savedQuestTask = getQuestTask(tasks, savedQuest);
   const nextQuest = getNextQuest(questRun);
+  const recentSessions = todaySessions.slice(0, 2);
+  const hasMoreSessionHistory = todaySessions.length > recentSessions.length;
+  const deepWorkTasks = todaySessions.reduce((acc, session) => {
+    const key = session.task_id || "unassigned";
+    acc[key] = acc[key] || { title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
+    acc[key].minutes += sessionMinutes(session);
+    acc[key].count += 1;
+    return acc;
+  }, {});
+  const deepWorkLeaders = Object.values(deepWorkTasks).sort((a, b) => b.minutes - a.minutes).slice(0, 3);
+  const bestSession = [...todaySessions].sort((a, b) => sessionMinutes(b) - sessionMinutes(a))[0];
+  const rhythmInsight = topTask
+    ? `${topTask.title} is leading your focus today with ${formatMinutes(topTask.minutes)} logged.`
+    : "Complete your first session to see history and rhythm insights.";
 
   return (
     <main className={`focus-page ${activeSession ? "focus-page-active" : ""}`} data-testid="focus-page">
       <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
-      {!activeSession && <section className="surface focus-log-panel" data-testid="focus-guidance-card">
-        <div className="section-heading focus-log-heading">
-          <h2><Lightning size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Focus</h2>
-          <div className="focus-log-actions">
-            <span>{todayKey()}</span>
-            <NavLink className="ghost-button" to="/focus/analytics" data-testid="view-focus-analytics-button"><TrendUp size={18} weight="duotone" aria-hidden="true" /> View Focus Analytics</NavLink>
-          </div>
-        </div>
-        {!activeSession && <FocusSavedQuestPanel savedQuest={savedQuest} savedQuestTask={savedQuestTask} onStartFocus={onStartFocus} />}
-        {savingFocusState && (
-          <div className="focus-saving-panel" data-testid="focus-saving-panel" role="status" aria-live="polite">
-            <Hourglass size={20} weight="duotone" aria-hidden="true" />
-            <div>
-              <strong>Saving focus session...</strong>
-              <p>{savingFocusState.task_title} locked at {formatMinutes(Math.max(1, Math.ceil((savingFocusState.duration_seconds || 0) / 60)))}. The timer has stopped.</p>
+      {!activeSession && (
+        <section className="focus-secondary-grid" data-testid="focus-support-grid">
+          <article className="surface focus-secondary-card focus-today-card" data-testid="focus-today-card">
+            <div className="section-heading focus-secondary-heading">
+              <div>
+                <h2><Lightning size={22} weight="duotone" aria-hidden="true" /> Today</h2>
+                <p>Lightweight progress for the current rhythm.</p>
+              </div>
+              <div className="focus-log-actions">
+                <span>{todayKey()}</span>
+                <NavLink className="ghost-button" to="/focus/analytics" data-testid="view-focus-analytics-button"><TrendUp size={18} weight="duotone" aria-hidden="true" /> View analytics</NavLink>
+              </div>
             </div>
-          </div>
-        )}
-        <div className="focus-calm-summary" data-testid="focus-calm-summary">
-          <span><strong>{formatMinutes(focusedToday)}</strong>today</span>
-          <span><strong>{todaySessions.length}</strong>session{todaySessions.length === 1 ? "" : "s"}</span>
-          <span><strong>{formatMinutes(focusedWeek)}</strong>this week</span>
-        </div>
-        <p className="focus-log-copy" data-testid="focus-log-copy">{topTask ? `Most of your deep work today is going into ${topTask.title}. Use Focus Analytics for the detailed breakdown.` : "No focus evidence captured yet today. Start one session to begin building the trend."}</p>
-      </section>}
+            {!activeSession && <FocusSavedQuestPanel savedQuest={savedQuest} savedQuestTask={savedQuestTask} onStartFocus={onStartFocus} />}
+            {savingFocusState && (
+              <div className="focus-saving-panel" data-testid="focus-saving-panel" role="status" aria-live="polite">
+                <Hourglass size={20} weight="duotone" aria-hidden="true" />
+                <div>
+                  <strong>Saving focus session...</strong>
+                  <p>{savingFocusState.task_title} locked at {formatMinutes(Math.max(1, Math.ceil((savingFocusState.duration_seconds || 0) / 60)))}. The timer has stopped.</p>
+                </div>
+              </div>
+            )}
+            <div className="focus-calm-summary" data-testid="focus-calm-summary">
+              <span><strong>{formatMinutes(focusedToday)}</strong>focus today</span>
+              <span><strong>{todaySessions.length}</strong>sessions today</span>
+              <span><strong>{formatMinutes(focusedWeek)}</strong>this week</span>
+              <span><strong>{streakDays}</strong>day streak</span>
+            </div>
+          </article>
+          <article className="surface focus-secondary-card focus-history-card" data-testid="focus-rhythm-card">
+            <div className="section-heading focus-secondary-heading">
+              <div>
+                <h2><Clock size={22} weight="duotone" aria-hidden="true" /> Focus history & rhythm</h2>
+                <p>{recentSessions.length ? "Recent evidence plus a quick rhythm read." : "A single place for your first focus insights."}</p>
+              </div>
+              <div className="focus-log-actions">
+                {(recentSessions.length || hasMoreSessionHistory) ? <NavLink className="ghost-button" to="/focus/analytics" data-testid="focus-history-view-all-link">View all</NavLink> : null}
+              </div>
+            </div>
+            {recentSessions.length ? (
+              <div className="focus-history-layout">
+                <div className="focus-rhythm-callout">
+                  <strong>Rhythm insight</strong>
+                  <p>{rhythmInsight}</p>
+                  {bestSession ? <span>Best session today: {formatMinutes(sessionMinutes(bestSession))} on {bestSession.task_title || "focus work"}.</span> : null}
+                  {deepWorkLeaders[1] ? <span>Next strongest thread: {deepWorkLeaders[1].title} with {formatMinutes(deepWorkLeaders[1].minutes)}.</span> : null}
+                </div>
+                <div className="focus-history-list">
+                  {recentSessions.map((session) => (
+                    <article key={session.focus_session_id} className="focus-history-item">
+                      <div>
+                        <strong>{session.task_title || "Focus session"}</strong>
+                        <p>{formatDateTime(session.started_at)} | {session.outcome_type || session.status || "Saved"}</p>
+                      </div>
+                      <div className="focus-support-meta">
+                        <span>{formatMinutes(sessionMinutes(session))}</span>
+                        {session.xp_awarded ? <span>{session.xp_awarded} XP</span> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="focus-history-empty" data-testid="focus-history-empty">
+                <strong>Complete your first session to see history and rhythm insights.</strong>
+                <p>This card will start showing recent sessions, strongest focus thread, and simple trend signals as soon as you save one session.</p>
+              </div>
+            )}
+          </article>
+        </section>
+      )}
     </main>
   );
 };
 
-const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, completingQuestId, onGenerateQuests, onClearQuests, onStartQuestFocus, onCompleteQuest, onSkipQuest, onActivateQuest }) => {
+const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, completingQuestId, onGenerateQuests, onClearQuests, onStartQuestFocus, onCompleteQuest, onSkipQuest, onActivateQuest, showProgressGuide, onDismissProgressGuide }) => {
   const navigate = useNavigate();
   const [skipReason, setSkipReason] = useState(skipReasons[0]);
   if (isLoading) {
@@ -1149,7 +1696,8 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
   }
   const todayTasks = getQuestOrderedTasks(tasks, questRun);
   const hasCurrentRun = isCurrentQuestRun(questRun);
-  const isGenerated = isUsableQuestRun(tasks, questRun);
+  const hasGeneratedRun = hasGeneratedQuestRun(questRun);
+  const isGenerated = hasGeneratedRun;
   const isOutOfSync = hasCurrentRun && questRun.status === "needs_update";
   const generateLabel = isOutOfSync ? "Update Quests" : isGenerated ? "Regenerate Quests" : "Generate Quests";
   const nextQuest = getNextQuest(questRun);
@@ -1170,6 +1718,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
   };
   return (
     <main className="page-stack" data-testid="quests-page">
+      {showProgressGuide && <ProgressGuideCard page="quests" onDismiss={onDismissProgressGuide} />}
       <section className="surface quest-run-panel" data-testid="quest-run-panel">
         <div className="section-heading quest-board-heading">
           <div>
@@ -1185,7 +1734,7 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
           </div>
         </div>
         {isGenerating && <p className="quest-inline-status" data-testid="quest-generation-status" role="status" aria-live="polite">Generating your next quest run from the latest Working Today tasks...</p>}
-        {isGenerated && (
+        {isGenerated && nextQuestTask && (
           <div className="quest-layout">
             <NextQuestCard
               nextQuest={nextQuest}
@@ -1204,9 +1753,10 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
             <QuestSummaryPanel summary={summary} />
           </div>
         )}
+        {isGenerated && !nextQuestTask && <div className="mission-list"><p className="empty-state">The quest run was generated, but the linked task details have not loaded cleanly yet. Refresh the page or update quests to resync the route.</p></div>}
         {!isGenerated && <div className="mission-list">{todayTasks.length ? todayTasks.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={null} />) : <p className="empty-state">No tasks are marked as Working Today yet. Open My Tasks and use the Today column to add work here.</p>}</div>}
       </section>
-      {isGenerated && (
+      {isGenerated && questRows.length > 0 && (
         <section className="surface" data-testid="quest-path-card">
           <div className="section-heading"><h2><ListChecks size={26} weight="duotone" aria-hidden="true" /> Quest Path</h2><span>{questRows.length} quests</span></div>
           <QuestPathList questRows={questRows} onActivateQuest={onActivateQuest} />
@@ -1238,6 +1788,8 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     effort_minutes: task.time,
     insight: task.aiInsight,
   }));
+  const risks = todayInsight?.risks || [];
+  const recommendations = todayInsight?.recommendations || [];
 
   useEffect(() => {
     let cancelled = false;
@@ -1320,7 +1872,7 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     }
   };
 
-  if (insightStatus === "loading" || standupStatus === "loading") {
+  if ((insightStatus === "loading" || standupStatus === "loading") && !tasks.length) {
     return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
   }
 
@@ -1339,26 +1891,49 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
           <StatCard label="Focus Capacity" value={formatMinutes(todayInsight?.capacity?.available_focus_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} detail={insightStatus === "live" ? "From insights API" : "Working-today effort"} detailInsight={todayInsight?.stat_insights?.focus_minutes} icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
           <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} detailInsight={todayInsight?.stat_insights?.total_xp} icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
-        <article className="insight-copy" data-testid="daily-ai-insight">
-          <strong>Daily Insight</strong>
+        <article className="ai-daily-summary" data-testid="daily-ai-insight">
+          <span className="ai-section-kicker">Daily Insight</span>
           <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
           {insightError && <p className="form-error" role="alert">{insightError}</p>}
         </article>
-        {(todayInsight?.risks?.length > 0 || todayInsight?.recommendations?.length > 0) && (
-          <div className="insight-grid" data-testid="ai-risk-recommendation-grid">
-            <span><strong>Risks </strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
-            <span><strong>Recommendations </strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
+        {(risks.length > 0 || recommendations.length > 0) && (
+          <div className="ai-guidance-grid" data-testid="ai-risk-recommendation-grid">
+            <article className="ai-guidance-panel ai-risk-panel">
+              <strong>Risks</strong>
+              <ul>
+                {(risks.length ? risks : ["No risks returned."]).map((item, index) => <li key={`risk-${index}`}>{item}</li>)}
+              </ul>
+            </article>
+            <article className="ai-guidance-panel ai-recommendation-panel">
+              <strong>Recommendations</strong>
+              <ul>
+                {(recommendations.length ? recommendations : ["No recommendations returned."]).map((item, index) => <li key={`recommendation-${index}`}>{item}</li>)}
+              </ul>
+            </article>
           </div>
         )}
-        <div className="insight-list">
-          {displayedInsights.map((task) => <article key={task.task_id}><strong>{task.title}</strong><span>{Math.round((task.priority_score || 0) * 100)} priority - {task.xp_value} XP - {task.effort_minutes} min effort</span><p>{task.insight}</p></article>)}
+        <div className="ai-task-list">
+          {displayedInsights.map((task, index) => (
+            <article className="ai-task-row" key={task.task_id}>
+              <span className="ai-task-rank">#{index + 1}</span>
+              <div className="ai-task-copy">
+                <strong>{task.title}</strong>
+                <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
+              </div>
+              <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
+                <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
+                <span>{task.xp_value} XP</span>
+                <span>{task.effort_minutes} min</span>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
         <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
         <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
-        <div className="insight-grid">
+        <div className="standup-snapshot-grid">
           <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
           <span><strong>In Progress</strong>{standupNote.inProgress}</span>
           <span><strong>Blockers</strong>{standupNote.blockers}</span>
@@ -1585,7 +2160,55 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
   );
 };
 
-const SyncPage = () => <main className="page-stack" data-testid="sync-page"><section className="surface sync-card" data-testid="sync-management-card"><div className="section-heading"><h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2><button className="primary-action" data-testid="run-sync-button"><CloudArrowDown size={19} weight="duotone" aria-hidden="true" /> Sync Now</button></div><div className="sync-grid">{["Jira", "Outlook Calendar", "Microsoft To Do"].map((source) => <article className="sync-source" key={source} data-testid={`sync-source-${slug(source)}`}><CheckCircle size={26} weight="duotone" aria-hidden="true" /><strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong><span data-testid={`sync-source-status-${slug(source)}`}>Ready to sync</span></article>)}</div></section></main>;
+const syncSources = ["Jira", "Outlook Calendar"];
+
+const sourceState = (syncRun, source, syncingSource) => {
+  const current = (syncRun?.sources || []).find((item) => item.source === source);
+  if (syncingSource === "ALL") return { source, status: "RUNNING", message: "Syncing..." };
+  if (syncingSource === source) return { source, status: "RUNNING", message: "Syncing..." };
+  if (current) return current;
+  return { source, status: "IDLE", message: "Ready to sync." };
+};
+
+const SyncStatusIcon = ({ status }) => {
+  if (status === "RUNNING") return <ArrowClockwise className="sync-spin" size={26} weight="bold" aria-hidden="true" />;
+  if (status === "FAILED") return <X size={26} weight="bold" aria-hidden="true" />;
+  return <CheckCircle size={26} weight="duotone" aria-hidden="true" />;
+};
+
+const SyncPage = ({ syncRun, syncingSource, onRunSync }) => (
+  <main className="page-stack" data-testid="sync-page">
+    <section className="surface sync-card" data-testid="sync-management-card">
+      <div className="section-heading sync-heading">
+        <h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2>
+        <div className="sync-action-stack">
+          <button className="primary-action" onClick={() => onRunSync()} disabled={Boolean(syncingSource)} data-testid="run-sync-button">
+            {syncingSource === "ALL" ? <ArrowClockwise className="sync-spin" size={19} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={19} weight="duotone" aria-hidden="true" />}
+            {syncingSource === "ALL" ? "Syncing Up..." : "Sync Up"}
+          </button>
+          <span data-testid="last-sync-time">{syncRun?.last_sync_at ? `Last synced ${formatDateTime(syncRun.last_sync_at)}` : "Not synced yet"}</span>
+        </div>
+      </div>
+      <div className="sync-grid">
+        {syncSources.map((source) => {
+          const state = sourceState(syncRun, source, syncingSource);
+          return (
+            <article className={`sync-source sync-source-${slug(state.status)}`} key={source} data-testid={`sync-source-${slug(source)}`}>
+              <SyncStatusIcon status={state.status} />
+              <strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong>
+              <span data-testid={`sync-source-status-${slug(source)}`}>{state.message}</span>
+              {state.error && <p className="sync-error" data-testid={`sync-source-error-${slug(source)}`}>{state.error}</p>}
+              <button className="ghost-button sync-source-action" onClick={() => onRunSync(source)} disabled={Boolean(syncingSource)} data-testid={`run-${slug(source)}-sync-button`}>
+                {syncingSource === source ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : source === "Jira" ? <Database size={17} weight="duotone" aria-hidden="true" /> : <CalendarBlank size={17} weight="duotone" aria-hidden="true" />}
+                Sync Up
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  </main>
+);
 
 const SettingsPage = ({ currentUser, onUserUpdate }) => {
   const initialSettings = settingsFormFromUser(currentUser);
@@ -1715,6 +2338,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
   const [dashboardSchedule, setDashboardSchedule] = useState(schedule);
+  const [calendarSchedule, setCalendarSchedule] = useState(schedule);
+  const [removedCalendarEvents, setRemovedCalendarEvents] = useState([]);
+  const [calendarDate, setCalendarDate] = useState(todayKey());
+  const [isFetchingCalendarDate, setIsFetchingCalendarDate] = useState(false);
   const [dashboardInsight, setDashboardInsight] = useState(null);
   const [dashboardStatus, setDashboardStatus] = useState("loading");
   const [questProgress, setQuestProgress] = useState(null);
@@ -1723,17 +2350,44 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [questRun, setQuestRun] = useState(null);
   const [lastSavedFocus, setLastSavedFocus] = useState(null);
   const [savingFocusState, setSavingFocusState] = useState(null);
+  const [syncRun, setSyncRun] = useState(null);
+  const [syncingSource, setSyncingSource] = useState("");
+  const [enrichmentJobs, setEnrichmentJobs] = useState([]);
+  const [selectedEnrichmentJob, setSelectedEnrichmentJob] = useState(null);
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [completingQuestId, setCompletingQuestId] = useState(null);
   const [floatingNotice, setFloatingNotice] = useState(null);
+  const submittedEnrichmentJobIdsRef = useRef(new Set());
+  const notifiedEnrichmentJobIdsRef = useRef(new Set());
+  const enrichmentListRequestInFlightRef = useRef(false);
+  const enrichmentListFailureCountRef = useRef(0);
+  const selectedEnrichmentJobIdRef = useRef(null);
+  const selectedEnrichmentRequestInFlightRef = useRef(false);
+  const selectedEnrichmentFailureCountRef = useRef(0);
+  const [levelUpNotice, setLevelUpNotice] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(readInitialTheme);
-  const progressSnapshot = useMemo(
+  const [isProgressGuideDismissed, setIsProgressGuideDismissed] = useState(readProgressGuideDismissed);
+  const [persistedXpFloor, setPersistedXpFloor] = useState(() => readPersistedXpForUser(currentUser?.user_id));
+  const previousLevelRef = useRef(null);
+  const hasInitializedLevelRef = useRef(false);
+  const rawProgressSnapshot = useMemo(
     () => buildProgressSnapshot({ tasks, focusSessions, questProgress, questRun }),
     [tasks, focusSessions, questProgress, questRun],
   );
+  const progressSnapshot = useMemo(
+    () => ({
+      ...rawProgressSnapshot,
+      totalXp: mergeMonotonicTotalXp(rawProgressSnapshot.totalXp, persistedXpFloor),
+    }),
+    [rawProgressSnapshot, persistedXpFloor],
+  );
   const levelProgress = levelProgressFromXp(progressSnapshot.totalXp);
   const isDistractionFreeFocus = location.pathname === "/focus" && Boolean(activeSession);
+  const hasActiveEnrichmentJobs = useMemo(
+    () => enrichmentJobs.some((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase())),
+    [enrichmentJobs],
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1741,15 +2395,122 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   }, [theme]);
 
   useEffect(() => {
+    writeStoredJson(PROGRESS_GUIDE_STORAGE_KEY, isProgressGuideDismissed);
+  }, [isProgressGuideDismissed]);
+
+  useEffect(() => {
+    setPersistedXpFloor(readPersistedXpForUser(currentUser?.user_id));
+  }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!currentUser?.user_id) return;
+    const nextFloor = mergeMonotonicTotalXp(rawProgressSnapshot.totalXp, persistedXpFloor);
+    if (nextFloor <= persistedXpFloor) return;
+    setPersistedXpFloor(nextFloor);
+    persistXpForUser(currentUser.user_id, nextFloor);
+  }, [currentUser?.user_id, persistedXpFloor, rawProgressSnapshot.totalXp]);
+
+  useEffect(() => {
     if (!floatingNotice) return undefined;
-    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 4200);
+    const timeoutId = window.setTimeout(() => setFloatingNotice(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [floatingNotice]);
+
+  const showFloatingNotice = (notice) => {
+    setFloatingNotice({
+      id: `${Date.now()}-${Math.random()}`,
+      ...notice,
+    });
+  };
+
+  useEffect(() => {
+    if (!levelUpNotice) return undefined;
+    const timeoutId = window.setTimeout(() => setLevelUpNotice(null), 5200);
+    return () => window.clearTimeout(timeoutId);
+  }, [levelUpNotice]);
+
+  useEffect(() => {
+    if (taskStatus === "loading") return;
+    if (!hasInitializedLevelRef.current) {
+      previousLevelRef.current = levelProgress.level;
+      hasInitializedLevelRef.current = true;
+      return;
+    }
+    if (previousLevelRef.current === null) {
+      previousLevelRef.current = levelProgress.level;
+      return;
+    }
+    if (levelProgress.level > previousLevelRef.current) {
+      setLevelUpNotice({
+        level: levelProgress.level,
+        message: `${levelProgress.totalXp.toLocaleString()} total XP and climbing. Your next unlock is now ${levelProgress.xpForNextLevel} XP away.`,
+      });
+    }
+    previousLevelRef.current = levelProgress.level;
+  }, [levelProgress, taskStatus]);
+
+  const dismissProgressGuide = () => setIsProgressGuideDismissed(true);
 
   const loadTasks = async () => {
     const loadedTasks = await tasksApi.list();
     const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
-    setTasks(taskItems.map(normalizeTask));
+    setTasks(taskItems.map(normalizeTaskPayload));
+  };
+
+  const loadEnrichmentJobs = async ({ notify = false } = {}) => {
+    if (enrichmentListRequestInFlightRef.current) return enrichmentJobs;
+    enrichmentListRequestInFlightRef.current = true;
+    try {
+      const loadedJobs = await taskEnrichmentApi.list({ limit: 20 });
+      const jobItems = Array.isArray(loadedJobs) ? loadedJobs : loadedJobs?.items || [];
+      enrichmentListFailureCountRef.current = 0;
+      setEnrichmentJobs(jobItems);
+      if (notify) {
+        jobItems.forEach((job) => {
+          const id = enrichmentJobId(job);
+          const status = String(job.status || "").toUpperCase();
+          if (!submittedEnrichmentJobIdsRef.current.has(id) || !terminalEnrichmentStatuses.has(status) || notifiedEnrichmentJobIdsRef.current.has(id)) return;
+          notifiedEnrichmentJobIdsRef.current.add(id);
+          submittedEnrichmentJobIdsRef.current.delete(id);
+          if (status === "SUCCEEDED") {
+            showFloatingNotice({ title: "The task is added successfully", tone: "success" });
+            void loadTasks();
+          } else {
+            showFloatingNotice({
+              title: "AI enrichment failed",
+              message: job.error_message || job.errorMessage || enrichmentStatusLabel(status),
+              tone: "error",
+            });
+          }
+        });
+      }
+      return jobItems;
+    } catch (error) {
+      enrichmentListFailureCountRef.current += 1;
+      if (enrichmentListFailureCountRef.current >= 2) {
+        const message = apiErrorMessage(error, "Backend connection was lost while AI enrichment was running. Restart the backend and start AI enrichment again.");
+        setEnrichmentJobs((jobs) => jobs.map((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (!activeEnrichmentStatuses.has(status)) return job;
+          return {
+            ...job,
+            status: "FAILED",
+            error_message: message,
+            errorMessage: message,
+          };
+        }));
+        if (notify) {
+          showFloatingNotice({
+            title: "AI enrichment polling stopped",
+            message,
+            tone: "error",
+          });
+        }
+      }
+      throw error;
+    } finally {
+      enrichmentListRequestInFlightRef.current = false;
+    }
   };
 
   const loadQuestRun = async (date = todayKey()) => {
@@ -1789,12 +2550,74 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     };
   }, [currentUser?.user_id]);
 
+  useEffect(() => {
+    let isActive = true;
+    loadEnrichmentJobs()
+      .then((jobs) => {
+        if (!isActive) return;
+        jobs.forEach((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (terminalEnrichmentStatuses.has(status)) notifiedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!hasActiveEnrichmentJobs) return undefined;
+    const intervalId = window.setInterval(() => {
+      void loadEnrichmentJobs({ notify: true }).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveEnrichmentJobs, currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!selectedEnrichmentJob) return undefined;
+    const id = enrichmentJobId(selectedEnrichmentJob);
+    const status = String(selectedEnrichmentJob.status || "").toUpperCase();
+    if (!activeEnrichmentStatuses.has(status)) return undefined;
+    selectedEnrichmentJobIdRef.current = String(id);
+    let cancelled = false;
+    const refreshSelectedJob = async () => {
+      if (selectedEnrichmentRequestInFlightRef.current) return;
+      selectedEnrichmentRequestInFlightRef.current = true;
+      try {
+        const job = await taskEnrichmentApi.get(id);
+        if (!cancelled && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          selectedEnrichmentFailureCountRef.current = 0;
+          setSelectedEnrichmentJob(job);
+        }
+      } catch (error) {
+        selectedEnrichmentFailureCountRef.current += 1;
+        if (!cancelled && selectedEnrichmentFailureCountRef.current >= 2 && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          const message = apiErrorMessage(error, "Backend connection was lost while reading enrichment logs. Polling has stopped.");
+          setSelectedEnrichmentJob((job) => job ? {
+            ...job,
+            status: "FAILED",
+            error_message: job.error_message || job.errorMessage || message,
+            errorMessage: job.errorMessage || job.error_message || message,
+          } : job);
+        }
+      } finally {
+        selectedEnrichmentRequestInFlightRef.current = false;
+      }
+    };
+    const intervalId = window.setInterval(refreshSelectedJob, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedEnrichmentJob?.enrichment_job_id, selectedEnrichmentJob?.id, selectedEnrichmentJob?.status]);
+
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
     try {
       const updatedTask = await tasksApi.complete(id, { row_version: task.row_version, completedAt: task.completedAt || nowIso() });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete task.");
@@ -1805,7 +2628,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!task || !nextStatus || task.status === nextStatus) return;
     try {
       const updatedTask = await tasksApi.updateStatus(id, { status: nextStatus, row_version: task.row_version });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update task status.");
@@ -1816,7 +2639,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!task) return;
     try {
       const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update working-today state.");
@@ -1828,7 +2651,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!persist || !task) return;
     try {
       const updatedTask = await tasksApi.updateNotes(id, { notes, row_version: task.row_version });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update notes.");
@@ -1838,19 +2661,260 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleEditTask = async (id, form) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || !form) return;
+    if (form.source === "Jira" && form.runAiEnrichment) {
+      const taskId = task.taskId || task.task_id || task.id;
+      const job = await taskEnrichmentApi.start({
+        ...form,
+        source: "Jira",
+        externalId: form.externalId || task.externalId || task.external_id,
+        existingTaskId: taskId,
+        taskId,
+      });
+      const jobId = enrichmentJobId(job);
+      submittedEnrichmentJobIdsRef.current.add(jobId);
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== jobId)]);
+      setSelectedEnrichmentJob(job);
+      selectedEnrichmentJobIdRef.current = String(jobId);
+      showFloatingNotice({
+        title: "The task will be updated after the AI enrichment",
+        tone: "info",
+      });
+      return;
+    }
     const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
-    setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
+    setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleSelectCodeBase = async (initialPath = "") => {
+    const result = await jiraApi.selectRcaWorkspace(initialPath);
+    return result?.code_base_path || result?.codeBasePath || "";
+  };
+
+  const handleOpenEnrichmentDetails = async (jobId) => {
+    if (!jobId) return;
+    selectedEnrichmentJobIdRef.current = String(jobId);
+    try {
+      const job = await taskEnrichmentApi.get(jobId);
+      if (String(selectedEnrichmentJobIdRef.current) === String(jobId)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } catch (error) {
+      showFloatingNotice({
+        title: "Unable to open enrichment details",
+        message: apiErrorMessage(error, "Please try again."),
+        tone: "error",
+      });
+    }
+  };
+
+  const handleCloseEnrichmentDetails = () => {
+    selectedEnrichmentJobIdRef.current = null;
+    selectedEnrichmentFailureCountRef.current = 0;
+    setSelectedEnrichmentJob(null);
+  };
+
+  const handleRefreshSelectedEnrichment = async () => {
+    const id = selectedEnrichmentJobIdRef.current || enrichmentJobId(selectedEnrichmentJob);
+    if (!id) return;
+    if (selectedEnrichmentRequestInFlightRef.current) return;
+    selectedEnrichmentRequestInFlightRef.current = true;
+    try {
+      const job = await taskEnrichmentApi.get(id);
+      if (String(selectedEnrichmentJobIdRef.current) === String(id)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } finally {
+      selectedEnrichmentRequestInFlightRef.current = false;
+    }
+  };
+
   const handleAddTask = async (form) => {
+    if (form?.source === "Jira" && form?.runAiEnrichment) {
+      const job = await taskEnrichmentApi.start(form);
+      submittedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== enrichmentJobId(job))]);
+      showFloatingNotice({
+        title: "The Task will be added after the AI enrichment",
+        tone: "info",
+      });
+      return job;
+    }
     const createdTask = await tasksApi.create(form);
-    setTasks((items) => [normalizeTask(createdTask), ...items]);
+    setTasks((items) => [normalizeTaskPayload(createdTask), ...items]);
+    return createdTask;
+  };
+  const handleRunSync = (source) => {
+    const selectedSources = source ? [source] : ["Jira", "Outlook Calendar"];
+    const syncingKey = source || "ALL";
+    setSyncingSource(syncingKey);
+    showFloatingNotice({
+      title: "Sync Up started in background.",
+      message: "You can continue using the app.",
+      tone: "info",
+    });
+    setSyncRun((current) => ({
+      ...(current || {}),
+      status: "RUNNING",
+      sources: [
+        { source: "Jira", status: selectedSources.includes("Jira") ? "RUNNING" : "IDLE", message: selectedSources.includes("Jira") ? "Syncing Jira issues..." : "Ready to sync." },
+        { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "RUNNING" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Fetching today's Outlook meetings." : "Ready to sync." },
+      ],
+    }));
+
+    syncApi.run(source ? { sources: selectedSources } : {})
+      .then(async (result) => {
+        setSyncRun(result);
+        const events = result?.calendar_events || result?.calendarEvents || [];
+        if (selectedSources.includes("Outlook Calendar") || events.length) {
+          const normalizedEvents = normalizeApiSchedule(events);
+          setCalendarSchedule(normalizedEvents);
+          setDashboardSchedule(normalizedEvents);
+        }
+        if (selectedSources.includes("Jira")) {
+          const refreshedTasks = await tasksApi.list();
+          const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
+          setTasks(taskItems.map(normalizeTask));
+        }
+        setTaskLoadError("");
+        const failedSources = (result?.sources || []).filter((item) => item?.status === "FAILED");
+        if (result?.status === "FAILED" || failedSources.length) {
+          showFloatingNotice({
+            title: "Sync finished with issues",
+            message: failedSources[0]?.error || failedSources[0]?.message || "Please check the Sync page for details.",
+            tone: "error",
+          });
+          return;
+        }
+        showFloatingNotice({
+          title: "Sync Successfully",
+          tone: "success",
+        });
+      })
+      .catch((error) => {
+        const detail = error.response?.data?.detail;
+        setSyncRun({
+          status: "FAILED",
+          last_sync_at: nowIso(),
+          sources: [
+            { source: "Jira", status: selectedSources.includes("Jira") ? "FAILED" : "IDLE", message: selectedSources.includes("Jira") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Jira") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+            { source: "Outlook Calendar", status: selectedSources.includes("Outlook Calendar") ? "FAILED" : "IDLE", message: selectedSources.includes("Outlook Calendar") ? "Sync failed." : "Ready to sync.", error: selectedSources.includes("Outlook Calendar") ? typeof detail === "string" ? detail : detail?.message || error.message : "" },
+          ],
+        });
+        showFloatingNotice({
+          title: "Sync finished with issues",
+          message: typeof detail === "string" ? detail : detail?.message || error.message || "Please check the Sync page for details.",
+          tone: "error",
+        });
+      })
+      .finally(() => {
+        setSyncingSource("");
+      });
+  };
+  const renameScheduleEvent = (items, eventId, title) =>
+    items.map((event) => (String(event.eventId) === String(eventId) ? { ...event, title } : event));
+
+  const handleUpdateCalendarEvent = async (eventId, title) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    setCalendarSchedule((items) => renameScheduleEvent(items, eventId, title));
+    if (calendarDate === todayKey()) setDashboardSchedule((items) => renameScheduleEvent(items, eventId, title));
+    try {
+      const result = await calendarApi.updateEvent(eventId, { title });
+      const updatedEvent = result?.event;
+      if (updatedEvent) {
+        const normalizedEvent = normalizeApiSchedule([updatedEvent])[0];
+        setCalendarSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        if (calendarDate === todayKey()) {
+          setDashboardSchedule((items) => items.map((event) => (String(event.eventId) === String(eventId) ? normalizedEvent : event)));
+        }
+      }
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update calendar event.");
+      throw error;
+    }
+  };
+
+  const handleRemoveCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const removedEvent = calendarSchedule.find((event) => String(event.eventId) === String(eventId));
+    setCalendarSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    if (calendarDate === todayKey()) {
+      setDashboardSchedule((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+    }
+    if (removedEvent) setRemovedCalendarEvents((items) => [removedEvent, ...items]);
+    try {
+      await calendarApi.removeEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to remove calendar event.");
+    }
+  };
+  const handleRestoreCalendarEvent = async (eventId) => {
+    const previousSchedule = calendarSchedule;
+    const previousDashboardSchedule = dashboardSchedule;
+    const previousRemoved = removedCalendarEvents;
+    const restoredEvent = removedCalendarEvents.find((event) => String(event.eventId) === String(eventId));
+    if (restoredEvent) {
+      setRemovedCalendarEvents((items) => items.filter((event) => String(event.eventId) !== String(eventId)));
+      setCalendarSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      if (calendarDate === todayKey()) {
+        setDashboardSchedule((items) => [...items, restoredEvent].sort((a, b) => String(a.time).localeCompare(String(b.time))));
+      }
+    }
+    try {
+      await calendarApi.restoreEvent(eventId);
+    } catch (error) {
+      setCalendarSchedule(previousSchedule);
+      if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
+      setRemovedCalendarEvents(previousRemoved);
+      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to restore calendar event.");
+    }
+  };
+  const handleFetchCalendarDate = async () => {
+    setIsFetchingCalendarDate(true);
+    setTaskLoadError("");
+    try {
+      const result = await calendarApi.fetchEvents({ date: calendarDate });
+      const events = Array.isArray(result) ? result : result?.items || [];
+      const normalizedEvents = normalizeApiSchedule(events);
+      setCalendarSchedule(normalizedEvents);
+      if (calendarDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents([]);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setTaskLoadError(typeof detail === "string" ? detail : detail?.error || detail?.message || error?.message || "Unable to fetch calendar events.");
+    } finally {
+      setIsFetchingCalendarDate(false);
+    }
+  };
+  const handleCalendarDateChange = async (nextDate) => {
+    setCalendarDate(nextDate);
+    try {
+      const data = await calendarApi.events({ date: nextDate });
+      const events = Array.isArray(data) ? data : data?.items || [];
+      const removedEvents = data?.removed_items || data?.removedItems || [];
+      const normalizedEvents = events.length ? normalizeApiSchedule(events) : [];
+      setCalendarSchedule(normalizedEvents);
+      if (nextDate === todayKey()) setDashboardSchedule(normalizedEvents);
+      setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+    } catch {
+      setCalendarSchedule([]);
+      setRemovedCalendarEvents([]);
+    }
   };
 
   const handleGenerateQuests = async () => {
     const candidateTaskIds = tasks
       .filter((task) => task.workingToday && task.status !== "Done")
-      .map((task) => Number(task.id))
+      .map((task) => Number(taskBackendKey(task)))
       .filter((taskId) => Number.isFinite(taskId));
     try {
       setIsGeneratingQuests(true);
@@ -1873,7 +2937,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   };
   const handleStartFocus = (task, questId) => {
     const startedAt = nowIso();
-    const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, task.id);
+    const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, taskBackendKey(task));
     setLastSavedFocus(null);
     setSavingFocusState(null);
     const nextSession = {
@@ -1906,14 +2970,14 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   };
   const handleCompleteQuest = async (questId) => {
     const quest = questRun?.quests?.find((item) => item.id === questId);
-    const task = tasks.find((item) => item.id === quest?.taskId);
+    const task = tasks.find((item) => taskMatchesBackendKey(item, quest?.taskId));
     if (!quest || !task) return;
     try {
       setCompletingQuestId(questId);
       const nextRun = await questsApi.update(quest.quest_item_id || questId, { action: "complete" });
       const completedAt = nextRun?.quests?.find((item) => item.id === questId || item.quest_item_id === quest.quest_item_id)?.completedAt || nowIso();
       setTasks((items) => items.map((item) => (
-        item.id === task.id
+        taskMatchesBackendKey(item, quest?.taskId)
           ? normalizeTask({ ...item, status: "Done", completedAt, completed_at: completedAt, workingToday: false })
           : item
       )));
@@ -1941,10 +3005,12 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         hasFocusReward: completedQuest.hasFocusReward,
         focusMinutes: completedQuest.focusMinutes,
       } : taskRewardDetailsFromSessions(task, focusSessions, todayKey());
+      const completedCount = nextRun?.quests?.filter((item) => item.state === "completed").length || 0;
+      const totalCount = nextRun?.quests?.length || 0;
       setFloatingNotice({
-        title: "Quest completed",
+        title: "Quest complete",
         message: task.title,
-        detail: `Task marked Done. +${reward.rewardXp || task.xp} XP earned${reward.hasFocusReward ? ` with ${formatFocusMultiplier(reward.rewardMultiplier)} focus reward` : ""}. ${nextRun?.quests?.filter((item) => item.state === "completed").length || 0}/${nextRun?.quests?.length || 0} quests complete.${nextQuestTitle ? ` Next up: ${nextQuestTitle}` : ""}`,
+        detail: `+${reward.rewardXp || task.xp} XP${reward.hasFocusReward ? ` | ${formatFocusMultiplier(reward.rewardMultiplier)} focus` : ""} | ${completedCount}/${totalCount} cleared${nextQuestTitle ? ` | Next: ${nextQuestTitle}` : ""}`,
         tone: "success",
       });
       setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
@@ -2041,6 +3107,17 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (location.pathname !== "/") return undefined;
 
     let cancelled = false;
+    const loadTodayCalendarSchedule = () =>
+      calendarApi.events({ date: todayKey() })
+        .then((data) => {
+          if (cancelled) return;
+          const events = Array.isArray(data) ? data : data?.items || [];
+          const normalizedEvents = normalizeApiSchedule(events);
+          setDashboardSchedule(normalizedEvents);
+          setCalendarSchedule(normalizedEvents);
+        })
+        .catch(() => {});
+
     setDashboardStatus("loading");
     dashboardApi.today({ date: todayKey() })
       .then((data) => {
@@ -2060,6 +3137,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       })
       .catch(() => {
         if (cancelled) return;
+        loadTodayCalendarSchedule();
         setDashboardStatus("fallback");
         setDashboardStatInsights(null);
       });
@@ -2068,24 +3146,48 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     };
   }, [location.pathname]);
 
+  useEffect(() => {
+    let cancelled = false;
+    syncApi.runs()
+      .then((data) => {
+        if (!cancelled) setSyncRun(data);
+      })
+      .catch(() => {});
+    calendarApi.events({ date: todayKey() })
+      .then((data) => {
+        if (cancelled) return;
+        const events = Array.isArray(data) ? data : data?.items || [];
+        const removedEvents = data?.removed_items || data?.removedItems || [];
+        const normalizedEvents = normalizeApiSchedule(events);
+        setCalendarSchedule(normalizedEvents);
+        setDashboardSchedule(normalizedEvents);
+        setRemovedCalendarEvents(removedEvents.length ? normalizeApiSchedule(removedEvents) : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""}`} data-theme={theme} data-testid="app-shell">
       {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} />}
       {!isDistractionFreeFocus && <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />}
       <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""}`} data-testid="workspace">
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
-        <FloatingNotice notice={floatingNotice} />
+        <LevelUpBanner levelUp={levelUpNotice} />
+        <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
+          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
+          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
-          <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />
+          <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
-          <Route path="/sync" element={<SyncPage />} />
+          <Route path="/sync" element={<SyncPage syncRun={syncRun} syncingSource={syncingSource} onRunSync={handleRunSync} />} />
           <Route path="/settings" element={<SettingsPage currentUser={currentUser} onUserUpdate={onUserUpdate} />} />
         </Routes>
       </div>

@@ -152,13 +152,17 @@ $env:DEVQUEST_DATA_MODE="mock"
 PowerShell real OCI GenAI example:
 
 ```powershell
+oci session authenticate --region us-phoenix-1 --tenancy-name bmc_operator_access --profile-name boat
+
 $env:DEVQUEST_AI_MODE="real"
 $env:DEVQUEST_AI_PROVIDER="oci_genai"
-$env:OCI_GENAI_MODEL_ID="<MODEL_ID>"
-$env:OCI_COMPARTMENT_ID="<COMPARTMENT_OCID>"
-$env:OCI_AUTH_TYPE="config_file"
+$env:OCI_AUTH_TYPE="security_token"
 $env:OCI_CONFIG_FILE="$env:USERPROFILE\.oci\config"
-$env:OCI_CONFIG_PROFILE="DEFAULT"
+$env:OCI_CONFIG_PROFILE="boat"
+$env:OCI_REGION="us-phoenix-1"
+$env:OCI_COMPARTMENT_ID="ocid1.compartment.oc1..aaaaaaaaqbtusst4xngousk4vlvadjqhx32spryfmjymfnkoxw755ohsqn7q"
+$env:OCI_GENAI_ENDPOINT="https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com"
+$env:OCI_GENAI_MODEL_ID="google.gemini-2.5-flash"
 $env:OCI_GENAI_REQUEST_FORMAT="generic"
 ```
 
@@ -169,8 +173,8 @@ Supported values:
 - `DEVQUEST_AI_PROVIDER=oci_genai`: use OCI Generative AI, specifically the Generative AI Service Inference API.
 - `OCI_GENAI_MODEL_ID`: OCI GenAI model ID for on-demand serving, or endpoint OCID for dedicated serving.
 - `OCI_COMPARTMENT_ID`: OCI compartment OCID used by the inference request.
-- `OCI_AUTH_TYPE`: `config_file`, `instance_principal`, or `resource_principal`.
-- `OCI_CONFIG_PROFILE`: local OCI config profile used when `OCI_AUTH_TYPE=config_file`.
+- `OCI_AUTH_TYPE`: `config_file`, `security_token`, `api_key`, `instance_principal`, or `resource_principal`.
+- `OCI_CONFIG_PROFILE`: local OCI config profile used when `OCI_AUTH_TYPE=config_file` or `security_token`.
 - `OCI_CONFIG_FILE`: optional local OCI config path override.
 - `OCI_GENAI_ENDPOINT`: optional service endpoint override if Oracle provides a specific endpoint.
 - `OCI_GENAI_SERVING_MODE`: `on_demand` by default, or `dedicated` for dedicated endpoint usage.
@@ -232,7 +236,7 @@ Use these switches consistently. Defaults must keep the app usable for teammates
 | `DEVQUEST_DATA_MODE` | `mock` | `mock`, `oracle` | Phase 8 data provider | Chooses mock Python data or Oracle repository data. | `mock` always works locally. `oracle` currently returns `501` until repository methods are implemented. |
 | `DEVQUEST_AI_MODE` | `mock` | `mock`, `real` | Phase 8 AI insight service | Chooses deterministic local AI insight or real OCI GenAI call. | `mock` avoids external calls. `real` returns HTTP error if OCI config/model/compartment is missing or invalid. |
 | `DEVQUEST_AI_PROVIDER` | `oci_genai` | `oci_genai` | Phase 8 AI insight service | Selects approved AI provider. | Unsupported values return `500`. |
-| `OCI_AUTH_TYPE` | `config_file` | `config_file`, `api_key`, `instance_principal`, `resource_principal` | OCI client | Chooses OCI SDK authentication style. | Missing/invalid config returns `501` through the Phase 8 service. |
+| `OCI_AUTH_TYPE` | `config_file` | `config_file`, `security_token`, `api_key`, `instance_principal`, `resource_principal` | OCI client | Chooses OCI SDK authentication style. Use `security_token` for the final BOAT profile setup. | Missing/invalid config returns `501` through the Phase 8 service. |
 | `OCI_CONFIG_FILE` | empty | file path | OCI client with `config_file` | Optional config path override. | Empty value uses OCI SDK default config path. |
 | `OCI_CONFIG_PROFILE` | `DEFAULT` | profile name | OCI client with `config_file` | Selects profile from OCI config file. | Missing profile returns `501`. |
 | `OCI_REGION` | empty | OCI region | OCI client with `api_key` | Required only for direct temporary API-key auth. | Missing value returns `501` for `api_key`. |

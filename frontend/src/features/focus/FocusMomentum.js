@@ -1,7 +1,8 @@
 import { NavLink } from "react-router-dom";
 import { Play, Timer, Trophy } from "@phosphor-icons/react";
 import { formatMinutes } from "../../utils/dateTime";
-import { formatFocusMultiplier } from "../rewards/xpRewards";
+import { focusUnlockThresholdMinutes } from "../progress/progressionMath";
+import { FOCUS_XP_MULTIPLIER, formatFocusMultiplier } from "../rewards/xpRewards";
 
 export const FocusQuestBadge = ({ quest }) => {
   if (!quest) return null;
@@ -18,6 +19,7 @@ export const FocusQuestBadge = ({ quest }) => {
 export const FocusSavedQuestPanel = ({ savedQuest, savedQuestTask, onStartFocus }) => {
   if (!savedQuest || !savedQuestTask || savedQuest.state === "completed" || savedQuest.state === "skipped" || savedQuestTask.status === "Done") return null;
   const percent = Math.min(100, Math.round((savedQuest.focusMinutes / Math.max(1, savedQuest.focusTargetMinutes)) * 100));
+  const focusUnlockMinutes = focusUnlockThresholdMinutes(savedQuestTask.time || savedQuestTask.estimatedMinutes || 60);
   return (
     <div className="focus-quest-saved focus-reward-panel" data-testid="focus-quest-saved">
       <span className="quest-eyebrow">Session saved</span>
@@ -25,7 +27,7 @@ export const FocusSavedQuestPanel = ({ savedQuest, savedQuestTask, onStartFocus 
         <strong>{savedQuestTask.title}</strong>
         <p>
           {formatMinutes(savedQuest.focusMinutes)} logged toward a {formatMinutes(savedQuest.focusTargetMinutes)} target. {percent}% complete.
-          {savedQuest.hasFocusReward ? ` ${formatFocusMultiplier(savedQuest.rewardMultiplier)} focus reward is active.` : ""}
+          {savedQuest.hasFocusReward ? ` ${formatFocusMultiplier(savedQuest.rewardMultiplier)} focus reward is active.` : ` Unlock up to ${formatFocusMultiplier(FOCUS_XP_MULTIPLIER)} after ${formatMinutes(focusUnlockMinutes)} of focus.`}
         </p>
         <div className="progress-track focus-saved-progress" aria-label="Saved session quest progress">
           <span className="progress-fill" style={{ width: `${percent}%` }} />

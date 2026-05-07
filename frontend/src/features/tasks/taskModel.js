@@ -2,13 +2,14 @@ import { Bug, FileText, GitPullRequest, RocketLaunch, UsersThree } from "@phosph
 import { addDaysKey, formatMinutes, formatTime, nowIso, todayKey } from "../../utils/dateTime";
 import { parseNumber } from "../../utils/number";
 import { readStoredJson } from "../../utils/storage";
+import { deriveTaskXpBreakdown, deriveTaskXp } from "../progress/progressionMath";
 
 export const TASKS_STORAGE_KEY = "devquest.tasks.v1";
 
 export const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
 export const priorities = ["Critical", "High", "Medium", "Low"];
 export const statuses = ["To Do", "In Progress", "Blocked", "Done", "Upcoming"];
-export const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
+export const sources = ["Custom", "Jira", "Outlook"];
 export const rcaTshirtSizes = [
   { value: "NA", label: "Not Applicable" },
   { value: "XS", label: "XS" },
@@ -34,13 +35,14 @@ export const accentForPriority = (priority) => {
 };
 
 export const buildAiFields = (task) => {
+  const xpModel = deriveTaskXpBreakdown(task);
   const priorityWeight = { Critical: 10, High: 8, Medium: 5, Low: 3 }[task.priority] || 5;
-  const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
+  const effort = xpModel.estimatedMinutes;
   const notesBoost = task.notes ? 0.4 : 0;
-  const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
+  const impact = xpModel.impactScore;
   const priorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
-  const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
-  const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
+  const xp = deriveTaskXp(task);
+  const difficulty = xpModel.difficulty;
   return {
     difficulty,
     impact,
@@ -53,8 +55,11 @@ export const buildAiFields = (task) => {
 
 export const normalizeTask = (task) => {
   const ai = buildAiFields(task);
+  const externalId = task.externalId || task.external_id || "";
+  const rcaTshirtSize = task.rcaTshirtSize || task.rca_tshirt_size || "";
   return {
     ...task,
+    externalId,
     source: task.source || "Custom",
     type: task.type || "Task",
     priority: task.priority || "Medium",
@@ -65,6 +70,13 @@ export const normalizeTask = (task) => {
     impact: ai.impact,
     priorityScore: ai.priorityScore,
     aiInsight: ai.aiInsight,
+    rcaTshirtSize,
+    rcaTshirtJustification: task.rcaTshirtJustification || task.rca_tshirt_justification || "",
+    rcaAffectedFiles: task.rcaAffectedFiles || task.rca_affected_files || [],
+    rcaCodeSuggestion: task.rcaCodeSuggestion || task.rca_code_suggestion || "",
+    sourceEnrichmentJobId: task.sourceEnrichmentJobId || task.source_enrichment_job_id || null,
+    jiraTshirtSize: task.jiraTshirtSize || task.jira_tshirt_size || task.jira_tshirt_sizing?.size || task.jiraTshirtSizing?.size || rcaTshirtSize,
+    jiraTshirtSizing: task.jiraTshirtSizing || task.jira_tshirt_sizing || null,
     notes: task.notes || "",
     rcaTshirtSize: task.rcaTshirtSize || "NA",
     labels: Array.isArray(task.labels) ? task.labels : String(task.labels || "").split(",").map((label) => label.trim()).filter(Boolean),
@@ -76,7 +88,7 @@ export const normalizeTask = (task) => {
 
 export const makeTaskId = (source, externalId) => {
   if (externalId?.trim()) return externalId.trim();
-  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : source === "Microsoft To Do" ? "TODO" : "CUS";
+  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : "CUS";
   return `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`;
 };
 
@@ -84,7 +96,6 @@ export const initialTasks = [
   normalizeTask({
     id: "PAY-2301",
     externalId: "PAY-2301",
-    projectKey: "PAY",
     title: "Fix payment gateway timeout issue",
     description: "Users face timeout while making payments on the checkout page.",
     source: "Jira",
@@ -103,7 +114,6 @@ export const initialTasks = [
   normalizeTask({
     id: "ORD-1587",
     externalId: "ORD-1587",
-    projectKey: "ORD",
     title: "Implement order tracking API",
     description: "Create a REST API to fetch real-time order status.",
     source: "Jira",
@@ -117,22 +127,6 @@ export const initialTasks = [
     dueDate: addDaysKey(todayKey(), 1),
     notes: "Contract is clear; biggest risk is mapping courier status states cleanly.",
     labels: ["api"],
-  }),
-  normalizeTask({
-    id: "DOC-047",
-    externalId: "DOC-047",
-    title: "Update deployment documentation",
-    description: "Update deployment steps for the v2.3.0 release.",
-    source: "Microsoft To Do",
-    type: "Task",
-    priority: "Low",
-    status: "To Do",
-    impact: 5,
-    time: 30,
-    xp: 30,
-    workingToday: false,
-    notes: "Add rollback screenshots and note the environment variable rename.",
-    labels: ["docs"],
   }),
   normalizeTask({
     id: "PR-468",
@@ -212,10 +206,16 @@ export const normalizeApiTask = (task) =>
     priorityScore: task.ai?.priority_score,
     difficulty: task.ai?.difficulty,
     aiInsight: task.ai?.insight,
-    rcaTshirtSize: task.rca_tshirt_size || "NA",
+    rcaReason: task.rca_reason || "",
+    rcaAffectedFiles: task.rca_affected_files || [],
+    rcaCodeSuggestion: task.rca_code_suggestion || "",
+    rcaRawOutput: task.rca_raw_output || "",
+    rcaTshirtSize: task.rca_tshirt_size || "",
     rcaFileChangeCount: task.rca_file_change_count,
     rcaComplexitySource: task.rca_complexity_source,
     rcaComplexityAt: task.rca_complexity_at,
+    rcaTshirtJustification: task.rca_tshirt_justification || "",
+    sourceEnrichmentJobId: task.source_enrichment_job_id,
     notes: task.notes || "",
     workedDates: task.worked_dates || [],
     labels: [],
@@ -223,6 +223,9 @@ export const normalizeApiTask = (task) =>
 
 export const normalizeApiSchedule = (events = []) =>
   events.map((event) => ({
+    id: event.event_id || event.id || event.external_id,
+    eventId: event.event_id || event.id,
+    externalId: event.external_id || "",
     time: formatTime(event.start_at),
     title: event.title,
     duration: event.is_focus_block ? `${formatMinutes(event.duration_minutes)} available` : formatMinutes(event.duration_minutes),
@@ -236,7 +239,7 @@ export const emptyTaskForm = {
   description: "",
   source: "Custom",
   externalId: "",
-  projectKey: "",
+  codeBaseLocation: "",
   type: "Task",
   priority: "Medium",
   status: "To Do",
@@ -245,7 +248,7 @@ export const emptyTaskForm = {
   estimatedMinutes: 60,
   actualMinutes: 0,
   rcaTshirtSize: "NA",
-  xp: 60,
+  xp: "",
   labels: "",
   notes: "",
   workingToday: true,
@@ -257,7 +260,7 @@ export const formFromTask = (task) => ({
   description: task.description || "",
   source: task.source || "Custom",
   externalId: task.externalId || task.id || "",
-  projectKey: task.projectKey || "",
+  codeBaseLocation: task.codeBaseLocation || "",
   type: task.type || "Task",
   priority: task.priority || "Medium",
   status: task.status || "To Do",
@@ -266,21 +269,22 @@ export const formFromTask = (task) => ({
   estimatedMinutes: task.time || 60,
   actualMinutes: task.actualMinutes || 0,
   rcaTshirtSize: task.rcaTshirtSize || "NA",
-  xp: task.xp || 60,
+  xp: "",
   labels: (task.labels || []).join(", "),
   notes: task.notes || "",
   workingToday: Boolean(task.workingToday),
-  runAiEnrichment: true,
+  runAiEnrichment: false,
 });
 
 export const taskFromForm = (form, existingTask) => {
   const status = form.status || "To Do";
   const completedAt = status === "Done" ? existingTask?.completedAt || nowIso() : existingTask?.completedAt && existingTask.status === "Done" ? undefined : existingTask?.completedAt;
+  const xpValue = String(form.xp ?? "").trim();
   return normalizeTask({
     ...(existingTask || {}),
     id: existingTask?.id || makeTaskId(form.source, form.externalId),
     externalId: form.externalId || existingTask?.externalId || "",
-    projectKey: form.projectKey,
+    codeBaseLocation: form.codeBaseLocation || "",
     title: form.title.trim(),
     description: form.description,
     source: form.source,
@@ -292,7 +296,7 @@ export const taskFromForm = (form, existingTask) => {
     time: parseNumber(form.estimatedMinutes, 60),
     actualMinutes: parseNumber(form.actualMinutes, 0),
     rcaTshirtSize: form.rcaTshirtSize || "NA",
-    xp: parseNumber(form.xp, 60),
+    xp: xpValue ? parseNumber(xpValue, 0) : "",
     labels: form.labels,
     notes: form.notes,
     workingToday: form.workingToday,

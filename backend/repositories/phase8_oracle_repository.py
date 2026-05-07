@@ -66,7 +66,7 @@ def _get_user(cur, user_id):
         "timezone": row[3] or "Asia/Calcutta",
         "workday_start_local": row[4] or "09:00",
         "workday_end_local": row[5] or "17:00",
-        "focus_xp_multiplier": float(row[6] or 1.5),
+        "focus_xp_multiplier": float(row[6] or 1.25),
     }
 
 
@@ -179,8 +179,7 @@ def _get_calendar_events(cur, user_id, work_date):
             EXTERNAL_SOURCE
         FROM CALENDAR_EVENTS
         WHERE USER_ID = :user_id
-          AND START_AT >= CAST(TO_DATE(:work_date, 'YYYY-MM-DD') AS TIMESTAMP)
-          AND START_AT < CAST(TO_DATE(:work_date, 'YYYY-MM-DD') + 1 AS TIMESTAMP)
+          AND TRUNC(CAST(START_AT AS TIMESTAMP)) = TO_DATE(:work_date, 'YYYY-MM-DD')
         ORDER BY START_AT
         """,
         {"user_id": user_id, "work_date": work_date},
@@ -238,7 +237,7 @@ def _default_user(user_id):
         "timezone": "Asia/Calcutta",
         "workday_start_local": "09:00",
         "workday_end_local": "17:00",
-        "focus_xp_multiplier": 1.5,
+        "focus_xp_multiplier": 1.25,
     }
 
 

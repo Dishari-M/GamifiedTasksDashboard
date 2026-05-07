@@ -17,7 +17,7 @@ def read_records(name):
     path = data_dir() / name
     if not path.exists():
         return []
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         return json.load(handle)
 
 

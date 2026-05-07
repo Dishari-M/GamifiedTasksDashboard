@@ -10,25 +10,66 @@ const userHomeDir = process.env.USERPROFILE
   || process.env.HOME
   || (process.env.HOMEDRIVE && process.env.HOMEPATH ? `${process.env.HOMEDRIVE}${process.env.HOMEPATH}` : "");
 
+const pathExists = async (candidate) => {
+  try {
+    await fs.access(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const resolveBrowserExecutable = async () => {
   if (process.env.PLAYWRIGHT_CHROME_PATH) {
     return process.env.PLAYWRIGHT_CHROME_PATH;
   }
 
   const playwrightRoot = path.join(userHomeDir, "AppData", "Local", "ms-playwright");
-  const candidatePaths = [
+  const directCandidates = [
     path.join(playwrightRoot, "chromium-1217", "chrome-win64", "chrome.exe"),
     path.join(playwrightRoot, "chromium-1217", "chrome-win", "chrome.exe"),
     path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win", "headless_shell.exe"),
     path.join(playwrightRoot, "chromium_headless_shell-1217", "chrome-win64", "headless_shell.exe"),
   ];
 
-  for (const candidate of candidatePaths) {
-    try {
-      await fs.access(candidate);
+  for (const candidate of directCandidates) {
+    if (await pathExists(candidate)) {
       return candidate;
-    } catch {
-      // Keep looking.
+    }
+  }
+
+  const browserDirs = await fs.readdir(playwrightRoot, { withFileTypes: true }).catch(() => []);
+  const preferredDirs = browserDirs
+    .filter((entry) => entry.isDirectory() && (entry.name.startsWith("chromium-") || entry.name.startsWith("chromium_headless_shell-")))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const dirName of preferredDirs) {
+    const candidatePaths = [
+      path.join(playwrightRoot, dirName, "chrome-win64", "chrome.exe"),
+      path.join(playwrightRoot, dirName, "chrome-win", "chrome.exe"),
+      path.join(playwrightRoot, dirName, "chrome-win64", "headless_shell.exe"),
+      path.join(playwrightRoot, dirName, "chrome-win", "headless_shell.exe"),
+    ];
+
+    for (const candidate of candidatePaths) {
+      if (await pathExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  const systemCandidates = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  ];
+
+  for (const candidate of systemCandidates) {
+    if (await pathExists(candidate)) {
+      return candidate;
     }
   }
 
