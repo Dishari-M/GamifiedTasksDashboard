@@ -35,7 +35,7 @@ RCA_SKILL_DIR = Path(os.getenv("RCA_SKILL_DIR", str(PROJECT_ROOT / "skills" / "e
 RCA_SKILL_FILE = RCA_SKILL_DIR / "SKILL.md"
 JIRA_MCP_SERVER = os.getenv("JIRA_MCP_SERVER", "central_jira_confluence")
 
-CODEX_TIMEOUT_SECONDS = max(1, int(os.getenv("CODEX_TIMEOUT_SECONDS", "900")))
+CODEX_TIMEOUT_SECONDS = max(1, int(os.getenv("CODEX_TIMEOUT_SECONDS", "420")))
 CODEX_BYPASS_APPROVALS = os.getenv("CODEX_BYPASS_APPROVALS", "true").strip().lower() not in ("0", "false", "no")
 CODEX_AUTO_APPROVE_MCP_TOOLS = os.getenv("CODEX_AUTO_APPROVE_MCP_TOOLS", "true").strip().lower() not in ("0", "false", "no")
 CODEX_AUTO_APPROVE_APPS = os.getenv("CODEX_AUTO_APPROVE_APPS", "true").strip().lower() not in ("0", "false", "no")
@@ -77,17 +77,20 @@ MANDATORY SOURCES:
 STRICT RULES:
 1. Start from the Jira key. Fetch Jira summary, description, status, issue type, priority, components, labels, affects version, fix version, attachments/log snippets if visible, and comments.
 2. If Jira includes Affects Version, use it to choose UI code locations according to the RCA skill.
-3. Read memory-bank files before drawing conclusions.
-4. Trace code flow through relevant modules and build.gradle dependencies. Do not stop at the first matching file.
+3. Read only the memory-bank files that are relevant to the Jira module and symptom before drawing conclusions.
+4. Trace code flow through the most relevant modules and build.gradle dependencies. Stop once there is enough concrete evidence for a root-cause hypothesis and fix.
 5. Root cause must identify the specific failing condition in code or data flow, not just the symptom.
 6. Cite exact local file paths for affected files and explain why each file matters.
 7. If evidence is insufficient, say exactly what is missing and provide the best-supported hypothesis separately.
 8. Do not modify files. This service is analysis-only.
 9. Do not output markdown code fences around the whole response.
+10. Complete the investigation in under 5 minutes. Prefer a concise, evidence-backed RCA over exhaustive repository traversal.
+11. Do not print full file contents, SQL blocks, XML blocks, Gradle files, or large snippets to the console. Quote only tiny snippets when necessary.
 
 REPORTING:
 Follow the enterprise RCA skill's required workflow and output format.
 Do not add a separate one-line Jira description or task-form summary during RCA.
+Keep the final answer compact: root cause, affected files, code suggestion, evidence, and open questions only.
 """
 
 JIRA_ONE_LINE_DESCRIPTION_PROMPT = """

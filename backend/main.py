@@ -47,6 +47,11 @@ from services.sync_service import (
     run_sync,
     update_calendar_event,
 )
+from services.task_enrichment_service import (
+    get_task_enrichment,
+    list_task_enrichments,
+    start_task_enrichment,
+)
 from services.task_service import complete_task, create_task, get_tasks
 from services.user_context import current_local_user_id, current_oracle_user_id
 
@@ -494,6 +499,21 @@ def oracle_user_profile(identifier: str):
 @app.post("/api/v1/tasks", tags=["Tasks"])
 def add_oracle_task(task: dict, user_id: int = Depends(current_oracle_user_id)):
     return create_oracle_task(task, user_id)
+
+
+@app.post("/api/v1/task-enrichments", tags=["Tasks"])
+def start_oracle_task_enrichment(payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return start_task_enrichment(codex_config, payload, user_id)
+
+
+@app.get("/api/v1/task-enrichments", tags=["Tasks"])
+def oracle_task_enrichments(limit: int = 20, user_id: int = Depends(current_oracle_user_id)):
+    return list_task_enrichments(user_id, limit)
+
+
+@app.get("/api/v1/task-enrichments/{job_id}", tags=["Tasks"])
+def oracle_task_enrichment_detail(job_id: str, user_id: int = Depends(current_oracle_user_id)):
+    return get_task_enrichment(job_id, user_id)
 
 
 @app.get("/api/v1/tasks", tags=["Tasks"])

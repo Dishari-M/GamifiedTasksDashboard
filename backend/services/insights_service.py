@@ -149,6 +149,23 @@ def _context(work_date, user_id):
         "meeting_minutes": capacity.get("meeting_minutes", 0),
         "available_focus_minutes": capacity.get("available_focus_minutes", 0),
     }
+    previous_metrics = {
+        "task_count": len(tasks),
+        "working_today_count": len(previous_worked_tasks),
+        "completed_count": len(previous_completed_tasks),
+        "xp_earned": sum(resolve_xp_value(task) for task in previous_completed_tasks),
+        "meeting_minutes": previous_capacity.get("meeting_minutes", 0),
+        "available_focus_minutes": previous_capacity.get("available_focus_minutes", 0),
+    }
+    return {
+        "date": work_date,
+        "capacity": capacity,
+        "tasks": [_task_insight(item) for item in sorted_worked],
+        "completed_tasks": [_task_insight(item) for item in completed_tasks],
+        "calendar_events": events,
+        "metrics": metrics,
+        "previous_metrics": previous_metrics,
+    }
 
 
 def _oracle_context(cur, work_date, user_id):
@@ -182,23 +199,6 @@ def _context_from_tasks(work_date, tasks, user_id=None):
         "xp_earned": sum(resolve_xp_value(task) for task in completed_tasks),
         "meeting_minutes": capacity.get("meeting_minutes", 0),
         "available_focus_minutes": capacity.get("available_focus_minutes", 0),
-    }
-    previous_metrics = {
-        "task_count": len(tasks),
-        "working_today_count": len(previous_worked_tasks),
-        "completed_count": len(previous_completed_tasks),
-        "xp_earned": sum(resolve_xp_value(task) for task in previous_completed_tasks),
-        "meeting_minutes": previous_capacity.get("meeting_minutes", 0),
-        "available_focus_minutes": previous_capacity.get("available_focus_minutes", 0),
-    }
-    return {
-        "date": work_date,
-        "capacity": capacity,
-        "tasks": [_task_insight(item) for item in sorted_worked],
-        "completed_tasks": [_task_insight(item) for item in completed_tasks],
-        "calendar_events": events,
-        "metrics": metrics,
-        "previous_metrics": previous_metrics,
     }
     previous_metrics = {
         "task_count": len(tasks),

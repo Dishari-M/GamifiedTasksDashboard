@@ -8,6 +8,9 @@ $backendOut = Join-Path $backendDir "uvicorn.out.log"
 $backendErr = Join-Path $backendDir "uvicorn.err.log"
 $frontendOut = Join-Path $frontendDir "static-server.out.log"
 $frontendErr = Join-Path $frontendDir "static-server.err.log"
+$runDir = Join-Path $root ".devquest"
+$backendPidFile = Join-Path $runDir "backend.pid"
+$frontendPidFile = Join-Path $runDir "frontend.pid"
 $oracleWalletDir = Join-Path $env:USERPROFILE ".oracle\wallet_tasksdb"
 $oracleClientDir = "C:\oracle\instantclient_23_0"
 $dbUser = "DEVQUEST_APP"
@@ -18,12 +21,46 @@ $dbAlias = "tasksdb_tp"
 function Stop-PortProcess {
     param([int]$Port)
 
-    $connections = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-    foreach ($connection in $connections) {
+    $processIds = netstat -ano -p tcp |
+        ForEach-Object {
+            if ($_ -match '^\s*TCP\s+(\S+)\s+\S+\s+LISTENING\s+(\d+)\s*$') {
+                $localAddress = $Matches[1]
+                $processId = [int]$Matches[2]
+                if ($localAddress -match "[:.]$Port$") {
+                    $processId
+                }
+            }
+        } |
+        Sort-Object -Unique
+
+    foreach ($processId in $processIds) {
         try {
-            Stop-Process -Id $connection.OwningProcess -Force -ErrorAction Stop
+            if ($processId -and $processId -ne 0) {
+                Write-Host "Stopping process $processId on port $Port ..." -ForegroundColor DarkYellow
+                Stop-Process -Id $processId -Force -ErrorAction Stop
+            }
         } catch {
         }
+    }
+}
+
+function Stop-PidFileProcess {
+    param([string]$PidFile)
+
+    if (-not (Test-Path $PidFile)) {
+        return
+    }
+
+    try {
+        $processId = [int](Get-Content -Path $PidFile -Raw)
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($process) {
+            Write-Host "Stopping previous DevQuest process $processId ..." -ForegroundColor DarkYellow
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+        }
+    } catch {
+    } finally {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -110,6 +147,8 @@ Require-Path (Join-Path $oracleClientDir "oci.dll") "Oracle Instant Client is mi
 
 Set-OracleEnvironment
 
+New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+
 $frontendNodeModules = Join-Path $frontendDir "node_modules"
 $rootNodeModules = Join-Path $root "node_modules"
 if (-not (Test-Path $frontendNodeModules) -and (Test-Path $rootNodeModules)) {
@@ -160,6 +199,8 @@ if ($needsBuild) {
     }
 }
 
+Stop-PidFileProcess -PidFile $backendPidFile
+Stop-PidFileProcess -PidFile $frontendPidFile
 Stop-PortProcess -Port 8000
 Stop-PortProcess -Port 3000
 
@@ -178,11 +219,14 @@ $backendCommand = @"
 Set-Location '$backendDir'
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 "@
-Start-Process -FilePath "powershell" `
+$backendProcess = Start-Process -FilePath "powershell" `
     -ArgumentList "-NoProfile", "-Command", $backendCommand `
     -WorkingDirectory $backendDir `
     -RedirectStandardOutput $backendOut `
-    -RedirectStandardError $backendErr | Out-Null
+    -RedirectStandardError $backendErr `
+    -WindowStyle Hidden `
+    -PassThru
+Set-Content -Path $backendPidFile -Value $backendProcess.Id
 
 if (-not (Wait-ForHttp -Url "http://127.0.0.1:8000/" -TimeoutSeconds 60)) {
     throw "Backend did not become ready. Check $backendErr"
@@ -193,11 +237,14 @@ if (-not (Wait-ForHttp -Url "http://127.0.0.1:8000/api/v1/tasks" -TimeoutSeconds
 }
 
 Write-Host "Starting frontend on http://127.0.0.1:3000 ..." -ForegroundColor Green
-Start-Process -FilePath "node" `
+$frontendProcess = Start-Process -FilePath "node" `
     -ArgumentList "local-static-server.js" `
     -WorkingDirectory $frontendDir `
     -RedirectStandardOutput $frontendOut `
-    -RedirectStandardError $frontendErr | Out-Null
+    -RedirectStandardError $frontendErr `
+    -WindowStyle Hidden `
+    -PassThru
+Set-Content -Path $frontendPidFile -Value $frontendProcess.Id
 
 if (-not (Wait-ForHttp -Url "http://127.0.0.1:3000/" -TimeoutSeconds 60)) {
     throw "Frontend did not become ready. Check $frontendErr"
@@ -209,5 +256,10 @@ Write-Host "Frontend: http://127.0.0.1:3000"
 Write-Host "Backend:  http://127.0.0.1:8000"
 Write-Host "API Docs: http://127.0.0.1:8000/docs"
 Write-Host "DB Mode:  oracle (tasksdb_tp via thick mode)"
+Write-Host "Stop:     .\stop-devquest.cmd"
 
-Start-Process "http://127.0.0.1:3000"
+try {
+    Start-Process "http://127.0.0.1:3000"
+} catch {
+    Write-Host "Browser auto-open skipped: $($_.Exception.Message)" -ForegroundColor DarkYellow
+}

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
   Bell,
-  Bug,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -46,7 +45,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, standupApi, syncApi, tasksApi } from "./api/client";
+import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
@@ -73,7 +72,6 @@ const navItems = [
 const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
 
 const THEME_STORAGE_KEY = "devquest.theme.v1";
-const RCA_WORKSPACE_STORAGE_KEY = "devquest.rca.workspace.v1";
 
 const readInitialTheme = () => {
   const stored = readStoredJson(THEME_STORAGE_KEY, null);
@@ -83,13 +81,6 @@ const readInitialTheme = () => {
 };
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-const jiraKeyPattern = /^[A-Z][A-Z0-9]+-\d+$/;
-
-const jiraKeyForTask = (task) => {
-  if (task?.source !== "Jira") return "";
-  const key = String(task.externalId || task.id || "").trim().toUpperCase();
-  return jiraKeyPattern.test(key) ? key : "";
-};
 
 const profileFirstName = (user) => user?.first_name || user?.firstName || "User";
 const profileLastName = (user) => user?.last_name || user?.lastName || "";
@@ -114,7 +105,12 @@ const readCurrentUser = () => {
   }
 };
 
-const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+const apiErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  return detail?.message || detail?.error || error?.message || fallback;
+};
+const authErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
@@ -351,7 +347,7 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
     return () => window.clearInterval(intervalId);
   }, []);
   const localGreeting = greetingForDate(currentDate);
-  const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname.startsWith("/jira/") ? "Jira RCA" : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
   const subtitle = location.pathname === "/focus/analytics" ? "Review focus trends, XP, streaks, and consistency." : location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
   const isLight = theme === "light";
 
@@ -419,6 +415,9 @@ const StatCard = ({ label, value, detail, detailInsight, icon, tone, trend, down
 
 const MissionCard = ({ task, index, questMeta }) => {
   const Icon = task.icon;
+  const displayExternalId = task.externalId || task.external_id || task.id;
+  const missionDescription = task.description || task.aiInsight;
+  const tshirtSize = task.rcaTshirtSize || task.rca_tshirt_size || task.jiraTshirtSize || "";
   return (
     <article className={`mission-card mission-${task.accent}`} data-testid={`mission-card-${slug(task.id)}`}>
       <IconBadge icon={Icon} tone={task.accent} testId={`mission-icon-${slug(task.id)}`} />
@@ -428,13 +427,14 @@ const MissionCard = ({ task, index, questMeta }) => {
           <Pill tone={task.type.toLowerCase()} testId={`mission-type-${slug(task.id)}`}>{task.type}</Pill>
           <Pill tone={slug(task.status)} testId={`mission-status-${slug(task.id)}`}>{task.status}</Pill>
         </div>
-        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {task.id}</p>
-        <p data-testid={`mission-description-${slug(task.id)}`}>{task.aiInsight || task.description}</p>
+        <p className="mission-meta" data-testid={`mission-meta-${slug(task.id)}`}>{task.source} - {displayExternalId}</p>
+        <p data-testid={`mission-description-${slug(task.id)}`}>{missionDescription}</p>
         {questMeta && <p className="quest-rationale" data-testid={`quest-rationale-${slug(task.id)}`}>{questMeta.rationale}</p>}
       </div>
       <div className="mission-score">
         {questMeta && <span className={`quest-action quest-action-${slug(task.status)}`} data-testid={`quest-action-${slug(task.id)}`}>{questMeta.action}</span>}
         <Pill tone={task.priority.toLowerCase()} testId={`mission-priority-${slug(task.id)}`}>{task.priority}</Pill>
+        {tshirtSize && <Pill tone={`tshirt-${slug(tshirtSize)}`} testId={`mission-tshirt-${slug(task.id)}`}>{tshirtSize}</Pill>}
         <span data-testid={`mission-time-${slug(task.id)}`}><Clock size={16} weight="duotone" aria-hidden="true" /> {task.time} mins</span>
         <strong data-testid={`mission-xp-${slug(task.id)}`}>{task.xp} XP</strong>
         <span className="mission-rank" data-testid={`mission-rank-${slug(task.id)}`}>#{index + 1}</span>
@@ -679,7 +679,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   );
 };
 
-const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, editable = true }) => {
+const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, editable = true }) => {
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dirtyNotes, setDirtyNotes] = useState({});
   const [savingNoteId, setSavingNoteId] = useState(null);
@@ -726,6 +726,11 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
             const Icon = task.icon;
             const hasUnsavedNote = Boolean(dirtyNotes[task.id]);
             const isSavingNote = savingNoteId === task.id;
+            const isEnrichmentJob = Boolean(task.isEnrichmentJob);
+            const enrichmentJobId = task.enrichmentJobId || task.sourceEnrichmentJobId;
+            const enrichmentStatus = String(task.enrichmentStatus || "").toUpperCase();
+            const isTaskEnrichmentActive = activeEnrichmentStatuses.has(enrichmentStatus);
+            const canOpenEnrichmentDetails = Boolean(enrichmentJobId && onOpenEnrichmentDetails);
             return (
               <tr key={task.id} data-testid={`task-row-${slug(task.id)}`}>
                 <td data-testid={`task-title-cell-${slug(task.id)}`}>
@@ -736,18 +741,61 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                   <button
                     onClick={() => onToggleToday(task.id)}
                     className={`today-toggle ${task.status !== "Done" && task.workingToday ? "active" : ""}`}
-                    disabled={task.status === "Done"}
+                    disabled={task.status === "Done" || isEnrichmentJob}
                     data-testid={`task-today-button-${slug(task.id)}`}
                   >
-                    {task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
+                    {isEnrichmentJob ? "Pending" : task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
                   </button>
                 </td>
                 <td data-testid={`task-source-${slug(task.id)}`}>{task.source}</td>
                 <td><Pill tone={task.priority.toLowerCase()} testId={`task-priority-${slug(task.id)}`}>{task.priority}</Pill></td>
-                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}><span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span><span>{task.difficulty} - impact {task.impact}/10</span></td>
+                <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}>
+                  {isEnrichmentJob ? (
+                    <>
+                      <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                      <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {isTaskEnrichmentActive ? (
+                        <>
+                          <span className="ai-score enrichment-spinner"><Hourglass size={16} weight="duotone" aria-hidden="true" /></span>
+                          <span>{task.enrichmentStatusLabel || "AI enrichment in progress"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="ai-score">{Math.round((task.priorityScore || 0) * 100)}%</span>
+                          <span>{task.difficulty} - impact {task.impact}/10</span>
+                        </>
+                      )}
+                      {canOpenEnrichmentDetails && (
+                        <button
+                          className="row-icon-action enrichment-ai-action"
+                          aria-label={`Open enrichment details for ${task.title}`}
+                          title="Enrichment details"
+                          onClick={() => onOpenEnrichmentDetails?.(enrichmentJobId)}
+                          data-testid={`task-enrichment-details-button-${slug(task.id)}`}
+                        >
+                          <Sparkle size={17} weight="duotone" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td data-testid={`task-time-${slug(task.id)}`}>{task.time} mins</td>
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
-                <td data-testid={`task-completed-${slug(task.id)}`}>{formatDateTime(task.completedAt)}</td>
+                <td data-testid={`task-completed-${slug(task.id)}`}>{isEnrichmentJob ? task.enrichmentStatusLabel : formatDateTime(task.completedAt)}</td>
                 <td>
                   <select
                     className={`status-select status-select-${slug(task.status)}`}
@@ -755,6 +803,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     onChange={(event) => onStatusChange(task.id, event.target.value)}
                     data-testid={`task-status-${slug(task.id)}`}
                     aria-label={`Status for ${task.title}`}
+                    disabled={isEnrichmentJob}
                   >
                     {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
@@ -764,14 +813,16 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                     className={`inline-notes ${editable ? "" : "inline-notes-readonly"}`}
                     value={noteDrafts[task.id] ?? task.notes ?? ""}
                     onChange={(event) => updateNoteDraft(task, event.target.value)}
-                    readOnly={!editable}
+                    readOnly={!editable || isEnrichmentJob}
                     aria-label={`Notes for ${task.title}`}
                     data-testid={`task-notes-${slug(task.id)}`}
                   />
                 </td>
                 {editable && (
                   <td className="action-menu-cell">
-                    {hasUnsavedNote ? (
+                    {isEnrichmentJob ? (
+                      <span className="row-action-placeholder" aria-hidden="true">-</span>
+                    ) : hasUnsavedNote ? (
                       <span className="row-action-group">
                         <button
                           className="row-icon-action row-icon-save"
@@ -815,28 +866,31 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
     </div>
   );
 };
-const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
+const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBase }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
-  const [banner, setBanner] = useState("");
-  const [isFetchingJiraFields, setIsFetchingJiraFields] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSelectingCodeBase, setIsSelectingCodeBase] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const submitInFlightRef = useRef(false);
+  const isJiraEnrichment = form.source === "Jira" && form.runAiEnrichment;
+  const isCodeBaseEnabled = form.source === "Jira";
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
-    setBanner("");
-    setIsFetchingJiraFields(false);
     setIsSubmitting(false);
+    setIsSelectingCodeBase(false);
     setSubmitError("");
     setFieldErrors({});
     submitInFlightRef.current = false;
   }, [task]);
 
   const update = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
-    if (field === "externalId" && value.trim()) setBanner("");
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "source" && value !== "Jira" ? { codeBaseLocation: "" } : {}),
+    }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
     setSubmitError("");
   };
@@ -848,54 +902,23 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
     if (!form.source) errors.source = "Source is required.";
     if (!form.priority) errors.priority = "Priority is required.";
     if (!form.status) errors.status = "Status is required.";
+    if (isJiraEnrichment && !form.externalId.trim()) errors.externalId = "External ID is required for Jira AI enrichment.";
+    if (isJiraEnrichment && !form.codeBaseLocation.trim()) errors.codeBaseLocation = "Code Base Location is required for Jira AI enrichment.";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const fetchJiraFields = async () => {
-    const externalId = form.externalId.trim();
-    if (!externalId) {
-      setBanner("External ID is required before fetching Jira details.");
-      return;
-    }
-
-    setBanner("");
-    setIsFetchingJiraFields(true);
+  const selectCodeBase = async () => {
+    if (!onSelectCodeBase || !isCodeBaseEnabled) return;
+    setIsSelectingCodeBase(true);
+    setSubmitError("");
     try {
-      const result = await jiraApi.taskFields(externalId);
-      if (!result?.title && !result?.description) {
-        setBanner("Could not fetch Jira details. Please check the External ID and try again.");
-        return;
-      }
-      setForm((current) => ({
-        ...current,
-        title: result.title?.trim() || current.title,
-        description: result.description?.trim() || current.description,
-        priority: priorities.includes(result.priority) ? result.priority : current.priority,
-        labels: Array.isArray(result.labels) ? result.labels.join(", ") : current.labels,
-        type: taskTypes.includes(result.type) ? result.type : current.type,
-        source: "Jira",
-      }));
+      const path = await onSelectCodeBase(form.codeBaseLocation);
+      if (path) update("codeBaseLocation", path);
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      if (error.response?.status === 409 && detail?.code === "JIRA_MCP_AUTH_REQUIRED") {
-        const ssoSessionKey = `jira-sso-started:${externalId}`;
-        if (window.sessionStorage.getItem(ssoSessionKey)) {
-          setBanner("Jira SSO was already opened for this ID. Complete that Codex window, then retry; if it already succeeded, close it and click Fetch Details again.");
-          return;
-        }
-        try {
-          await jiraApi.startSsoLogin(externalId);
-          window.sessionStorage.setItem(ssoSessionKey, "true");
-          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then click Fetch Details again.");
-        } catch {
-          setBanner(detail.message || "Jira SSO is required. Start Codex from a terminal, complete Jira sign-in, then retry.");
-        }
-        return;
-      }
-      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not fetch Jira details. Confirm the backend is running and the Jira ID is accessible.");
+      setSubmitError(apiErrorMessage(error, "Unable to select code base folder."));
     } finally {
-      setIsFetchingJiraFields(false);
+      setIsSelectingCodeBase(false);
     }
   };
 
@@ -910,11 +933,10 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
       await onSubmit(form);
       if (mode === "create") {
         setForm(emptyTaskForm);
-        setBanner("");
         setFieldErrors({});
       }
     } catch (error) {
-      setSubmitError(error?.response?.data?.detail?.message || error?.message || "Unable to save task.");
+      setSubmitError(apiErrorMessage(error, "Unable to save task."));
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
@@ -923,7 +945,6 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
 
   return (
     <form className="task-editor-form" onSubmit={submit} noValidate data-testid={`${mode}-task-form`}>
-      {banner && <div className="form-banner form-banner-error" role="alert" data-testid={`${mode}-ai-error-banner`}>{banner}</div>}
       <label>
         Title
         <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
@@ -941,13 +962,20 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel }) => {
         {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
       </label>
       <label>
-        <span className="field-label-row">
-          <span>External ID</span>
-          <button className="inline-ai-button" type="button" onClick={fetchJiraFields} disabled={isFetchingJiraFields} data-testid={`${mode}-fetch-jira-fields-button`}><Sparkle size={16} weight="duotone" aria-hidden="true" /> {isFetchingJiraFields ? "Fetching..." : "Fetch Details"}</button>
-        </span>
-        <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" />
+        External ID
+        <input value={form.externalId} onChange={(event) => update("externalId", event.target.value)} placeholder="PAY-2301" aria-invalid={Boolean(fieldErrors.externalId)} aria-describedby={fieldErrors.externalId ? `${mode}-task-external-id-error` : undefined} />
+        {fieldErrors.externalId && <span className="field-error" id={`${mode}-task-external-id-error`}>{fieldErrors.externalId}</span>}
       </label>
-      <label>Project key<input value={form.projectKey} onChange={(event) => update("projectKey", event.target.value)} placeholder="PAY" /></label>
+      <label className="codebase-location-field">
+        Code Base Location
+        <span className="codebase-location-picker">
+          <input value={form.codeBaseLocation} onChange={(event) => update("codeBaseLocation", event.target.value)} placeholder="Select codebase folder" disabled={!isCodeBaseEnabled} aria-invalid={Boolean(fieldErrors.codeBaseLocation)} aria-describedby={fieldErrors.codeBaseLocation ? `${mode}-task-codebase-error` : undefined} data-testid={`${mode}-task-codebase-input`} />
+          <button className="ghost-button" type="button" onClick={selectCodeBase} disabled={!isCodeBaseEnabled || isSelectingCodeBase} data-testid={`${mode}-select-codebase-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingCodeBase ? "Selecting" : "Browse"}
+          </button>
+        </span>
+        {fieldErrors.codeBaseLocation && <span className="field-error" id={`${mode}-task-codebase-error`}>{fieldErrors.codeBaseLocation}</span>}
+      </label>
       <label>
         Priority
         <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
@@ -1077,6 +1105,101 @@ const FloatingNotice = ({ notice, onDismiss }) => {
   );
 };
 
+const activeEnrichmentStatuses = new Set(["QUEUED", "RUNNING"]);
+const terminalEnrichmentStatuses = new Set(["SUCCEEDED", "FAILED", "AUTH_REQUIRED", "CANCELLED"]);
+
+const enrichmentJobId = (job) => job?.enrichment_job_id || job?.enrichmentJobId || job?.id;
+const enrichmentJobTaskId = (job) => {
+  const request = job?.request || {};
+  return job?.task_id || job?.taskId || request.existingTaskId || request.existing_task_id || request.taskId || request.task_id || null;
+};
+const enrichmentStatusLabel = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "QUEUED") return "Queued";
+  if (normalized === "RUNNING") return "AI enrichment in progress";
+  if (normalized === "SUCCEEDED") return "Completed";
+  if (normalized === "AUTH_REQUIRED") return "Jira sign-in required";
+  if (normalized === "CANCELLED") return "Cancelled";
+  if (normalized === "FAILED") return "Failed";
+  return "AI enrichment";
+};
+
+const jobToTask = (job) => {
+  const fields = job?.jira_fields || job?.jiraFields || {};
+  const request = job?.request || {};
+  const result = job?.rca_result || job?.rcaResult || {};
+  const status = String(job?.status || "QUEUED").toUpperCase();
+  return normalizeTask({
+    id: `enrichment-${enrichmentJobId(job)}`,
+    title: fields.title || request.title || job?.external_id || job?.externalId || "Jira enrichment",
+    description: status === "FAILED" || status === "AUTH_REQUIRED"
+      ? job?.error_message || job?.errorMessage || enrichmentStatusLabel(status)
+      : fields.description || "The task will appear after AI enrichment finishes.",
+    source: "Jira",
+    externalId: job?.external_id || job?.externalId || request.externalId || "",
+    type: fields.type || request.type || "Task",
+    priority: fields.priority || request.priority || "Medium",
+    status: status === "SUCCEEDED" ? "Done" : status === "FAILED" || status === "AUTH_REQUIRED" ? "Blocked" : "In Progress",
+    time: request.estimatedMinutes || 60,
+    xp: result.xp_value || 0,
+    workingToday: Boolean(request.workingToday ?? true),
+    notes: "",
+    isEnrichmentJob: true,
+    enrichmentJobId: enrichmentJobId(job),
+    enrichmentStatus: status,
+    enrichmentStatusLabel: enrichmentStatusLabel(status),
+    accent: status === "FAILED" || status === "AUTH_REQUIRED" ? "red" : "cyan",
+  });
+};
+
+const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
+  if (!job) return null;
+  const fields = job.jira_fields || job.jiraFields || {};
+  const result = job.rca_result || job.rcaResult || {};
+  const logs = Array.isArray(job.logs) ? job.logs : [];
+  const affectedFiles = result.affected_files || result.affectedFiles || result.rca_affected_files || result.rcaAffectedFiles || [];
+  const codeSuggestion = result.code_suggestion || result.codeSuggestion || result.code_fix_suggestion || result.codeFixSuggestion || result.rca_code_suggestion || result.rcaCodeSuggestion || "";
+  const tshirt = result.tshirt_sizing || result.tshirtSizing || result.jira_tshirt_sizing || result.jiraTshirtSizing || {};
+  const tshirtSize = result.tshirt_size || result.tshirtSize || result.rca_tshirt_size || result.rcaTshirtSize || tshirt.size || "";
+  const tshirtJustification = result.tshirt_justification || result.tshirtJustification || result.rca_tshirt_justification || result.rcaTshirtJustification || tshirt.reason || tshirt.justification || "";
+  const error = job.error_message || job.errorMessage || "";
+  return (
+    <div className="enrichment-modal-backdrop" role="presentation">
+      <section className="surface enrichment-modal" role="dialog" aria-modal="true" aria-labelledby="enrichment-modal-title" data-testid="enrichment-details-modal">
+        <div className="section-heading enrichment-modal-heading">
+          <div>
+            <h2 id="enrichment-modal-title"><Sparkle size={26} weight="duotone" aria-hidden="true" /> Enrichment Details</h2>
+            <p>{job.external_id || job.externalId} - {enrichmentStatusLabel(job.status)}</p>
+          </div>
+          <div className="editor-actions">
+            <button className="ghost-button" type="button" onClick={onRefresh} data-testid="refresh-enrichment-details-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="row-icon-action" type="button" onClick={onClose} aria-label="Close enrichment details" data-testid="close-enrichment-details-button"><X size={18} weight="bold" /></button>
+          </div>
+        </div>
+        <div className="enrichment-detail-stack">
+          <section className="enrichment-console-block">
+            <strong>Console</strong>
+            <pre className="codex-console enrichment-console" data-testid="enrichment-console-output">{logs.map((log) => log.message || log).join("\n") || "Waiting for enrichment output..."}</pre>
+          </section>
+          <section className="enrichment-summary-block">
+            <strong>Enrichment</strong>
+            <dl className="enrichment-details-list">
+              <dt>Title</dt><dd>{fields.title || "-"}</dd>
+              <dt>Description</dt><dd>{fields.description || "-"}</dd>
+              <dt>Root cause</dt><dd>{result.rca_reason || result.rcaReason || "-"}</dd>
+              <dt>Affected files</dt><dd>{affectedFiles.length ? affectedFiles.map((item) => item.path || item).join(", ") : "-"}</dd>
+              <dt>Code suggestion</dt><dd>{codeSuggestion || "-"}</dd>
+              <dt>T-shirt size</dt><dd>{tshirtSize || "-"}</dd>
+              <dt>Justification</dt><dd>{tshirtJustification || "-"}</dd>
+              {error && <><dt>Error</dt><dd className="enrichment-error-text">{error}</dd></>}
+            </dl>
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
@@ -1120,11 +1243,47 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, onStartFocus
   );
 };
 
-const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
-  const filteredTasks = useMemo(() => filterUnifiedTasks(tasks, taskFilters), [tasks, taskFilters]);
+  const activeExistingEnrichmentJobs = useMemo(
+    () => enrichmentJobs.filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && enrichmentJobTaskId(job)),
+    [enrichmentJobs],
+  );
+  const activeEnrichmentByTaskId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => map.set(String(enrichmentJobTaskId(job)), job));
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const activeEnrichmentByExternalId = useMemo(() => {
+    const map = new Map();
+    activeExistingEnrichmentJobs.forEach((job) => {
+      const externalId = String(job.external_id || job.externalId || "").trim().toUpperCase();
+      if (externalId) map.set(externalId, job);
+    });
+    return map;
+  }, [activeExistingEnrichmentJobs]);
+  const enrichmentTaskRows = useMemo(
+    () => enrichmentJobs
+      .filter((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase()) && !enrichmentJobTaskId(job))
+      .map(jobToTask),
+    [enrichmentJobs],
+  );
+  const tasksWithActiveEnrichment = useMemo(() => tasks.map((task) => {
+    const job = activeEnrichmentByTaskId.get(String(task.taskId || task.id))
+      || activeEnrichmentByExternalId.get(String(task.externalId || "").trim().toUpperCase());
+    if (!job) return task;
+    const status = String(job.status || "").toUpperCase();
+    return {
+      ...task,
+      enrichmentJobId: enrichmentJobId(job),
+      enrichmentStatus: status,
+      enrichmentStatusLabel: enrichmentStatusLabel(status),
+    };
+  }), [tasks, activeEnrichmentByTaskId, activeEnrichmentByExternalId]);
+  const unifiedTasks = useMemo(() => [...enrichmentTaskRows, ...tasksWithActiveEnrichment], [enrichmentTaskRows, tasksWithActiveEnrichment]);
+  const filteredTasks = useMemo(() => filterUnifiedTasks(unifiedTasks, taskFilters), [unifiedTasks, taskFilters]);
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
@@ -1137,12 +1296,12 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
     <main className="page-stack" data-testid="tasks-page">
       <section className="surface form-card" data-testid="add-task-card">
         <div className="section-heading"><h2><Plus size={26} weight="duotone" aria-hidden="true" /> Add Task With Full Details</h2><span data-testid="task-count-label">{tasks.length} tasks loaded</span></div>
-        <TaskEditor mode="create" onSubmit={onAddTask} />
+        <TaskEditor mode="create" onSubmit={onAddTask} onSelectCodeBase={onSelectCodeBase} />
       </section>
       {editingTask && (
         <section className="surface form-card" data-testid="edit-task-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Edit Task</h2><span>{editingTask.id}</span></div>
-          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} />
+          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} onSelectCodeBase={onSelectCodeBase} />
         </section>
       )}
       <section className="surface" data-testid="unified-task-list-card">
@@ -1194,14 +1353,15 @@ const TasksPage = ({ tasks, isLoading, onAddTask, onStatusChange, onEdit, onTogg
               </select>
             </label>
             <div className="task-filter-actions">
-              <span data-testid="task-filter-result-count">{filteredTasks.length} of {tasks.length} tasks</span>
+              <span data-testid="task-filter-result-count">{filteredTasks.length} of {unifiedTasks.length} tasks</span>
               <button className="ghost-button" type="button" onClick={resetFilters} disabled={!activeFilterCount} data-testid="task-filter-reset-button">Reset</button>
             </div>
           </div>
         )}
-        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} />
+        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} />
         {!filteredTasks.length && <p className="empty-state" data-testid="task-filter-empty-state">No tasks match the selected filters.</p>}
       </section>
+      <EnrichmentDetailsModal job={selectedEnrichmentJob} onClose={onCloseEnrichmentDetails} onRefresh={onRefreshEnrichmentDetails} />
     </main>
   );
 };
@@ -1451,7 +1611,7 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     }
   };
 
-  if (insightStatus === "loading" || standupStatus === "loading") {
+  if ((insightStatus === "loading" || standupStatus === "loading") && !tasks.length) {
     return <PageLoader title="Loading AI insights" detail="Fetching insight, standup, and task context." steps={["Tasks", "Standup", "AI"]} />;
   }
 
@@ -1482,25 +1642,13 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
           </div>
         )}
         <div className="insight-list">
-          {displayedInsights.map((insight) => {
-            const localTask = todayTasks.find((task) => String(task.taskId || task.id) === String(insight.task_id));
-            const jiraKey = jiraKeyForTask(localTask);
-            const content = (
-              <>
-                <strong>{insight.title}</strong>
-                <span>{Math.round((insight.priority_score || 0) * 100)} priority - {insight.xp_value} XP - {insight.effort_minutes} min effort</span>
-                <p>{insight.insight}</p>
-              </>
-            );
-
-            return jiraKey ? (
-              <NavLink className="insight-task-link" key={insight.task_id} to={`/jira/${jiraKey}/rca`} data-testid={`insight-jira-task-${slug(insight.task_id)}`}>
-                {content}
-              </NavLink>
-            ) : (
-              <article key={insight.task_id}>{content}</article>
-            );
-          })}
+          {displayedInsights.map((insight) => (
+            <article key={insight.task_id} data-testid={`insight-task-${slug(insight.task_id)}`}>
+              <strong>{insight.title}</strong>
+              <span>{Math.round((insight.priority_score || 0) * 100)} priority - {insight.xp_value} XP - {insight.effort_minutes} min effort</span>
+              <p>{insight.insight}</p>
+            </article>
+          ))}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
@@ -1513,286 +1661,6 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
           <span><strong>Blockers</strong>{standupNote.blockers}</span>
         </div>
       </section>
-    </main>
-  );
-};
-
-const rcaSectionHeadings = new Set([
-  "JIRA DETAILS",
-  "ROOT CAUSE ANALYSIS",
-  "AFFECTED MODULES",
-  "AFFECTED FILES",
-  "CODE FIX SUGGESTION",
-  "EVIDENCE",
-  "OPEN QUESTIONS",
-]);
-const activeRcaStatuses = new Set(["queued", "running"]);
-
-const RcaReport = ({ text }) => {
-  const sections = [];
-  let current = { heading: "Analysis", lines: [] };
-
-  String(text || "").split(/\r?\n/).forEach((line) => {
-    const trimmed = line.trim();
-    if (rcaSectionHeadings.has(trimmed)) {
-      if (current.lines.some((item) => item.trim())) sections.push(current);
-      current = { heading: trimmed, lines: [] };
-      return;
-    }
-    current.lines.push(line);
-  });
-
-  if (current.lines.some((item) => item.trim())) sections.push(current);
-
-  return (
-    <div className="rca-report" data-testid="jira-rca-output">
-      {sections.map((section) => (
-        <section className="rca-report-section" key={section.heading}>
-          <h3>{section.heading}</h3>
-          <div className="rca-report-body">
-            {section.lines.map((line, index) => {
-              const trimmed = line.trim();
-              if (!trimmed) return <div className="rca-report-space" key={`${section.heading}-${index}`} />;
-              if (/^[-*]\s+/.test(trimmed)) return <p className="rca-report-bullet" key={`${section.heading}-${index}`}>{trimmed.replace(/^[-*]\s+/, "")}</p>;
-              if (/^\d+\.\s+/.test(trimmed)) return <p className="rca-report-numbered" key={`${section.heading}-${index}`}>{trimmed}</p>;
-              return <p key={`${section.heading}-${index}`}>{trimmed}</p>;
-            })}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-};
-
-const JiraTshirtSizing = ({ sizing }) => {
-  if (!sizing?.size) return null;
-  const details = [
-    `${sizing.priority || "Medium"} priority`,
-    `${sizing.affected_files ?? 0} affected file(s)`,
-    `${sizing.suggested_changes ?? 0} suggested change(s)`,
-  ];
-
-  return (
-    <section className="jira-tshirt-sizing" data-testid="jira-tshirt-sizing-card">
-      <div className="jira-tshirt-size-mark" data-testid="jira-tshirt-size-value">{sizing.size}</div>
-      <div>
-        <h3>Jira T-shirt Sizing</h3>
-        <p data-testid="jira-tshirt-sizing-reason">{sizing.reason}</p>
-        <div className="jira-tshirt-facts">
-          {details.map((detail) => <span key={detail}>{detail}</span>)}
-          {(sizing.risk_signals || []).slice(0, 3).map((signal) => <span key={signal}>{signal}</span>)}
-        </div>
-      </div>
-    </section>
-  );
-};
-
-const JiraRcaPage = ({ tasks }) => {
-  const { jiraKey = "" } = useParams();
-  const normalizedJiraKey = jiraKey.trim().toUpperCase();
-  const task = tasks.find((item) => jiraKeyForTask(item) === normalizedJiraKey);
-  const [rcaResult, setRcaResult] = useState(null);
-  const [rcaJob, setRcaJob] = useState(null);
-  const [banner, setBanner] = useState("");
-  const [rcaWorkspace, setRcaWorkspace] = useState(() => readStoredJson(RCA_WORKSPACE_STORAGE_KEY, ""));
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [isSelectingWorkspace, setIsSelectingWorkspace] = useState(false);
-  const isRcaActive = rcaJob?.job_id && activeRcaStatuses.has(rcaJob.status);
-  const activeSizing = rcaResult?.jira_tshirt_sizing || task?.jiraTshirtSizing || null;
-
-  useEffect(() => {
-    if (!rcaJob?.job_id || !activeRcaStatuses.has(rcaJob.status)) return undefined;
-    let stopped = false;
-
-    const pollJob = async () => {
-      try {
-        const job = await jiraApi.getRcaJob(rcaJob.job_id);
-        if (stopped) return;
-        setRcaJob(job);
-        if (job.status === "completed" && job.result) {
-          setRcaResult({ jira_key: job.jira_key, ...job.result });
-          setIsGenerating(false);
-        } else if (job.status === "auth_required") {
-          setBanner("Jira SSO is required. Open the SSO session, complete sign-in, then run RCA again.");
-          setIsGenerating(false);
-        } else if (job.status === "failed") {
-          setBanner(job.error || "RCA generation failed. Check the console output below.");
-          setIsGenerating(false);
-        } else if (job.status === "cancelled") {
-          setBanner("RCA cancelled.");
-          setIsGenerating(false);
-        }
-      } catch (error) {
-        if (stopped) return;
-        const detail = error.response?.data?.detail;
-        setBanner(typeof detail === "string" ? detail : detail?.message || "Could not read live RCA status.");
-        setIsGenerating(false);
-      }
-    };
-
-    const intervalId = window.setInterval(pollJob, 1500);
-    pollJob();
-    return () => {
-      stopped = true;
-      window.clearInterval(intervalId);
-    };
-  }, [rcaJob?.job_id, rcaJob?.status]);
-
-  useEffect(() => {
-    writeStoredJson(RCA_WORKSPACE_STORAGE_KEY, rcaWorkspace);
-  }, [rcaWorkspace]);
-
-  const generateRca = async () => {
-    if (isRcaActive) return;
-    const workspacePath = rcaWorkspace.trim();
-    if (!workspacePath) {
-      setBanner("Select the local codebase folder before running RCA.");
-      return;
-    }
-    setBanner("");
-    setRcaResult(null);
-    setRcaJob(null);
-    setIsGenerating(true);
-    setIsCancelling(false);
-    try {
-      const job = await jiraApi.startRcaJob(normalizedJiraKey, task?.notes || "", task?.priority || "Medium", workspacePath);
-      setRcaJob(job);
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      if (error.response?.status === 409 && detail?.code === "JIRA_MCP_AUTH_REQUIRED") {
-        try {
-          await jiraApi.startSsoLogin(normalizedJiraKey);
-          setBanner("Jira SSO is required. A Codex window was opened; complete sign-in there, then run RCA again.");
-        } catch {
-          setBanner(detail.message || "Jira SSO is required. Complete sign-in, then run RCA again.");
-        }
-        setIsGenerating(false);
-        return;
-      }
-      setBanner(typeof detail === "string" ? detail : detail?.message || "RCA generation failed. Confirm the backend is running and Jira is accessible.");
-      setIsGenerating(false);
-    }
-  };
-
-  const selectWorkspace = async () => {
-    if (isGenerating || isRcaActive) return;
-    setBanner("");
-    setIsSelectingWorkspace(true);
-    try {
-      const result = await jiraApi.selectRcaWorkspace();
-      if (result?.code_base_path) {
-        setRcaWorkspace(result.code_base_path);
-      }
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not open the local folder picker. Make sure the local Codex runner/backend is running on this machine.");
-    } finally {
-      setIsSelectingWorkspace(false);
-    }
-  };
-
-  const cancelRca = async () => {
-    if (!rcaJob?.job_id || !activeRcaStatuses.has(rcaJob.status)) return;
-    setBanner("");
-    setIsCancelling(true);
-    try {
-      const job = await jiraApi.cancelRcaJob(rcaJob.job_id);
-      setRcaJob(job);
-      setIsGenerating(false);
-      if (job.status === "cancelled") {
-        setBanner("RCA cancelled.");
-      } else if (job.status === "completed" && job.result) {
-        setRcaResult({ jira_key: job.jira_key, ...job.result });
-      } else {
-        setBanner(job.error || "RCA is no longer running.");
-      }
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not cancel RCA.");
-    } finally {
-      setIsCancelling(false);
-    }
-  };
-
-  const startSso = async () => {
-    setBanner("");
-    try {
-      await jiraApi.startSsoLogin(normalizedJiraKey);
-      setBanner("A Codex SSO window was opened. Complete sign-in there, then run RCA again.");
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      setBanner(typeof detail === "string" ? detail : detail?.message || "Could not start Jira SSO session.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  return (
-    <main className="page-stack" data-testid="jira-rca-page">
-      <section className="surface jira-rca-card" data-testid="jira-rca-card">
-        <div className="section-heading">
-          <h2><Bug size={26} weight="duotone" aria-hidden="true" /> Jira RCA</h2>
-          <NavLink to="/insights" data-testid="back-to-insights-link">Back to insights</NavLink>
-        </div>
-        {banner && <div className="form-banner form-banner-error" role="alert" data-testid="jira-rca-error-banner">{banner}</div>}
-        <div className="jira-rca-summary">
-          <span>{normalizedJiraKey}</span>
-          <h3>{task?.title || "Jira task"}</h3>
-          <p>{task?.description || "Generate RCA to fetch Jira details and analyze the codebase."}</p>
-          {task && (
-            <div className="theme-list">
-              <Pill tone={task.priority.toLowerCase()}>{task.priority}</Pill>
-              <Pill tone={task.type.toLowerCase()}>{task.type}</Pill>
-              <Pill tone="task">{task.source}</Pill>
-              {activeSizing?.size && <Pill tone={`tshirt-${activeSizing.size.toLowerCase()}`} testId="jira-summary-tshirt-size">{activeSizing.size}</Pill>}
-            </div>
-          )}
-        </div>
-        <label className="jira-rca-workspace" data-testid="jira-rca-workspace-field">
-          <span><FolderOpen size={17} weight="duotone" aria-hidden="true" /> Codebase workspace</span>
-          <div className="jira-rca-workspace-picker">
-            <input
-              value={rcaWorkspace}
-              onChange={(event) => setRcaWorkspace(event.target.value)}
-              placeholder="Select a local codebase folder"
-              disabled={isGenerating || isRcaActive}
-              data-testid="jira-rca-workspace-input"
-            />
-            <button className="ghost-button" type="button" onClick={selectWorkspace} disabled={isGenerating || isRcaActive || isSelectingWorkspace} data-testid="select-jira-rca-workspace-button">
-              <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingWorkspace ? "Selecting..." : "Select Folder"}
-            </button>
-          </div>
-        </label>
-        <div className="jira-rca-actions">
-          <button className="primary-action jira-rca-generate" type="button" onClick={generateRca} disabled={isGenerating || isRcaActive || !normalizedJiraKey || !rcaWorkspace.trim()} data-testid="generate-jira-rca-button">
-            <Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGenerating ? "Generating Jira RCA and T-Shirt Size..." : "Generate Jira RCA and T-Shirt Size"}
-          </button>
-          {isRcaActive && (
-            <button className="ghost-button jira-rca-cancel" type="button" onClick={cancelRca} disabled={isCancelling} data-testid="cancel-jira-rca-button">
-              <X size={18} weight="bold" aria-hidden="true" /> {isCancelling ? "Cancelling..." : "Cancel RCA"}
-            </button>
-          )}
-        </div>
-        {rcaJob?.status === "auth_required" && (
-          <button className="ghost-button jira-rca-generate" type="button" onClick={startSso} data-testid="start-jira-rca-sso-button">
-            Open SSO
-          </button>
-        )}
-      </section>
-      {rcaJob && (
-        <section className="surface jira-rca-console-card" data-testid="jira-rca-console-card">
-          <div className="section-heading"><h2><Database size={26} weight="duotone" aria-hidden="true" /> Codex Console</h2><span>{rcaJob.status}</span></div>
-          <pre className="codex-console" data-testid="jira-rca-console-output">{(rcaJob.logs || []).join("\n") || "Waiting for Codex output..."}</pre>
-        </section>
-      )}
-      {rcaResult && (
-        <section className="surface jira-rca-result" data-testid="jira-rca-result-card">
-          <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> RCA Result</h2><span>{Math.round(rcaResult.elapsed_seconds || 0)}s</span></div>
-          <RcaReport text={rcaResult.root_cause_analysis} />
-          <JiraTshirtSizing sizing={rcaResult.jira_tshirt_sizing} />
-        </section>
-      )}
     </main>
   );
 };
@@ -2089,9 +1957,18 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const [savingFocusState, setSavingFocusState] = useState(null);
   const [syncRun, setSyncRun] = useState(null);
   const [syncingSource, setSyncingSource] = useState("");
+  const [enrichmentJobs, setEnrichmentJobs] = useState([]);
+  const [selectedEnrichmentJob, setSelectedEnrichmentJob] = useState(null);
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [completingQuestId, setCompletingQuestId] = useState(null);
   const [floatingNotice, setFloatingNotice] = useState(null);
+  const submittedEnrichmentJobIdsRef = useRef(new Set());
+  const notifiedEnrichmentJobIdsRef = useRef(new Set());
+  const enrichmentListRequestInFlightRef = useRef(false);
+  const enrichmentListFailureCountRef = useRef(0);
+  const selectedEnrichmentJobIdRef = useRef(null);
+  const selectedEnrichmentRequestInFlightRef = useRef(false);
+  const selectedEnrichmentFailureCountRef = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(readInitialTheme);
   const progressSnapshot = useMemo(
@@ -2100,6 +1977,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   );
   const levelProgress = levelProgressFromXp(progressSnapshot.totalXp);
   const isDistractionFreeFocus = location.pathname === "/focus" && Boolean(activeSession);
+  const hasActiveEnrichmentJobs = useMemo(
+    () => enrichmentJobs.some((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase())),
+    [enrichmentJobs],
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -2123,6 +2004,62 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
     const loadedTasks = await tasksApi.list();
     const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
     setTasks(taskItems.map(normalizeTask));
+  };
+
+  const loadEnrichmentJobs = async ({ notify = false } = {}) => {
+    if (enrichmentListRequestInFlightRef.current) return enrichmentJobs;
+    enrichmentListRequestInFlightRef.current = true;
+    try {
+      const loadedJobs = await taskEnrichmentApi.list({ limit: 20 });
+      const jobItems = Array.isArray(loadedJobs) ? loadedJobs : loadedJobs?.items || [];
+      enrichmentListFailureCountRef.current = 0;
+      setEnrichmentJobs(jobItems);
+      if (notify) {
+        jobItems.forEach((job) => {
+          const id = enrichmentJobId(job);
+          const status = String(job.status || "").toUpperCase();
+          if (!submittedEnrichmentJobIdsRef.current.has(id) || !terminalEnrichmentStatuses.has(status) || notifiedEnrichmentJobIdsRef.current.has(id)) return;
+          notifiedEnrichmentJobIdsRef.current.add(id);
+          submittedEnrichmentJobIdsRef.current.delete(id);
+          if (status === "SUCCEEDED") {
+            showFloatingNotice({ title: "The task is added successfully", tone: "success" });
+            void loadTasks();
+          } else {
+            showFloatingNotice({
+              title: "AI enrichment failed",
+              message: job.error_message || job.errorMessage || enrichmentStatusLabel(status),
+              tone: "error",
+            });
+          }
+        });
+      }
+      return jobItems;
+    } catch (error) {
+      enrichmentListFailureCountRef.current += 1;
+      if (enrichmentListFailureCountRef.current >= 2) {
+        const message = apiErrorMessage(error, "Backend connection was lost while AI enrichment was running. Restart the backend and start AI enrichment again.");
+        setEnrichmentJobs((jobs) => jobs.map((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (!activeEnrichmentStatuses.has(status)) return job;
+          return {
+            ...job,
+            status: "FAILED",
+            error_message: message,
+            errorMessage: message,
+          };
+        }));
+        if (notify) {
+          showFloatingNotice({
+            title: "AI enrichment polling stopped",
+            message,
+            tone: "error",
+          });
+        }
+      }
+      throw error;
+    } finally {
+      enrichmentListRequestInFlightRef.current = false;
+    }
   };
 
   const loadQuestRun = async (date = todayKey()) => {
@@ -2161,6 +2098,68 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
       isActive = false;
     };
   }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    let isActive = true;
+    loadEnrichmentJobs()
+      .then((jobs) => {
+        if (!isActive) return;
+        jobs.forEach((job) => {
+          const status = String(job.status || "").toUpperCase();
+          if (terminalEnrichmentStatuses.has(status)) notifiedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!hasActiveEnrichmentJobs) return undefined;
+    const intervalId = window.setInterval(() => {
+      void loadEnrichmentJobs({ notify: true }).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveEnrichmentJobs, currentUser?.user_id]);
+
+  useEffect(() => {
+    if (!selectedEnrichmentJob) return undefined;
+    const id = enrichmentJobId(selectedEnrichmentJob);
+    const status = String(selectedEnrichmentJob.status || "").toUpperCase();
+    if (!activeEnrichmentStatuses.has(status)) return undefined;
+    selectedEnrichmentJobIdRef.current = String(id);
+    let cancelled = false;
+    const refreshSelectedJob = async () => {
+      if (selectedEnrichmentRequestInFlightRef.current) return;
+      selectedEnrichmentRequestInFlightRef.current = true;
+      try {
+        const job = await taskEnrichmentApi.get(id);
+        if (!cancelled && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          selectedEnrichmentFailureCountRef.current = 0;
+          setSelectedEnrichmentJob(job);
+        }
+      } catch (error) {
+        selectedEnrichmentFailureCountRef.current += 1;
+        if (!cancelled && selectedEnrichmentFailureCountRef.current >= 2 && String(selectedEnrichmentJobIdRef.current) === String(id)) {
+          const message = apiErrorMessage(error, "Backend connection was lost while reading enrichment logs. Polling has stopped.");
+          setSelectedEnrichmentJob((job) => job ? {
+            ...job,
+            status: "FAILED",
+            error_message: job.error_message || job.errorMessage || message,
+            errorMessage: job.errorMessage || job.error_message || message,
+          } : job);
+        }
+      } finally {
+        selectedEnrichmentRequestInFlightRef.current = false;
+      }
+    };
+    const intervalId = window.setInterval(refreshSelectedJob, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedEnrichmentJob?.enrichment_job_id, selectedEnrichmentJob?.id, selectedEnrichmentJob?.status]);
 
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
@@ -2211,13 +2210,89 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
   const handleEditTask = async (id, form) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || !form) return;
+    if (form.source === "Jira" && form.runAiEnrichment) {
+      const taskId = task.taskId || task.task_id || task.id;
+      const job = await taskEnrichmentApi.start({
+        ...form,
+        source: "Jira",
+        externalId: form.externalId || task.externalId || task.external_id,
+        existingTaskId: taskId,
+        taskId,
+      });
+      const jobId = enrichmentJobId(job);
+      submittedEnrichmentJobIdsRef.current.add(jobId);
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== jobId)]);
+      setSelectedEnrichmentJob(job);
+      selectedEnrichmentJobIdRef.current = String(jobId);
+      showFloatingNotice({
+        title: "The task will be updated after the AI enrichment",
+        tone: "info",
+      });
+      return;
+    }
     const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
     setTasks((items) => items.map((item) => (item.id === id ? normalizeTask(updatedTask) : item)));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
+  const handleSelectCodeBase = async (initialPath = "") => {
+    const result = await jiraApi.selectRcaWorkspace(initialPath);
+    return result?.code_base_path || result?.codeBasePath || "";
+  };
+
+  const handleOpenEnrichmentDetails = async (jobId) => {
+    if (!jobId) return;
+    selectedEnrichmentJobIdRef.current = String(jobId);
+    try {
+      const job = await taskEnrichmentApi.get(jobId);
+      if (String(selectedEnrichmentJobIdRef.current) === String(jobId)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } catch (error) {
+      showFloatingNotice({
+        title: "Unable to open enrichment details",
+        message: apiErrorMessage(error, "Please try again."),
+        tone: "error",
+      });
+    }
+  };
+
+  const handleCloseEnrichmentDetails = () => {
+    selectedEnrichmentJobIdRef.current = null;
+    selectedEnrichmentFailureCountRef.current = 0;
+    setSelectedEnrichmentJob(null);
+  };
+
+  const handleRefreshSelectedEnrichment = async () => {
+    const id = selectedEnrichmentJobIdRef.current || enrichmentJobId(selectedEnrichmentJob);
+    if (!id) return;
+    if (selectedEnrichmentRequestInFlightRef.current) return;
+    selectedEnrichmentRequestInFlightRef.current = true;
+    try {
+      const job = await taskEnrichmentApi.get(id);
+      if (String(selectedEnrichmentJobIdRef.current) === String(id)) {
+        selectedEnrichmentFailureCountRef.current = 0;
+        setSelectedEnrichmentJob(job);
+      }
+    } finally {
+      selectedEnrichmentRequestInFlightRef.current = false;
+    }
+  };
+
   const handleAddTask = async (form) => {
+    if (form?.source === "Jira" && form?.runAiEnrichment) {
+      const job = await taskEnrichmentApi.start(form);
+      submittedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
+      setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== enrichmentJobId(job))]);
+      showFloatingNotice({
+        title: "The Task will be added after the AI enrichment",
+        tone: "info",
+      });
+      return job;
+    }
     const createdTask = await tasksApi.create(form);
     setTasks((items) => [normalizeTask(createdTask), ...items]);
+    return createdTask;
   };
   const handleRunSync = (source) => {
     const selectedSources = source ? [source] : ["Jira", "Outlook Calendar"];
@@ -2650,14 +2725,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
         <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
-          <Route path="/jira/:jiraKey/rca" element={<JiraRcaPage tasks={tasks} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage syncRun={syncRun} syncingSource={syncingSource} onRunSync={handleRunSync} />} />
           <Route path="/settings" element={<SettingsPage />} />

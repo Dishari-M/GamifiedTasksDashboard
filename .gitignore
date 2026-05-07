@@ -23,6 +23,7 @@ backend/.venv/
 backend/.tmp/
 backend/.codex-rca-runtime/locks/
 backend/.codex-rca-runtime/tmp/
+backend/.enrichment-logs/
 
 # Next.js
 /.next/

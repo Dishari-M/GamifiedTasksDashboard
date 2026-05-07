@@ -21,6 +21,12 @@ TASK_SELECT = """
         w.RCA_FILE_CHANGE_COUNT,
         w.RCA_COMPLEXITY_SOURCE,
         TO_CHAR(w.RCA_COMPLEXITY_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
+        w.RCA_REASON,
+        w.RCA_AFFECTED_FILES_JSON,
+        w.RCA_CODE_SUGGESTION,
+        w.RCA_RAW_OUTPUT,
+        w.RCA_TSHIRT_JUSTIFICATION,
+        w.SOURCE_ENRICHMENT_JOB_ID,
         w.XP_VALUE,
         w.NOTES,
         w.LABELS_JSON,
@@ -167,6 +173,12 @@ def insert_task(cur, user_id, task, ai):
             RCA_FILE_CHANGE_COUNT,
             RCA_COMPLEXITY_SOURCE,
             RCA_COMPLEXITY_AT,
+            RCA_REASON,
+            RCA_AFFECTED_FILES_JSON,
+            RCA_CODE_SUGGESTION,
+            RCA_RAW_OUTPUT,
+            RCA_TSHIRT_JUSTIFICATION,
+            SOURCE_ENRICHMENT_JOB_ID,
             XP_VALUE,
             NOTES,
             LABELS_JSON,
@@ -202,6 +214,12 @@ def insert_task(cur, user_id, task, ai):
             :rca_file_change_count,
             :rca_complexity_source,
             :rca_complexity_at,
+            :rca_reason,
+            :rca_affected_files_json,
+            :rca_code_suggestion,
+            :rca_raw_output,
+            :rca_tshirt_justification,
+            :source_enrichment_job_id,
             :xp_value,
             :notes,
             :labels_json,
@@ -498,6 +516,12 @@ def _task_binds(user_id, task, ai):
         "rca_file_change_count": task.get("rca_file_change_count"),
         "rca_complexity_source": task.get("rca_complexity_source"),
         "rca_complexity_at": task.get("rca_complexity_at"),
+        "rca_reason": task.get("rca_reason"),
+        "rca_affected_files_json": _json_list(task.get("rca_affected_files")),
+        "rca_code_suggestion": task.get("rca_code_suggestion"),
+        "rca_raw_output": task.get("rca_raw_output"),
+        "rca_tshirt_justification": task.get("rca_tshirt_justification"),
+        "source_enrichment_job_id": task.get("source_enrichment_job_id"),
         "xp_value": task.get("xp_value") or ai.get("xp_value"),
         "notes": task.get("notes") or "",
         "labels_json": _json_list(task.get("labels")),
@@ -512,7 +536,7 @@ def _task_binds(user_id, task, ai):
 
 
 def _task_row(row):
-    worked_dates = _json_dates(row[33])
+    worked_dates = _json_dates(row[39])
     task = {
         "task_id": row[0],
         "id": str(row[0]),
@@ -533,25 +557,31 @@ def _task_row(row):
         "rca_file_change_count": row[15],
         "rca_complexity_source": row[16],
         "rca_complexity_at": row[17],
-        "xp_value": row[18] or 0,
-        "notes": _text(row[19]),
-        "labels": _json_array(row[20]),
+        "rca_reason": _text(row[18]),
+        "rca_affected_files": _json_array(row[19]),
+        "rca_code_suggestion": _text(row[20]),
+        "rca_raw_output": _text(row[21]),
+        "rca_tshirt_justification": _text(row[22]),
+        "source_enrichment_job_id": row[23],
+        "xp_value": row[24] or 0,
+        "notes": _text(row[25]),
+        "labels": _json_array(row[26]),
         "ai": {
-            "difficulty": row[21] or "Medium",
-            "impact_score": row[22] or 0,
-            "priority_score": row[23] or 0,
-            "effort_minutes": row[24] or row[12] or 0,
-            "category": row[25],
-            "insight": _text(row[26]),
-            "model_id": row[27],
-            "enriched_at": row[28],
+            "difficulty": row[27] or "Medium",
+            "impact_score": row[28] or 0,
+            "priority_score": row[29] or 0,
+            "effort_minutes": row[30] or row[12] or 0,
+            "category": row[31],
+            "insight": _text(row[32]),
+            "model_id": row[33],
+            "enriched_at": row[34],
         },
-        "completed_at": row[29],
-        "created_at": row[30],
-        "updated_at": row[31],
-        "row_version": row[32] or 1,
+        "completed_at": row[35],
+        "created_at": row[36],
+        "updated_at": row[37],
+        "row_version": row[38] or 1,
         "worked_dates": worked_dates,
-        "working_today": bool(row[34]),
+        "working_today": bool(row[40]),
     }
     task.update(
         {
@@ -568,6 +598,12 @@ def _task_row(row):
             "rcaFileChangeCount": task["rca_file_change_count"],
             "rcaComplexitySource": task["rca_complexity_source"],
             "rcaComplexityAt": task["rca_complexity_at"],
+            "rcaReason": task["rca_reason"],
+            "rcaAffectedFiles": task["rca_affected_files"],
+            "rcaCodeSuggestion": task["rca_code_suggestion"],
+            "rcaRawOutput": task["rca_raw_output"],
+            "rcaTshirtJustification": task["rca_tshirt_justification"],
+            "sourceEnrichmentJobId": task["source_enrichment_job_id"],
             "workedDates": worked_dates,
             "workingToday": task["working_today"],
             "completedAt": task["completed_at"],
@@ -589,6 +625,8 @@ def _json_object(value):
 
 
 def _json_value(value):
+    if isinstance(value, (dict, list)):
+        return value
     text = _text(value)
     if not text:
         return {}

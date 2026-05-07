@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import task_repository
+from repositories.task_enrichment_repository import ensure_schema as ensure_task_enrichment_schema
 from services.api_cache import canonical_cache_key, get_cached_response, invalidate_user_cache, set_cached_response
 from services.task_ai_service import enrich_task_with_ai, fallback_task_enrichment
 from services.user_context import parse_oracle_user_id
@@ -41,6 +42,12 @@ ALIASES = {
     "rcaFileChangeCount": "rca_file_change_count",
     "rcaComplexitySource": "rca_complexity_source",
     "rcaComplexityAt": "rca_complexity_at",
+    "rcaReason": "rca_reason",
+    "rcaAffectedFiles": "rca_affected_files",
+    "rcaCodeSuggestion": "rca_code_suggestion",
+    "rcaRawOutput": "rca_raw_output",
+    "rcaTshirtJustification": "rca_tshirt_justification",
+    "sourceEnrichmentJobId": "source_enrichment_job_id",
 }
 
 
@@ -56,6 +63,7 @@ def list_oracle_tasks(filters=None, user_id=None):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        ensure_task_enrichment_schema(cur)
         response = task_repository.list_tasks(cur, resolved_user_id, filters, work_date)
         set_cached_response(TASK_LIST_CACHE_NAMESPACE, cache_key, response, user_id=resolved_user_id)
         return response
@@ -71,6 +79,7 @@ def get_oracle_task(task_id, user_id=None):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        ensure_task_enrichment_schema(cur)
         task = task_repository.fetch_task(cur, _user_id(user_id), _task_id(task_id), _today_utc())
         if not task:
             _not_found()
@@ -91,6 +100,7 @@ def create_oracle_task(payload, user_id=None):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        ensure_task_enrichment_schema(cur)
         _validate_unique_external_identity(cur, resolved_user_id, task)
         ai = enrich_task_with_ai(task) if task.get("run_ai_enrichment") else fallback_task_enrichment(task)
         task_id = task_repository.insert_task(cur, resolved_user_id, task, ai)
@@ -128,6 +138,7 @@ def update_oracle_task(task_id, payload, user_id=None):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        ensure_task_enrichment_schema(cur)
         existing = task_repository.fetch_task_for_update(cur, resolved_user_id, task_id)
         if not existing:
             _not_found()
@@ -338,6 +349,12 @@ def _normalize_payload(payload):
     data["rca_file_change_count"] = _optional_number(data.get("rca_file_change_count"), "rca_file_change_count")
     data["rca_complexity_source"] = _empty_to_none(data.get("rca_complexity_source"))
     data["rca_complexity_at"] = _parse_datetime(data.get("rca_complexity_at"))
+    data["rca_reason"] = _empty_to_none(data.get("rca_reason"))
+    data["rca_affected_files"] = _labels(data.get("rca_affected_files"))
+    data["rca_code_suggestion"] = _empty_to_none(data.get("rca_code_suggestion"))
+    data["rca_raw_output"] = _empty_to_none(data.get("rca_raw_output"))
+    data["rca_tshirt_justification"] = _empty_to_none(data.get("rca_tshirt_justification"))
+    data["source_enrichment_job_id"] = _optional_int(data.get("source_enrichment_job_id"), "source_enrichment_job_id")
     data["xp_value"] = _optional_number(data.get("xp_value"), "xp_value")
     data["notes"] = str(data.get("notes") or "")
     data["labels"] = _labels(data.get("labels"))
@@ -371,6 +388,12 @@ def _normalize_update_payload(payload):
         "rca_file_change_count",
         "rca_complexity_source",
         "rca_complexity_at",
+        "rca_reason",
+        "rca_affected_files",
+        "rca_code_suggestion",
+        "rca_raw_output",
+        "rca_tshirt_justification",
+        "source_enrichment_job_id",
         "xp_value",
         "notes",
         "labels",
@@ -393,10 +416,14 @@ def _normalize_update_payload(payload):
     for field in ("estimated_minutes", "actual_minutes", "xp_value", "rca_file_change_count"):
         if field in data:
             data[field] = _optional_number(data[field], field)
+    if "source_enrichment_job_id" in data:
+        data["source_enrichment_job_id"] = _optional_int(data["source_enrichment_job_id"], "source_enrichment_job_id")
     if "rca_tshirt_size" in data:
         data["rca_tshirt_size"] = _normalize_tshirt_size(data["rca_tshirt_size"])
     if "labels" in data:
         data["labels"] = _labels(data["labels"])
+    if "rca_affected_files" in data:
+        data["rca_affected_files"] = _labels(data["rca_affected_files"])
     if "worked_dates" in data:
         data["worked_dates"] = _dates(data["worked_dates"])
     if "working_today" in data:
@@ -424,6 +451,12 @@ def _update_fields(data):
         "rca_file_change_count": "RCA_FILE_CHANGE_COUNT",
         "rca_complexity_source": "RCA_COMPLEXITY_SOURCE",
         "rca_complexity_at": "RCA_COMPLEXITY_AT",
+        "rca_reason": "RCA_REASON",
+        "rca_affected_files": "RCA_AFFECTED_FILES_JSON",
+        "rca_code_suggestion": "RCA_CODE_SUGGESTION",
+        "rca_raw_output": "RCA_RAW_OUTPUT",
+        "rca_tshirt_justification": "RCA_TSHIRT_JUSTIFICATION",
+        "source_enrichment_job_id": "SOURCE_ENRICHMENT_JOB_ID",
         "xp_value": "XP_VALUE",
         "notes": "NOTES",
         "labels": "LABELS_JSON",
@@ -432,7 +465,7 @@ def _update_fields(data):
     for key, column in mapping.items():
         if key not in data:
             continue
-        value = json.dumps(data[key], separators=(",", ":")) if key == "labels" else data[key]
+        value = json.dumps(data[key], separators=(",", ":")) if key in {"labels", "rca_affected_files"} else data[key]
         fields.append((column, key, value))
     return fields
 

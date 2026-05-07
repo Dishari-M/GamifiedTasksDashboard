@@ -7591,3 +7591,121 @@ html[data-theme="light"] .page-loader-core {
     transform: translateY(0);
   }
 }
+
+.codebase-location-field {
+  grid-column: span 2;
+}
+
+.codebase-location-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.codebase-location-picker .ghost-button {
+  min-height: 54px;
+  white-space: nowrap;
+}
+
+.enrichment-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cyan);
+}
+
+.enrichment-spinner svg {
+  animation: quest-button-spin 1.2s linear infinite;
+}
+
+.enrichment-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.enrichment-modal {
+  width: min(1120px, 100%);
+  max-height: min(86vh, 900px);
+  overflow: auto;
+}
+
+.enrichment-modal-heading {
+  align-items: flex-start;
+}
+
+.enrichment-modal-heading p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.enrichment-detail-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.enrichment-console-block,
+.enrichment-summary-block {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.enrichment-console {
+  min-height: 260px;
+  max-height: 38vh;
+}
+
+.enrichment-details-list {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 12px 18px;
+  margin: 0;
+  padding-top: 4px;
+}
+
+.enrichment-details-list dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.enrichment-details-list dd {
+  margin: 0;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.enrichment-ai-action {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+}
+
+.row-action-placeholder {
+  color: var(--muted);
+  display: inline-grid;
+  min-width: 36px;
+  place-items: center;
+}
+
+.enrichment-error-text {
+  color: #ffb4ae !important;
+}
+
+@media (max-width: 760px) {
+  .codebase-location-field,
+  .codebase-location-picker,
+  .enrichment-details-list {
+    grid-template-columns: 1fr;
+  }
+
+  .enrichment-modal-backdrop {
+    padding: 12px;
+  }
+}

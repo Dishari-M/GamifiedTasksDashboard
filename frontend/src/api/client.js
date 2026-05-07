@@ -73,6 +73,7 @@ phase8Api.interceptors.request.use((config) => {
 
 const unwrap = (response) => response.data?.data ?? response.data;
 const inFlightGetRequests = new Map();
+const ENRICHMENT_POLL_TIMEOUT_MS = 10000;
 
 const getKey = (scope, params = {}) => {
   const entries = Object.entries(params)
@@ -115,6 +116,18 @@ export const tasksApi = {
   updateToday: (taskId, payload) => api.put(`/tasks/${taskId}/today`, payload).then(unwrap),
   complete: (taskId, payload = {}) => api.post(`/tasks/${taskId}/complete`, payload).then(unwrap),
   enrich: (taskId, payload = {}) => api.post(`/tasks/${taskId}/ai/enrich`, payload).then(unwrap),
+};
+
+export const taskEnrichmentApi = {
+  start: (payload) => api.post("/task-enrichments", payload).then(unwrap),
+  list: (params = {}) => dedupeGet(
+    getKey("task-enrichments:list", params),
+    () => api.get("/task-enrichments", { params, timeout: ENRICHMENT_POLL_TIMEOUT_MS }).then(unwrap),
+  ),
+  get: (jobId) => dedupeGet(
+    `task-enrichments:get:${jobId}`,
+    () => api.get(`/task-enrichments/${jobId}`, { timeout: ENRICHMENT_POLL_TIMEOUT_MS }).then(unwrap),
+  ),
 };
 
 export const questsApi = {
@@ -193,6 +206,6 @@ export const jiraApi = {
   startRcaJob: (jiraKey, additionalContext = "", priority = "", codeBasePath = "") => localCodexApi.post("/api/jira/rca/jobs", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath }).then(unwrap),
   getRcaJob: (jobId) => localCodexApi.get(`/api/jira/rca/jobs/${jobId}`).then(unwrap),
   cancelRcaJob: (jobId) => localCodexApi.post(`/api/jira/rca/jobs/${jobId}/cancel`).then(unwrap),
-  selectRcaWorkspace: () => localCodexApi.post("/api/jira/rca/workspace/select", {}).then(unwrap),
+  selectRcaWorkspace: (initialPath = "") => localCodexApi.post("/api/jira/rca/workspace/select", { initial_path: initialPath }).then(unwrap),
   startSsoLogin: (jiraKey) => localCodexApi.post("/api/jira/sso-login", { jira_key: jiraKey }).then(unwrap),
 };
