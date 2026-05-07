@@ -4,8 +4,11 @@ from uuid import uuid4
 from services.phase8_data_provider import get_calendar_events, get_user, iso_at, resolve_work_date
 
 
-def _parse_iso(value):
-    return datetime.fromisoformat(value)
+def _parse_iso(value, default_tz=None):
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None and default_tz is not None:
+        return parsed.replace(tzinfo=default_tz)
+    return parsed
 
 
 def _minutes_between(start_at, end_at):
@@ -62,8 +65,9 @@ def build_capacity(date=None, user=None, events=None, user_id=None):
     workday_end = _parse_iso(iso_at(work_date, user["workday_end_local"]))
     workday_minutes = _minutes_between(workday_start, workday_end)
 
+    event_tz = workday_start.tzinfo
     meeting_intervals = [
-        (_parse_iso(event["start_at"]), _parse_iso(event["end_at"]))
+        (_parse_iso(event["start_at"], event_tz), _parse_iso(event["end_at"], event_tz))
         for event in events
         if event["is_meeting"]
     ]
@@ -71,7 +75,7 @@ def build_capacity(date=None, user=None, events=None, user_id=None):
     meeting_minutes = sum(_minutes_between(start_at, end_at) for start_at, end_at in merged_meetings)
 
     focus_windows = [
-        _window(_parse_iso(event["start_at"]), _parse_iso(event["end_at"]))
+        _window(_parse_iso(event["start_at"], event_tz), _parse_iso(event["end_at"], event_tz))
         for event in events
         if event["is_focus_block"]
     ]
