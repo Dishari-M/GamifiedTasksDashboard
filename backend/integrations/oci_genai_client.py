@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 from config import (
     get_oci_auth_type,
@@ -61,13 +62,34 @@ def _build_client(sdk):
         config_file = get_oci_config_file()
         profile = get_oci_config_profile()
         try:
-            config = oci.config.from_file(file_location=config_file or None, profile_name=profile)
+            config = _load_config_file(oci, config_file, profile)
         except Exception as exc:
             raise NotImplementedError(
                 "OCI config-file authentication failed. Set OCI_CONFIG_FILE/OCI_CONFIG_PROFILE or use another OCI_AUTH_TYPE."
             ) from exc
         kwargs = {"service_endpoint": endpoint} if endpoint else {}
         return sdk["client"](config, **kwargs)
+
+    if auth_type == "security_token":
+        config_file = get_oci_config_file()
+        profile = get_oci_config_profile()
+        try:
+            config = _load_config_file(oci, config_file, profile)
+            security_token_file = config.get("security_token_file")
+            key_file = config.get("key_file")
+            if not security_token_file or not key_file:
+                raise ValueError("Profile must include security_token_file and key_file.")
+            token = Path(os.path.expanduser(security_token_file)).read_text(encoding="utf-8").strip()
+            private_key = oci.signer.load_private_key_from_file(os.path.expanduser(key_file))
+            signer = oci.auth.signers.SecurityTokenSigner(token, private_key)
+        except Exception as exc:
+            raise NotImplementedError(
+                "OCI security-token authentication failed. Run `oci session authenticate`, then set "
+                "OCI_AUTH_TYPE=security_token and OCI_CONFIG_PROFILE to the session profile."
+            ) from exc
+
+        kwargs = {"service_endpoint": endpoint} if endpoint else {}
+        return sdk["client"](config, signer=signer, **kwargs)
 
     if auth_type == "api_key":
         config = {
@@ -110,8 +132,15 @@ def _build_client(sdk):
         return sdk["client"]({}, signer=signer, **kwargs)
 
     raise NotImplementedError(
-        f"Unsupported OCI_AUTH_TYPE '{auth_type}'. Use 'config_file', 'api_key', 'instance_principal', or 'resource_principal'."
+        f"Unsupported OCI_AUTH_TYPE '{auth_type}'. Use 'config_file', 'security_token', 'api_key', "
+        "'instance_principal', or 'resource_principal'."
     )
+
+
+def _load_config_file(oci, config_file, profile):
+    if config_file:
+        return oci.config.from_file(file_location=config_file, profile_name=profile)
+    return oci.config.from_file(profile_name=profile)
 
 
 def _build_prompt(prompt_payload):

@@ -100,13 +100,15 @@ ORACLE_DB_POOL_MAX=10
 ORACLE_DB_POOL_INCREMENT=1
 ORACLE_DB_POOL_TIMEOUT_SECONDS=30
 
-OCI_REGION=us-chicago-1
-OCI_COMPARTMENT_ID=ocid1.compartment.oc1...
-OCI_GENAI_MODEL_ID=cohere.command-r-plus
-OCI_GENAI_ENDPOINT=https://inference.generativeai.us-chicago-1.oci.oraclecloud.com
+OCI_AUTH_TYPE=security_token
+OCI_CONFIG_PROFILE=boat
+OCI_REGION=us-phoenix-1
+OCI_COMPARTMENT_ID=ocid1.compartment.oc1..aaaaaaaaqbtusst4xngousk4vlvadjqhx32spryfmjymfnkoxw755ohsqn7q
+OCI_GENAI_MODEL_ID=google.gemini-2.5-flash
+OCI_GENAI_ENDPOINT=https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com
 OCI_AGENT_ENDPOINT_ID=ocid1.genaiagentendpoint.oc1...
 OCI_AGENT_KNOWLEDGE_BASE_ID=ocid1.genaiagentkb.oc1...
-OCI_USE_INSTANCE_PRINCIPAL=true
+OCI_USE_INSTANCE_PRINCIPAL=false
 
 AI_CACHE_TTL_SECONDS=86400
 AI_REQUEST_TIMEOUT_SECONDS=45
