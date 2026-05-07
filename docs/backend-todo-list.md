@@ -147,13 +147,13 @@ Use this as the execution checklist for building the production backend. The det
 | `UPDATED_AT` | `TIMESTAMP WITH TIME ZONE` | audit |
 | `ROW_VERSION` | `NUMBER` | optimistic locking |
 
-- [ ] Create `USER_INTEGRATIONS` for Jira, Outlook Calendar, and Microsoft To Do connector setup:
+- [ ] Create `USER_INTEGRATIONS` for Jira, Outlook Calendar connector setup:
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `USER_INTEGRATION_ID` | `NUMBER(19)` | PK, `USER_INTEGRATIONS_SEQ.NEXTVAL` |
 | `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
-| `PROVIDER` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar`, `Microsoft To Do` |
+| `PROVIDER` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar` |
 | `ACCOUNT_IDENTIFIER` | `VARCHAR2(320)` | Jira email, Microsoft account, tenant user |
 | `BASE_URL` | `VARCHAR2(500)` | Jira base URL when provider is Jira |
 | `PROJECT_KEYS` | `VARCHAR2(1000)` | comma-separated Jira project keys |
@@ -173,7 +173,7 @@ Use this as the execution checklist for building the production backend. The det
 | --- | --- | --- |
 | `TASK_ID` | `NUMBER(19)` | PK, `WORK_ITEMS_SEQ.NEXTVAL` |
 | `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
-| `EXTERNAL_SOURCE` | `VARCHAR2(60)` | `Custom`, `Jira`, `Outlook`, `Microsoft To Do` |
+| `EXTERNAL_SOURCE` | `VARCHAR2(60)` | `Custom`, `Jira`, `Outlook`|
 | `EXTERNAL_ID` | `VARCHAR2(200)` | Jira key, Outlook event ID, To Do ID |
 | `PROJECT_KEY` | `VARCHAR2(80)` | Jira/project code |
 | `TITLE` | `VARCHAR2(300)` | task table/card title |
@@ -413,7 +413,7 @@ Use this as the execution checklist for building the production backend. The det
 | `SYNC_RUN_ITEM_ID` | `NUMBER(19)` | PK, `SYNC_RUN_ITEMS_SEQ.NEXTVAL` |
 | `USER_ID` | `NUMBER(19)` | FK to `APP_USERS` |
 | `SYNC_RUN_ID` | `NUMBER(19)` | FK to `SYNC_RUNS` |
-| `SOURCE` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar`, `Microsoft To Do` |
+| `SOURCE` | `VARCHAR2(60)` | `Jira`, `Outlook Calendar` |
 | `STATUS` | `VARCHAR2(30)` | `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED` |
 | `CREATED_COUNT` | `NUMBER(8)` | sync summary |
 | `UPDATED_COUNT` | `NUMBER(8)` | sync summary |
@@ -1065,30 +1065,6 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Mark canceled events as inactive if an inactive flag is added.
   - [ ] Recalculate daily capacity after sync.
 
-## Phase 18: Microsoft To Do Connector
-
-- [ ] Implement To Do fetch through Microsoft Graph.
-  - [ ] Fetch lists.
-  - [ ] Fetch tasks.
-  - [ ] Handle pagination.
-  - [ ] Handle completed tasks.
-
-- [ ] Map To Do fields to `WORK_ITEMS`:
-  - [ ] `external_source = 'Microsoft To Do'`
-  - [ ] `external_id = todo.id`
-  - [ ] `title = todo.title`
-  - [ ] `description = todo.body.content`
-  - [ ] `priority = normalized todo.importance`
-  - [ ] `status = normalized todo.status`
-  - [ ] `due_at = todo.dueDateTime`
-  - [ ] `completed_at = todo.completedDateTime`
-
-- [ ] Implement To Do upsert:
-  - [ ] Insert new tasks.
-  - [ ] Update changed tasks.
-  - [ ] Preserve notes and AI fields unless source data materially changes.
-  - [ ] Trigger AI enrichment for new tasks.
-
 ## Phase 19: Sync APIs
 
 - [ ] Use the `SYNC_RUNS` and `SYNC_RUN_ITEMS` schemas defined in Phase 2.
@@ -1102,7 +1078,6 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Create sync run.
   - [ ] Run Jira sync.
   - [ ] Run Outlook Calendar sync.
-  - [ ] Run Microsoft To Do sync.
   - [ ] Trigger optional AI enrichment.
   - [ ] Return sync run status.
 
@@ -1174,7 +1149,7 @@ Use this as the execution checklist for building the production backend. The det
   - [ ] Oracle update row-version conflict.
   - [ ] Jira issue upsert.
   - [ ] Outlook event upsert.
-  - [ ] Microsoft To Do task upsert.
+
   - [ ] OCI GenAI success.
   - [ ] OCI GenAI timeout.
   - [ ] OCI Agent historical insight.
@@ -1221,7 +1196,6 @@ Use this as the execution checklist for building the production backend. The det
 13. Daily and weekly overview generation.
 14. Jira connector.
 15. Outlook Calendar connector.
-16. Microsoft To Do connector.
 17. Sync orchestration APIs.
 18. OCI Agent historical insights.
 19. Security, rate limits, observability, and full tests.
@@ -1316,7 +1290,7 @@ CREATE TABLE WORK_ITEMS (
   CONSTRAINT WORK_ITEMS_STATUS_CK CHECK (STATUS IN ('To Do', 'In Progress', 'Blocked', 'Done', 'Upcoming', 'Cancelled')),
   CONSTRAINT WORK_ITEMS_PRIORITY_CK CHECK (PRIORITY IN ('Critical', 'High', 'Medium', 'Low')),
   CONSTRAINT WORK_ITEMS_TYPE_CK CHECK (TASK_TYPE IN ('Task', 'Bug', 'Epic', 'Review', 'Meeting')),
-  CONSTRAINT WORK_ITEMS_SOURCE_CK CHECK (EXTERNAL_SOURCE IN ('Custom', 'Jira', 'Outlook', 'Microsoft To Do')),
+  CONSTRAINT WORK_ITEMS_SOURCE_CK CHECK (EXTERNAL_SOURCE IN ('Custom', 'Jira', 'Outlook')),
   CONSTRAINT WORK_ITEMS_RCA_TSHIRT_CK CHECK (RCA_TSHIRT_SIZE IS NULL OR RCA_TSHIRT_SIZE IN ('XS', 'S', 'M', 'L', 'XL', 'NA'))
 );
 

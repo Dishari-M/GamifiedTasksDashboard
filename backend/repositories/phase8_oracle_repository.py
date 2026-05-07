@@ -66,7 +66,7 @@ def _get_user(cur, user_id):
         "timezone": row[3] or "Asia/Calcutta",
         "workday_start_local": row[4] or "09:00",
         "workday_end_local": row[5] or "17:00",
-        "focus_xp_multiplier": float(row[6] or 1.5),
+        "focus_xp_multiplier": float(row[6] or 1.25),
     }
 
 
@@ -237,7 +237,7 @@ def _default_user(user_id):
         "timezone": "Asia/Calcutta",
         "workday_start_local": "09:00",
         "workday_end_local": "17:00",
-        "focus_xp_multiplier": 1.5,
+        "focus_xp_multiplier": 1.25,
     }
 
 

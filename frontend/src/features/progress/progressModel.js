@@ -16,6 +16,10 @@ export const deriveTotalXp = (tasks = [], focusSessions = []) => (
   earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions)
 );
 
+export const mergeMonotonicTotalXp = (derivedTotalXp = 0, persistedTotalXp = 0) => (
+  Math.max(0, Number(derivedTotalXp || 0), Number(persistedTotalXp || 0))
+);
+
 export const mergeCompletedQuestDates = (completedQuestDates = [], questRun = null) => {
   const merged = uniqueSortedDates(completedQuestDates);
   if (!questRun?.workDate) return merged;

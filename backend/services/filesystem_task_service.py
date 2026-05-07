@@ -13,7 +13,7 @@ AI_RUNS_FILE = "ai_runs.json"
 LOCAL_USER_ID = "local-user"
 
 VALID_TASK_TYPES = {"Task", "Bug", "Epic", "Review", "Meeting"}
-VALID_SOURCES = {"Custom", "Jira", "Outlook", "Microsoft To Do"}
+VALID_SOURCES = {"Custom", "Jira", "Outlook"}
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
 VALID_STATUSES = {"To Do", "In Progress", "Blocked", "Done", "Upcoming"}
 

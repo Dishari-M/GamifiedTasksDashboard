@@ -100,13 +100,15 @@ ORACLE_DB_POOL_MAX=10
 ORACLE_DB_POOL_INCREMENT=1
 ORACLE_DB_POOL_TIMEOUT_SECONDS=30
 
-OCI_REGION=us-chicago-1
-OCI_COMPARTMENT_ID=ocid1.compartment.oc1...
-OCI_GENAI_MODEL_ID=cohere.command-r-plus
-OCI_GENAI_ENDPOINT=https://inference.generativeai.us-chicago-1.oci.oraclecloud.com
+OCI_AUTH_TYPE=security_token
+OCI_CONFIG_PROFILE=boat
+OCI_REGION=us-phoenix-1
+OCI_COMPARTMENT_ID=ocid1.compartment.oc1..aaaaaaaaqbtusst4xngousk4vlvadjqhx32spryfmjymfnkoxw755ohsqn7q
+OCI_GENAI_MODEL_ID=google.gemini-2.5-flash
+OCI_GENAI_ENDPOINT=https://inference.generativeai.us-phoenix-1.oci.oraclecloud.com
 OCI_AGENT_ENDPOINT_ID=ocid1.genaiagentendpoint.oc1...
 OCI_AGENT_KNOWLEDGE_BASE_ID=ocid1.genaiagentkb.oc1...
-OCI_USE_INSTANCE_PRINCIPAL=true
+OCI_USE_INSTANCE_PRINCIPAL=false
 
 AI_CACHE_TTL_SECONDS=86400
 AI_REQUEST_TIMEOUT_SECONDS=45
@@ -164,7 +166,7 @@ CREATE SEQUENCE DAILY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCL
 CREATE SEQUENCE WEEKLY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 ```
 
-For inserts, omit the primary key column and fetch the generated ID with `RETURNING <ID_COLUMN> INTO :generated_id`. Never ask the frontend or API caller to supply internal primary keys. Keep `EXTERNAL_ID` for Jira, Outlook, Microsoft To Do, or SSO identifiers.
+For inserts, omit the primary key column and fetch the generated ID with `RETURNING <ID_COLUMN> INTO :generated_id`. Never ask the frontend or API caller to supply internal primary keys. Keep `EXTERNAL_ID` for Jira, Outlook or SSO identifiers.
 
 ### 4.1 Users
 
@@ -214,7 +216,7 @@ CREATE TABLE USER_STATS (
 
 ### 4.3 Work Items
 
-This is the canonical task table for Jira, Microsoft To Do, Outlook-derived work, and custom tasks.
+This is the canonical task table for Jira, Outlook-derived work, and custom tasks.
 
 ```sql
 CREATE TABLE WORK_ITEMS (
@@ -598,7 +600,7 @@ Query parameters:
 | Name | Type | Notes |
 | --- | --- | --- |
 | `status` | string | Optional repeated enum |
-| `source` | string | `Jira`, `Outlook`, `Microsoft To Do`, `CUSTOM` |
+| `source` | string | `Jira`, `Outlook`, `CUSTOM` |
 | `priority` | string | `Low`, `Medium`, `High`, `Critical` |
 | `working_today` | boolean | Derived from whether a `WORK_ITEM_WORK_DATES` row exists for the requested date |
 | `worked_date` | date | Filter by a specific date in `WORK_ITEM_WORK_DATES` |
@@ -1769,7 +1771,7 @@ Request:
 
 ```json
 {
-  "sources": ["Jira", "Outlook Calendar", "Microsoft To Do"],
+  "sources": ["Jira", "Outlook Calendar"],
   "from": "2026-04-30T00:00:00+05:30",
   "to": "2026-05-07T23:59:59+05:30",
   "run_ai_enrichment": true
@@ -2201,7 +2203,7 @@ Recommended build order:
 8. Add quest generation and persist quest plans.
 9. Add standup generator.
 10. Add daily and weekly overview APIs and frontend page.
-11. Add sync placeholders, then real Jira/Outlook/Microsoft To Do integrations.
+11. Add sync placeholders, then real Jira/Outlook integrations.
 12. Add OCI Agent for historical or SQL-grounded insights.
 
 ## 22. Test Plan

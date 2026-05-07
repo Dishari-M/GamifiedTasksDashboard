@@ -19,10 +19,12 @@ from routes.quests_routes import router as quests_router
 from routes.standup_routes import router as standup_router
 from services.ai_service import enrich_task
 from services.oracle_user_service import (
+    get_user_settings,
     get_user_profile,
     login_user,
     logout_user,
     register_user,
+    update_user_settings,
 )
 from services.oracle_task_service import (
     complete_oracle_task,
@@ -495,6 +497,17 @@ def logout_oracle_user(user_id: str = Depends(current_local_user_id)):
 @app.get("/api/v1/users/profile", tags=["Users"])
 def oracle_user_profile(identifier: str):
     return get_user_profile(identifier)
+
+
+@app.get("/api/v1/users/settings", tags=["Users"])
+def oracle_user_settings(user_id: int = Depends(current_oracle_user_id)):
+    return {"data": get_user_settings(user_id)}
+
+
+@app.put("/api/v1/users/settings", tags=["Users"])
+def update_oracle_user_settings(payload: dict, user_id: int = Depends(current_oracle_user_id)):
+    return {"data": update_user_settings(payload, user_id)}
+
 
 @app.post("/api/v1/tasks", tags=["Tasks"])
 def add_oracle_task(task: dict, user_id: int = Depends(current_oracle_user_id)):

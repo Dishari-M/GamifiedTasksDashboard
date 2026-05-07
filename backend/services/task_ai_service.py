@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from config import get_ai_mode, get_ai_provider, get_oci_genai_model_id
 from integrations import oci_genai_client
-from services.xp_service import resolve_xp_value
+from services.xp_service import XP_MAX, XP_MIN, resolve_xp_value
 
 
 TASK_ENRICHMENT_SYSTEM_PROMPT = """
@@ -81,7 +81,7 @@ def _normalize_enrichment(parsed, task):
     effort = _number(parsed.get("effort_minutes"), fallback["effort_minutes"])
     impact = min(10, max(1, _number(parsed.get("impact_score"), fallback["impact_score"])))
     priority_score = min(0.99, max(0.01, _number(parsed.get("priority_score"), fallback["priority_score"])))
-    xp_value = max(10, int(_number(parsed.get("xp_value"), fallback["xp_value"])))
+    xp_value = min(XP_MAX, max(XP_MIN, int(_number(parsed.get("xp_value"), fallback["xp_value"]))))
     difficulty = str(parsed.get("difficulty") or fallback["difficulty"]).strip().title()
     if difficulty not in {"Easy", "Medium", "Hard"}:
         difficulty = fallback["difficulty"]

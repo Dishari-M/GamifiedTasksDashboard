@@ -65,7 +65,7 @@ const registerAndLogin = async (account) => {
   });
 
   if (!registerResponse.ok) {
-    throw new Error(`Test user registration failed with HTTP ${registerResponse.status()}.`);
+    throw new Error(`Test user registration failed with HTTP ${registerResponse.status}.`);
   }
 
   const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
@@ -78,7 +78,7 @@ const registerAndLogin = async (account) => {
   });
 
   if (!loginResponse.ok) {
-    throw new Error(`Test user login failed with HTTP ${loginResponse.status()}.`);
+    throw new Error(`Test user login failed with HTTP ${loginResponse.status}.`);
   }
 
   return loginResponse.json();
@@ -88,7 +88,8 @@ const report = {
   baseUrl,
   apiBaseUrl,
   startedAt: new Date().toISOString(),
-  taskTitle: `E2E Quest Focus ${Date.now()}`,
+  primaryTaskTitle: `E2E Quest Focus A ${Date.now()}`,
+  secondaryTaskTitle: `E2E Quest Focus B ${Date.now()}`,
   steps: [],
   consoleMessages: [],
   pageErrors: [],
@@ -143,9 +144,54 @@ const saveScreenshot = async (name) => {
   });
 };
 
+const createWorkingTodayTask = async ({ title, description, rcaSize = "M", priority = "Medium" }) => {
+  const form = page.getByTestId("create-task-form");
+  await form.getByTestId("create-task-title-input").fill(title);
+  await form.getByTestId("create-task-description-input").fill(description);
+  await form.getByLabel("Priority").selectOption(priority);
+  await form.getByTestId("create-task-rca-size-select").selectOption(rcaSize);
+
+  const createResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/tasks") && response.request().method() === "POST",
+  { timeout: 45000 });
+  await form.getByTestId("create-task-submit-button").click();
+  const createResponse = await createResponsePromise;
+  const createdTaskPayload = await createResponse.json().catch(() => null);
+  if (!createResponse.ok()) {
+    throw new Error(`UI task create failed with HTTP ${createResponse.status()}.`);
+  }
+
+  const createdTask = createdTaskPayload?.data ?? createdTaskPayload;
+  const taskRow = page.getByTestId(`task-row-${slug(createdTask?.external_id || createdTask?.task_id || title)}`).first();
+  const fallbackTaskCell = page.locator("tr", { hasText: title }).first();
+  if (await taskRow.count()) {
+    await expectVisible(taskRow, 15000);
+  } else {
+    await expectVisible(fallbackTaskCell, 15000);
+  }
+
+  return {
+    status: createResponse.status(),
+    task: createdTask,
+  };
+};
+
 const expectVisible = async (locator, timeout, message) => {
   await locator.waitFor({ state: "visible", timeout });
   return locator;
+};
+
+const waitFor = async (predicate, { timeout = 15000, interval = 250, message = "Condition was not met in time." } = {}) => {
+  const deadline = Date.now() + timeout;
+  let lastValue;
+  while (Date.now() < deadline) {
+    lastValue = await predicate();
+    if (lastValue) {
+      return lastValue;
+    }
+    await wait(interval);
+  }
+  throw new Error(message);
 };
 
 try {
@@ -156,36 +202,27 @@ try {
   report.initialXpTotal = parseXpTotal(await page.getByTestId("level-total-xp").textContent());
   report.initialStreakDays = parseLeadingInt(await page.getByTestId("streak-days-value").textContent());
 
-  await page.getByTestId("create-task-title-input").fill(report.taskTitle);
-  await page.getByTestId("create-task-description-input").fill("Playwright E2E validation for quests and focus integration.");
-  await page.getByTestId("create-task-rca-size-select").selectOption("M");
-
-  const createResponsePromise = page.waitForResponse((response) =>
-    response.url().includes("/api/v1/tasks") && response.request().method() === "POST",
-  { timeout: 45000 });
-  await page.getByTestId("create-task-submit-button").click();
-  const createResponse = await createResponsePromise;
-  report.createTaskStatus = createResponse.status();
-  report.createdTask = await createResponse.json().catch(() => null);
-  if (!createResponse.ok()) {
-    throw new Error(`UI task create failed with HTTP ${createResponse.status()}.`);
-  }
-  report.createdTask = report.createdTask?.data ?? report.createdTask;
-  addStep("create-working-today-task-via-ui", "passed", {
-    taskId: report.createdTask?.task_id ?? null,
-    externalId: report.createdTask?.external_id ?? null,
+  const createdPrimary = await createWorkingTodayTask({
+    title: report.primaryTaskTitle,
+    description: "Primary Playwright E2E validation task for quests and focus integration.",
+    rcaSize: "M",
+    priority: "Medium",
+  });
+  const createdSecondary = await createWorkingTodayTask({
+    title: report.secondaryTaskTitle,
+    description: "Secondary Playwright E2E validation task for quest progression continuity.",
+    rcaSize: "S",
+    priority: "High",
+  });
+  report.createTaskStatuses = [createdPrimary.status, createdSecondary.status];
+  report.createdTasks = [createdPrimary.task, createdSecondary.task];
+  addStep("create-working-today-tasks-via-ui", "passed", {
+    taskIds: report.createdTasks.map((task) => task?.task_id ?? null),
   });
 
-  const taskRow = page.getByTestId(`task-row-${slug(report.createdTask?.external_id || report.createdTask?.task_id || report.taskTitle)}`).first();
-  const fallbackTaskCell = page.locator("tr", { hasText: report.taskTitle }).first();
-  if (await taskRow.count()) {
-    await expectVisible(taskRow, 15000);
-  } else {
-    await expectVisible(fallbackTaskCell, 15000);
-  }
-  addStep("have-working-today-task-ready", "passed", {
-    taskId: report.createdTask?.task_id ?? null,
-    externalId: report.createdTask?.external_id ?? null,
+  addStep("have-working-today-tasks-ready", "passed", {
+    taskIds: report.createdTasks.map((task) => task?.task_id ?? null),
+    externalIds: report.createdTasks.map((task) => task?.external_id ?? null),
   });
   await saveScreenshot("01-task-created");
 
@@ -210,12 +247,20 @@ try {
         ? report.generatedQuestRun.quests.length
         : null,
   });
+  const generatedQuestCount = Array.isArray(report.generatedQuestRun?.data?.quests)
+    ? report.generatedQuestRun.data.quests.length
+    : Array.isArray(report.generatedQuestRun?.quests)
+      ? report.generatedQuestRun.quests.length
+      : 0;
+  if (generatedQuestCount < 2) {
+    throw new Error(`Expected at least 2 generated quests for the 2 Working Today tasks. Saw ${generatedQuestCount}.`);
+  }
 
   const nextQuestCard = page.getByTestId("next-quest-card");
   await expectVisible(nextQuestCard, 15000);
-  report.activeQuestTitle = (await page.getByTestId("next-quest-title").textContent())?.trim() || "";
+  report.activeQuestTitleBeforeComplete = (await page.getByTestId("next-quest-title").textContent())?.trim() || "";
   addStep("render-generated-quest-ui", "passed", {
-    activeQuestTitle: report.activeQuestTitle,
+    activeQuestTitle: report.activeQuestTitleBeforeComplete,
   });
   await saveScreenshot("02-quests-generated");
 
@@ -224,7 +269,7 @@ try {
   await expectVisible(page.getByTestId("focus-page"), 15000);
   await expectVisible(page.getByTestId("focus-stop-button"), 15000);
   addStep("start-focus-from-quest", "passed", {
-    taskTitle: report.activeQuestTitle,
+    taskTitle: report.activeQuestTitleBeforeComplete,
   });
   await saveScreenshot("03-focus-started");
 
@@ -293,6 +338,47 @@ try {
     finalXpTotal: report.finalXpTotal,
     initialStreakDays: report.initialStreakDays,
     finalStreakDays: report.finalStreakDays,
+  });
+  await expectVisible(page.getByTestId("next-quest-card"), 15000);
+  report.activeQuestTitleAfterComplete = (await page.getByTestId("next-quest-title").textContent())?.trim() || "";
+  if (!report.activeQuestTitleAfterComplete) {
+    throw new Error("Expected the Quests UI to show the next quest after completing the current one.");
+  }
+  if (report.activeQuestTitleAfterComplete === report.activeQuestTitleBeforeComplete) {
+    throw new Error("Expected quest completion to advance to a different next quest without regeneration.");
+  }
+  addStep("advance-to-next-quest-without-regeneration", "passed", {
+    previousQuestTitle: report.activeQuestTitleBeforeComplete,
+    nextQuestTitle: report.activeQuestTitleAfterComplete,
+  });
+
+  const reloadTasksResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/tasks") && response.request().method() === "GET",
+  { timeout: 45000 });
+  await page.reload({ waitUntil: "load", timeout: 45000 });
+  await reloadTasksResponsePromise;
+  await expectVisible(page.getByTestId("quests-page"), 15000);
+  await expectVisible(page.getByTestId("next-quest-card"), 15000);
+  const xpAfterReload = await waitFor(async () => {
+    const xpValue = parseXpTotal(await page.getByTestId("level-total-xp").textContent());
+    return xpValue >= report.finalXpTotal ? xpValue : 0;
+  }, {
+    timeout: 15000,
+    interval: 300,
+    message: `Expected XP total to persist after reload. Before reload=${report.finalXpTotal}.`,
+  });
+  if (xpAfterReload < report.finalXpTotal) {
+    throw new Error(`Expected XP total to persist after reload. Before reload=${report.finalXpTotal}, after reload=${xpAfterReload}.`);
+  }
+  const persistedNextQuestTitle = (await page.getByTestId("next-quest-title").textContent())?.trim() || "";
+  if (persistedNextQuestTitle !== report.activeQuestTitleAfterComplete) {
+    throw new Error(`Expected the next quest after reload to remain "${report.activeQuestTitleAfterComplete}", saw "${persistedNextQuestTitle}".`);
+  }
+  report.xpAfterReload = xpAfterReload;
+  report.persistedNextQuestTitle = persistedNextQuestTitle;
+  addStep("persist-progress-after-reload", "passed", {
+    xpAfterReload,
+    persistedNextQuestTitle,
   });
   await saveScreenshot("05-quest-completed");
   report.result = "passed";
