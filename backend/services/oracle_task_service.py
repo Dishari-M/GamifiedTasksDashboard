@@ -18,7 +18,7 @@ TASK_LIST_CACHE_NAMESPACE = "task_list"
 TASK_RELATED_CACHE_NAMESPACES = (TASK_LIST_CACHE_NAMESPACE, "dashboard_today")
 
 VALID_TASK_TYPES = {"Task", "Bug", "Epic", "Review", "Meeting"}
-VALID_SOURCES = {"Custom", "CUSTOM", "Jira", "Outlook", "Microsoft To Do"}
+VALID_SOURCES = {"Custom", "CUSTOM", "Jira", "Outlook"}
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
 VALID_STATUSES = {"To Do", "In Progress", "Blocked", "Done", "Upcoming", "Cancelled"}
 logger = logging.getLogger(__name__)

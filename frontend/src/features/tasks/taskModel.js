@@ -8,7 +8,7 @@ export const TASKS_STORAGE_KEY = "devquest.tasks.v1";
 export const taskTypes = ["Task", "Bug", "Epic", "Review", "Meeting"];
 export const priorities = ["Critical", "High", "Medium", "Low"];
 export const statuses = ["To Do", "In Progress", "Blocked", "Done", "Upcoming"];
-export const sources = ["Custom", "Jira", "Outlook", "Microsoft To Do"];
+export const sources = ["Custom", "Jira", "Outlook"];
 export const rcaTshirtSizes = [
   { value: "NA", label: "Not Applicable" },
   { value: "XS", label: "XS" },
@@ -76,7 +76,7 @@ export const normalizeTask = (task) => {
 
 export const makeTaskId = (source, externalId) => {
   if (externalId?.trim()) return externalId.trim();
-  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : source === "Microsoft To Do" ? "TODO" : "CUS";
+  const prefix = source === "Jira" ? "JRA" : source === "Outlook" ? "OUT" : "CUS";
   return `${prefix}-${Math.floor(Math.random() * 9000 + 1000)}`;
 };
 
@@ -117,22 +117,6 @@ export const initialTasks = [
     dueDate: addDaysKey(todayKey(), 1),
     notes: "Contract is clear; biggest risk is mapping courier status states cleanly.",
     labels: ["api"],
-  }),
-  normalizeTask({
-    id: "DOC-047",
-    externalId: "DOC-047",
-    title: "Update deployment documentation",
-    description: "Update deployment steps for the v2.3.0 release.",
-    source: "Microsoft To Do",
-    type: "Task",
-    priority: "Low",
-    status: "To Do",
-    impact: 5,
-    time: 30,
-    xp: 30,
-    workingToday: false,
-    notes: "Add rollback screenshots and note the environment variable rename.",
-    labels: ["docs"],
   }),
   normalizeTask({
     id: "PR-468",

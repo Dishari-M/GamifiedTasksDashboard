@@ -1,12 +1,12 @@
 # DevQuest - AI-Powered Gamified Developer Productivity Dashboard
 
-DevQuest is a developer productivity dashboard that brings tasks, meetings, focus time, AI prioritization, and gamified progress into one workspace. It is designed to help developers cut through fragmented tools like Jira, Outlook Calendar, and Microsoft To Do, then turn the day's work into clear, actionable missions and quests.
+DevQuest is a developer productivity dashboard that brings tasks, meetings, focus time, AI prioritization, and gamified progress into one workspace. It is designed to help developers cut through fragmented tools like Jira, Outlook Calendar, then turn the day's work into clear, actionable missions and quests.
 
 The product uses a React frontend with a Python backend plan targeting Oracle Autonomous Database for persistence and OCI Generative AI/Agents for task intelligence. The intended backend will enrich work items with AI-generated difficulty, effort, impact, XP, prioritization, insights, standup notes, and daily or weekly productivity summaries.
 
 ## Key Capabilities
 
-- Unified task management across custom tasks, Jira issues, Outlook meetings, and Microsoft To Do items.
+- Unified task management across custom tasks, Jira issues, Outlook meetings.
 - AI-assisted task enrichment for priority, effort, XP, category, impact, and suggested next actions.
 - Daily missions and quests that translate tasks into a focused work plan.
 - Capacity analysis based on working hours, meeting load, and available focus windows.

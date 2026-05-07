@@ -164,7 +164,7 @@ CREATE SEQUENCE DAILY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCL
 CREATE SEQUENCE WEEKLY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE;
 ```
 
-For inserts, omit the primary key column and fetch the generated ID with `RETURNING <ID_COLUMN> INTO :generated_id`. Never ask the frontend or API caller to supply internal primary keys. Keep `EXTERNAL_ID` for Jira, Outlook, Microsoft To Do, or SSO identifiers.
+For inserts, omit the primary key column and fetch the generated ID with `RETURNING <ID_COLUMN> INTO :generated_id`. Never ask the frontend or API caller to supply internal primary keys. Keep `EXTERNAL_ID` for Jira, Outlook or SSO identifiers.
 
 ### 4.1 Users
 
@@ -214,7 +214,7 @@ CREATE TABLE USER_STATS (
 
 ### 4.3 Work Items
 
-This is the canonical task table for Jira, Microsoft To Do, Outlook-derived work, and custom tasks.
+This is the canonical task table for Jira, Outlook-derived work, and custom tasks.
 
 ```sql
 CREATE TABLE WORK_ITEMS (
@@ -598,7 +598,7 @@ Query parameters:
 | Name | Type | Notes |
 | --- | --- | --- |
 | `status` | string | Optional repeated enum |
-| `source` | string | `Jira`, `Outlook`, `Microsoft To Do`, `CUSTOM` |
+| `source` | string | `Jira`, `Outlook`, `CUSTOM` |
 | `priority` | string | `Low`, `Medium`, `High`, `Critical` |
 | `working_today` | boolean | Derived from whether a `WORK_ITEM_WORK_DATES` row exists for the requested date |
 | `worked_date` | date | Filter by a specific date in `WORK_ITEM_WORK_DATES` |
@@ -1769,7 +1769,7 @@ Request:
 
 ```json
 {
-  "sources": ["Jira", "Outlook Calendar", "Microsoft To Do"],
+  "sources": ["Jira", "Outlook Calendar"],
   "from": "2026-04-30T00:00:00+05:30",
   "to": "2026-05-07T23:59:59+05:30",
   "run_ai_enrichment": true
@@ -2201,7 +2201,7 @@ Recommended build order:
 8. Add quest generation and persist quest plans.
 9. Add standup generator.
 10. Add daily and weekly overview APIs and frontend page.
-11. Add sync placeholders, then real Jira/Outlook/Microsoft To Do integrations.
+11. Add sync placeholders, then real Jira/Outlook integrations.
 12. Add OCI Agent for historical or SQL-grounded insights.
 
 ## 22. Test Plan
