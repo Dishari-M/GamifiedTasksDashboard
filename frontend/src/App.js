@@ -1964,9 +1964,9 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
         <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
         <div className="standup-snapshot-grid">
-          <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
-          <span><strong>In Progress</strong>{standupNote.inProgress}</span>
-          <span><strong>Blockers</strong>{standupNote.blockers}</span>
+          <span><strong>Accomplished </strong>{standupNote.accomplished}</span>
+          <span><strong>In Progress </strong>{standupNote.inProgress}</span>
+          <span><strong>Blockers </strong>{standupNote.blockers}</span>
         </div>
       </section>
     </main>
