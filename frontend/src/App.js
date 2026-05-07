@@ -1437,6 +1437,8 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
     effort_minutes: task.time,
     insight: task.aiInsight,
   }));
+  const risks = todayInsight?.risks || [];
+  const recommendations = todayInsight?.recommendations || [];
 
   useEffect(() => {
     let cancelled = false;
@@ -1538,26 +1540,49 @@ const InsightsPage = ({ tasks, focusSessions, onRefreshInsights }) => {
           <StatCard label="Focus Capacity" value={formatMinutes(todayInsight?.capacity?.available_focus_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} detail={insightStatus === "live" ? "From insights API" : "Working-today effort"} detailInsight={todayInsight?.stat_insights?.focus_minutes} icon={Clock} tone="blue" testId="capacity-working-hours-stat" />
           <StatCard label="Today XP" value={`${completedXp} XP`} detail={`Includes ${formatFocusMultiplier()} focus rewards`} detailInsight={todayInsight?.stat_insights?.total_xp} icon={Trophy} tone="green" testId="capacity-xp-stat" />
         </div>
-        <article className="insight-copy" data-testid="daily-ai-insight">
-          <strong>Daily Insight</strong>
+        <article className="ai-daily-summary" data-testid="daily-ai-insight">
+          <span className="ai-section-kicker">Daily Insight</span>
           <p>{todayInsight?.daily_insight || "Generate AI insight to see risks and recommendations for today's work."}</p>
           {insightError && <p className="form-error" role="alert">{insightError}</p>}
         </article>
-        {(todayInsight?.risks?.length > 0 || todayInsight?.recommendations?.length > 0) && (
-          <div className="insight-grid" data-testid="ai-risk-recommendation-grid">
-            <span><strong>Risks </strong>{(todayInsight.risks || []).join("\n") || "No risks returned."}</span>
-            <span><strong>Recommendations </strong>{(todayInsight.recommendations || []).join("\n") || "No recommendations returned."}</span>
+        {(risks.length > 0 || recommendations.length > 0) && (
+          <div className="ai-guidance-grid" data-testid="ai-risk-recommendation-grid">
+            <article className="ai-guidance-panel ai-risk-panel">
+              <strong>Risks</strong>
+              <ul>
+                {(risks.length ? risks : ["No risks returned."]).map((item, index) => <li key={`risk-${index}`}>{item}</li>)}
+              </ul>
+            </article>
+            <article className="ai-guidance-panel ai-recommendation-panel">
+              <strong>Recommendations</strong>
+              <ul>
+                {(recommendations.length ? recommendations : ["No recommendations returned."]).map((item, index) => <li key={`recommendation-${index}`}>{item}</li>)}
+              </ul>
+            </article>
           </div>
         )}
-        <div className="insight-list">
-          {displayedInsights.map((task) => <article key={task.task_id}><strong>{task.title}</strong><span>{Math.round((task.priority_score || 0) * 100)} priority - {task.xp_value} XP - {task.effort_minutes} min effort</span><p>{task.insight}</p></article>)}
+        <div className="ai-task-list">
+          {displayedInsights.map((task, index) => (
+            <article className="ai-task-row" key={task.task_id}>
+              <span className="ai-task-rank">#{index + 1}</span>
+              <div className="ai-task-copy">
+                <strong>{task.title}</strong>
+                <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
+              </div>
+              <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
+                <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
+                <span>{task.xp_value} XP</span>
+                <span>{task.effort_minutes} min</span>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
       <section className="surface standup-card" data-testid="standup-generator-card">
         <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
         <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
-        <div className="insight-grid">
+        <div className="standup-snapshot-grid">
           <span><strong>Accomplished</strong>{standupNote.accomplished}</span>
           <span><strong>In Progress</strong>{standupNote.inProgress}</span>
           <span><strong>Blockers</strong>{standupNote.blockers}</span>
