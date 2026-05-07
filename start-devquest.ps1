@@ -12,7 +12,13 @@ $runDir = Join-Path $root ".devquest"
 $backendPidFile = Join-Path $runDir "backend.pid"
 $frontendPidFile = Join-Path $runDir "frontend.pid"
 $oracleWalletDir = Join-Path $env:USERPROFILE ".oracle\wallet_tasksdb"
-$oracleClientDir = "C:\oracle\instantclient_23_0"
+$oracleClientCandidates = @(
+    "C:\oracle\instantclient_23_0",
+    (Join-Path $env:USERPROFILE "Downloads\instantclient-basic-windows.x64-23.26.1.0.0\instantclient_23_0")
+)
+$oracleClientDir = $oracleClientCandidates |
+    Where-Object { Test-Path (Join-Path $_ "oci.dll") } |
+    Select-Object -First 1
 $dbUser = "DEVQUEST_APP"
 $dbPassword = "Teamaurora2026"
 $dbWalletPassword = "TeamAurora2026"
@@ -114,6 +120,10 @@ function Set-OracleEnvironment {
     $env:TNS_ADMIN = $oracleWalletDir
     $env:ORACLE_DB_THICK_MODE = "1"
     $env:ORACLE_CLIENT_LIB_DIR = $oracleClientDir
+    $env:DB_POOL_SIZE = "10"
+    $env:DB_POOL_MIN = "1"
+    $env:DB_POOL_MAX = "10"
+    $env:DB_POOL_INCREMENT = "1"
 }
 
 Write-Host "Starting DevQuest from $root" -ForegroundColor Cyan
@@ -216,6 +226,10 @@ $backendCommand = @"
 `$env:TNS_ADMIN='$oracleWalletDir'
 `$env:ORACLE_DB_THICK_MODE='1'
 `$env:ORACLE_CLIENT_LIB_DIR='$oracleClientDir'
+`$env:DB_POOL_SIZE='10'
+`$env:DB_POOL_MIN='1'
+`$env:DB_POOL_MAX='10'
+`$env:DB_POOL_INCREMENT='1'
 Set-Location '$backendDir'
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 "@

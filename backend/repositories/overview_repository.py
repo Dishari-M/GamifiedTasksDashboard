@@ -284,7 +284,7 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             f.NOTES
         FROM FOCUS_SESSIONS f
         LEFT JOIN WORK_ITEMS w
-          ON w.TASK_ID = f.TASK_ID
+          ON TO_CHAR(w.TASK_ID) = TO_CHAR(f.TASK_ID)
          AND w.USER_ID = f.USER_ID
         WHERE f.USER_ID = :user_id
           AND f.SESSION_DATE BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD')
