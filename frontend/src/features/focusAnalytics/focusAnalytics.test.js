@@ -51,8 +51,8 @@ test("separates base XP from focus bonus XP", () => {
   const analytics = buildFocusAnalytics({ focusSessions: sessions, tasks, periodDays: 7, referenceDate: "2026-05-05" });
 
   expect(analytics.stats.baseXp).toBe(140);
-  expect(analytics.stats.focusBonusXp).toBe(35);
-  expect(analytics.stats.totalXp).toBe(175);
+  expect(analytics.stats.focusBonusXp).toBe(25);
+  expect(analytics.stats.totalXp).toBe(165);
 });
 
 test("classifies deep and light focus minutes", () => {

@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import focus_repository
+from services.xp_service import calculate_focus_reward
 
 
 VALID_OUTCOMES = {"Progress made", "Blocked", "Ready for review", "Completed"}
@@ -39,9 +40,11 @@ def create_oracle_focus_session(payload, user_id=1):
         conn = get_connection()
         cur = conn.cursor()
         quest_item_id = focus_repository.resolve_quest_item_id(cur, int(user_id), data.get("quest_id"))
-        base_xp = focus_repository.fetch_task_xp(cur, int(user_id), data.get("task_id"))
-        xp_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_minutes"] > 0 else 1.0
-        xp_awarded = round(base_xp * xp_multiplier) if base_xp else 0
+        task_reward_context = focus_repository.fetch_task_reward_context(cur, int(user_id), data.get("task_id"))
+        max_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_minutes"] > 0 else 1.0
+        reward = calculate_focus_reward(task_reward_context, data["duration_minutes"], max_multiplier)
+        xp_multiplier = reward["reward_multiplier"]
+        xp_awarded = reward["reward_xp"]
         focus_session_id = focus_repository.insert_focus_session(cur, int(user_id), data, quest_item_id, xp_multiplier, xp_awarded)
         focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_minutes"], xp_multiplier, xp_awarded)
         conn.commit()

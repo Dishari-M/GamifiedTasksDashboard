@@ -2,6 +2,7 @@ import { Bug, FileText, GitPullRequest, RocketLaunch, UsersThree } from "@phosph
 import { addDaysKey, formatMinutes, formatTime, nowIso, todayKey } from "../../utils/dateTime";
 import { parseNumber } from "../../utils/number";
 import { readStoredJson } from "../../utils/storage";
+import { deriveTaskXpBreakdown, deriveTaskXp } from "../progress/progressionMath";
 
 export const TASKS_STORAGE_KEY = "devquest.tasks.v1";
 
@@ -34,13 +35,14 @@ export const accentForPriority = (priority) => {
 };
 
 export const buildAiFields = (task) => {
+  const xpModel = deriveTaskXpBreakdown(task);
   const priorityWeight = { Critical: 10, High: 8, Medium: 5, Low: 3 }[task.priority] || 5;
-  const effort = Math.max(15, parseNumber(task.time ?? task.estimatedMinutes, 60));
+  const effort = xpModel.estimatedMinutes;
   const notesBoost = task.notes ? 0.4 : 0;
-  const impact = Math.min(10, Math.max(1, parseNumber(task.impact, priorityWeight + notesBoost)));
+  const impact = xpModel.impactScore;
   const priorityScore = Math.min(0.99, Math.round(((priorityWeight * 0.58 + impact * 0.32 + Math.min(effort / 60, 4) * 0.1) / 10) * 100) / 100);
-  const xp = Math.max(10, parseNumber(task.xp, Math.round((effort * 0.75 + impact * 9 + priorityWeight * 5) / 10) * 10));
-  const difficulty = effort >= 105 || priorityWeight >= 9 ? "Hard" : effort <= 35 && priorityWeight <= 5 ? "Easy" : "Medium";
+  const xp = deriveTaskXp(task);
+  const difficulty = xpModel.difficulty;
   return {
     difficulty,
     impact,
@@ -245,7 +247,7 @@ export const emptyTaskForm = {
   estimatedMinutes: 60,
   actualMinutes: 0,
   rcaTshirtSize: "NA",
-  xp: 60,
+  xp: "",
   labels: "",
   notes: "",
   workingToday: true,
@@ -266,7 +268,7 @@ export const formFromTask = (task) => ({
   estimatedMinutes: task.time || 60,
   actualMinutes: task.actualMinutes || 0,
   rcaTshirtSize: task.rcaTshirtSize || "NA",
-  xp: task.xp || 60,
+  xp: "",
   labels: (task.labels || []).join(", "),
   notes: task.notes || "",
   workingToday: Boolean(task.workingToday),
@@ -276,6 +278,7 @@ export const formFromTask = (task) => ({
 export const taskFromForm = (form, existingTask) => {
   const status = form.status || "To Do";
   const completedAt = status === "Done" ? existingTask?.completedAt || nowIso() : existingTask?.completedAt && existingTask.status === "Done" ? undefined : existingTask?.completedAt;
+  const xpValue = String(form.xp ?? "").trim();
   return normalizeTask({
     ...(existingTask || {}),
     id: existingTask?.id || makeTaskId(form.source, form.externalId),
@@ -292,7 +295,7 @@ export const taskFromForm = (form, existingTask) => {
     time: parseNumber(form.estimatedMinutes, 60),
     actualMinutes: parseNumber(form.actualMinutes, 0),
     rcaTshirtSize: form.rcaTshirtSize || "NA",
-    xp: parseNumber(form.xp, 60),
+    xp: xpValue ? parseNumber(xpValue, 0) : "",
     labels: form.labels,
     notes: form.notes,
     workingToday: form.workingToday,

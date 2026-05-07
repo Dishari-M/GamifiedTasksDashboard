@@ -27,7 +27,15 @@ export const workingTodayTasks = (tasks) => tasks.filter((task) => task.workingT
 
 export const defaultQuestOrder = (tasks) => [...workingTodayTasks(tasks)].sort(compareQuestTasks);
 
-const sortedTaskIds = (tasks) => tasks.map((task) => task.id).sort();
+const taskQuestKeys = (task) => [
+  task?.taskId,
+  task?.id,
+  task?.externalId,
+].filter((value) => value !== undefined && value !== null && String(value).trim() !== "").map((value) => String(value));
+
+const primaryQuestKeyForTask = (task) => taskQuestKeys(task)[0] || "";
+
+const sortedTaskIds = (tasks) => tasks.map((task) => primaryQuestKeyForTask(task)).filter(Boolean).sort();
 const sortedStringIds = (ids) => ids.map((id) => String(id)).sort();
 
 const includesAllTaskIds = (sourceIds, candidateIds) => {
@@ -229,11 +237,18 @@ export const clearQuestRun = () => {
 
 export const isUsableQuestRun = (tasks, questRun) => isCurrentQuestRun(questRun) && isQuestRunSynced(tasks, questRun) && questRun.status !== "not_generated";
 
+export const hasGeneratedQuestRun = (questRun) => (
+  isCurrentQuestRun(questRun)
+  && Array.isArray(questRun?.quests)
+  && questRun.quests.length > 0
+  && questRun.status !== "not_generated"
+);
+
 export const getQuestOrderedTasks = (tasks, questRun) => {
   const todayTasks = workingTodayTasks(tasks);
   if (!isUsableQuestRun(tasks, questRun)) return defaultQuestOrder(tasks);
-  const taskById = new Map(todayTasks.map((task) => [task.id, task]));
-  const ordered = (questRun.quests || []).map((quest) => taskById.get(quest.taskId)).filter(Boolean);
+  const taskById = new Map(todayTasks.flatMap((task) => taskQuestKeys(task).map((key) => [key, task])));
+  const ordered = (questRun.quests || []).map((quest) => taskById.get(String(quest.taskId))).filter(Boolean);
   const orderedIds = new Set(ordered.map((task) => task.id));
   const appended = todayTasks.filter((task) => !orderedIds.has(task.id)).sort(compareQuestTasks);
   return [...ordered, ...appended];
@@ -252,7 +267,7 @@ export const questGeneratedLabel = (tasks, questRun, taskCount) => {
   return `Generated ${formatDateTime(questRun.generatedAt)} from ${taskCount} task${taskCount === 1 ? "" : "s"}`;
 };
 
-export const getQuestTask = (tasks, quest) => tasks.find((task) => String(task.id) === String(quest?.taskId));
+export const getQuestTask = (tasks, quest) => tasks.find((task) => taskQuestKeys(task).includes(String(quest?.taskId)));
 
 export const getNextQuest = (questRun) => questRun?.quests?.find((quest) => quest.id === questRun.activeQuestId) || questRun?.quests?.find((quest) => quest.state === "queued");
 

@@ -1,4 +1,4 @@
-import { buildProgressSnapshot, deriveQuestStreak, deriveTotalXp, mergeCompletedQuestDates } from "./progressModel";
+import { buildProgressSnapshot, deriveQuestStreak, deriveTotalXp, mergeCompletedQuestDates, mergeMonotonicTotalXp } from "./progressModel";
 
 const focusSessions = [
   {
@@ -15,7 +15,13 @@ const tasks = [
 ];
 
 test("derives total xp from completed tasks plus focus reward rules", () => {
-  expect(deriveTotalXp(tasks, focusSessions)).toBe(75);
+  expect(deriveTotalXp(tasks, focusSessions)).toBe(66);
+});
+
+test("keeps total xp monotonic when a stale reload computes a lower value", () => {
+  expect(mergeMonotonicTotalXp(66, 0)).toBe(66);
+  expect(mergeMonotonicTotalXp(0, 85)).toBe(85);
+  expect(mergeMonotonicTotalXp(70, 85)).toBe(85);
 });
 
 test("merges today's completed quest from the active run into streak data", () => {
@@ -47,7 +53,7 @@ test("builds a cohesive sidebar progress snapshot", () => {
     referenceDate: "2026-05-06",
   });
 
-  expect(snapshot.totalXp).toBe(75);
+  expect(snapshot.totalXp).toBe(66);
   expect(snapshot.streakDays).toBe(2);
   expect(snapshot.completedQuestDates).toEqual(["2026-05-05", "2026-05-06"]);
   expect(snapshot.completedQuestCount).toBe(4);

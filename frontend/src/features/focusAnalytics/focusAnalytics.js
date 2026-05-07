@@ -122,7 +122,7 @@ const xpForCompletedTasks = (tasks, focusSessions, range, dailyRows) => {
     totalXp: baseXp + focusBonusXp,
     breakdown: [
       { name: "Base XP", value: baseXp },
-      { name: `Focus bonus (up to ${FOCUS_XP_MULTIPLIER}x)`, value: focusBonusXp },
+      { name: `Focus bonus (thresholded, up to ${FOCUS_XP_MULTIPLIER}x)`, value: focusBonusXp },
     ].filter((item) => item.value > 0),
   };
 };

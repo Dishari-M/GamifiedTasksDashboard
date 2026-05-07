@@ -987,8 +987,10 @@ html[data-theme="light"] select:focus-visible {
 .editor-actions {
   grid-column: span 6;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 12px;
   align-items: center;
   min-width: 0;
   padding-top: 2px;
@@ -1733,8 +1735,12 @@ html[data-theme="light"] select:focus-visible {
 }
 
 .focus-page {
-  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
-  gap: 22px;
+  width: min(1180px, calc(100vw - 332px));
+  max-width: 1180px;
+  margin: 0 auto;
+  align-content: start;
+  grid-template-columns: 1fr;
+  gap: 24px;
 }
 
 .focus-page-active {
@@ -1760,17 +1766,62 @@ html[data-theme="light"] select:focus-visible {
 
 .focus-widget,
 .focus-log-panel {
-  padding: 22px;
-  border-radius: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 44px rgba(0, 0, 0, 0.16);
+  padding: 24px;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
 }
 
 .focus-widget {
   text-align: left;
 }
 
-.focus-widget .focus-hero-grid {
+.focus-launcher-card {
+  display: grid;
+  gap: 26px;
+  padding: 32px;
+  border-radius: 24px;
+  border: 1px solid rgba(98, 111, 153, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(155, 215, 177, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.03));
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.12);
+}
+
+.focus-launcher-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: clamp(1.55rem, 1.9vw, 1.95rem);
+}
+
+.focus-launcher-head p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 0.96rem;
+}
+
+.focus-launcher-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.35fr);
+  gap: 36px;
+  align-items: center;
+}
+
+.focus-launcher-hero {
   text-align: center;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 16px 8px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(155, 215, 177, 0.06), rgba(255, 255, 255, 0.02));
+}
+
+.focus-launcher-panel {
+  display: grid;
+  gap: 18px;
+  align-content: start;
 }
 
 .focus-widget-active {
@@ -1795,13 +1846,13 @@ html[data-theme="light"] select:focus-visible {
 }
 
 .focus-page .focus-session-ring {
-  width: min(206px, 58vw);
-  margin: 0 auto 12px;
-  filter: drop-shadow(0 0 14px rgba(112, 71, 255, 0.18));
+  width: min(332px, 62vw);
+  margin: 0 auto;
+  filter: drop-shadow(0 0 18px rgba(120, 166, 122, 0.2));
 }
 
 .focus-page .focus-session-ring strong {
-  font-size: 2.7rem;
+  font-size: clamp(2.8rem, 4.4vw, 3.5rem);
 }
 
 .focus-page-active .focus-session-ring {
@@ -1835,7 +1886,6 @@ html[data-theme="light"] select:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.focus-heading span,
 .focus-log-heading span {
   padding: 7px 10px;
   border-radius: 999px;
@@ -1845,15 +1895,10 @@ html[data-theme="light"] select:focus-visible {
   font-weight: 900;
 }
 
-.focus-heading,
-.focus-log-panel .section-heading {
-  margin-bottom: 18px;
-}
-
 .focus-log-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -2204,7 +2249,6 @@ html[data-theme="light"] select:focus-visible {
 .focus-outcome-panel {
   display: grid;
   gap: 10px;
-  margin-top: 12px;
   color: var(--text-soft);
   font-weight: 900;
   text-align: left;
@@ -2218,17 +2262,18 @@ html[data-theme="light"] select:focus-visible {
   min-width: 0;
   color: var(--text);
   border: 1px solid rgba(98, 111, 153, 0.24);
-  border-radius: 13px;
-  background: rgba(8, 10, 18, 0.42);
-  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(8, 10, 18, 0.34);
+  padding: 14px 16px;
 }
 
 .focus-task-picker select {
   display: block;
-  min-height: 44px;
+  min-height: 56px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 800;
 }
 
 .focus-outcome-panel textarea {
@@ -2242,11 +2287,10 @@ html[data-theme="light"] select:focus-visible {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid rgba(98, 111, 153, 0.16);
-  border-radius: 14px;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid rgba(98, 111, 153, 0.14);
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.035);
 }
 
@@ -2257,14 +2301,15 @@ html[data-theme="light"] select:focus-visible {
 
 .focus-selected-task strong {
   display: block;
-  margin-top: 5px;
+  margin-top: 6px;
   color: #fff;
   line-height: 1.25;
   overflow-wrap: anywhere;
+  font-size: 1.15rem;
 }
 
 .focus-selected-task p {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   color: var(--text-soft);
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -2277,7 +2322,7 @@ html[data-theme="light"] select:focus-visible {
 .focus-selected-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -2290,18 +2335,6 @@ html[data-theme="light"] select:focus-visible {
   color: #d2d6e2;
   background: rgba(137, 145, 163, 0.13);
   border: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.focus-context-line,
-.focus-log-copy {
-  margin: 0 0 16px;
-  color: var(--text-soft);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.focus-context-line strong {
-  color: #fff;
 }
 
 .focus-chip-row {
@@ -2323,7 +2356,7 @@ html[data-theme="light"] select:focus-visible {
 
 .focus-actions {
   flex-wrap: wrap;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .focus-active-actions {
@@ -2332,10 +2365,28 @@ html[data-theme="light"] select:focus-visible {
   justify-content: center;
 }
 
+.focus-launcher-actions {
+  margin-top: 2px;
+}
+
 .focus-actions .primary-action,
 .focus-actions .ghost-button {
   width: 100%;
   min-width: 0;
+}
+
+.focus-start-primary {
+  min-height: 58px;
+  font-size: 1rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, #7ab77c, #4f9a5e 62%, #3f8550);
+  border: 1px solid rgba(55, 120, 69, 0.34);
+  color: #122016;
+  box-shadow: 0 18px 30px rgba(63, 133, 80, 0.24);
+}
+
+.focus-start-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #84c287, #56a665 62%, #478d57);
 }
 
 .focus-save-action {
@@ -2362,42 +2413,185 @@ html[data-theme="light"] select:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.focus-helper-text {
-  margin: 12px 0 0;
+.focus-empty-state {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px dashed rgba(98, 111, 153, 0.26);
+}
+
+.focus-empty-state strong {
+  color: #fff;
+}
+
+.focus-empty-state p {
+  margin: 0;
   color: var(--text-soft);
   line-height: 1.5;
 }
 
-.focus-active-copy strong {
-  color: #fff;
+.focus-empty-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.focus-empty-actions .ghost-button {
+  min-height: 42px;
+}
+
+.focus-secondary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.focus-secondary-card {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-height: 100%;
+  padding: 24px 26px;
+  border-radius: 22px;
+  border: 1px solid rgba(98, 111, 153, 0.14);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
+}
+
+.focus-secondary-heading {
+  margin-bottom: 0;
+}
+
+.focus-secondary-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.focus-secondary-heading p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
 }
 
 .focus-calm-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .focus-calm-summary span {
   display: grid;
   gap: 4px;
-  min-height: 68px;
-  padding: 12px;
-  border-radius: 12px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(98, 111, 153, 0.14);
+  min-height: 0;
+  padding: 12px 2px 10px;
+  border-radius: 0;
+  color: var(--text-soft);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(98, 111, 153, 0.14);
 }
 
 .focus-calm-summary strong {
   color: #fff;
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-family: "Exo 2", sans-serif;
 }
 
-.focus-log-panel {
-  align-self: start;
+.focus-log-copy {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.focus-history-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.focus-history-list {
+  display: grid;
+  gap: 0;
+}
+
+.focus-history-item,
+.focus-history-empty,
+.focus-rhythm-callout {
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.042);
+  border: 1px solid rgba(98, 111, 153, 0.15);
+}
+
+.focus-history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(98, 111, 153, 0.14);
+}
+
+.focus-history-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.focus-history-list .focus-history-item:first-child {
+  padding-top: 2px;
+}
+
+.focus-history-item strong,
+.focus-history-empty strong,
+.focus-rhythm-callout strong {
+  display: block;
+  color: #fff;
+}
+
+.focus-history-item p,
+.focus-history-empty p,
+.focus-rhythm-callout p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
+.focus-support-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.focus-support-meta > span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #dce2ef;
+  background: rgba(137, 145, 163, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.focus-rhythm-callout {
+  display: grid;
+  gap: 10px;
+  background: linear-gradient(145deg, rgba(155, 215, 177, 0.13), rgba(90, 158, 104, 0.07));
+}
+
+.focus-rhythm-callout span {
+  color: var(--text-soft);
+  line-height: 1.45;
 }
 
 .focus-breakdown {
@@ -2795,6 +2989,58 @@ html[data-theme="light"] .focus-task-picker select option {
   background: #fffaf1;
 }
 
+html[data-theme="light"] .focus-launcher-card {
+  background:
+    radial-gradient(circle at top left, rgba(166, 209, 171, 0.26), transparent 34%),
+    linear-gradient(180deg, #fffdf8, #fbf6ec);
+  border-color: rgba(147, 128, 98, 0.34);
+  box-shadow: 0 22px 46px rgba(90, 72, 41, 0.12);
+}
+
+html[data-theme="light"] .focus-launcher-hero {
+  background: linear-gradient(180deg, rgba(230, 241, 226, 0.92), rgba(255, 251, 243, 0.98));
+  border-color: rgba(147, 128, 98, 0.16);
+}
+
+html[data-theme="light"] .focus-secondary-card {
+  background: linear-gradient(180deg, #fffdf8, #fcf7ee);
+  border-color: rgba(147, 128, 98, 0.28);
+  box-shadow: 0 16px 30px rgba(90, 72, 41, 0.08);
+}
+
+html[data-theme="light"] .focus-selected-task,
+html[data-theme="light"] .focus-history-item,
+html[data-theme="light"] .focus-history-empty,
+html[data-theme="light"] .focus-rhythm-callout,
+html[data-theme="light"] .focus-empty-state {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.24);
+}
+
+html[data-theme="light"] .focus-calm-summary span {
+  background: transparent;
+  border-color: rgba(147, 128, 98, 0.24);
+}
+
+html[data-theme="light"] .focus-rhythm-callout {
+  background: linear-gradient(145deg, rgba(223, 242, 223, 0.95), rgba(245, 250, 240, 0.98));
+}
+
+html[data-theme="light"] .focus-history-item {
+  background: transparent;
+}
+
+html[data-theme="light"] .focus-start-primary {
+  color: #102115;
+  background: linear-gradient(135deg, #9bd7a3, #6fb783 58%, #4e9960);
+  border-color: rgba(79, 133, 89, 0.46);
+  box-shadow: 0 16px 30px rgba(94, 130, 83, 0.22);
+}
+
+html[data-theme="light"] .focus-start-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #a6e0ae, #79bf8c 58%, #589f69);
+}
+
 html[data-theme="light"] .focus-actions .primary-action {
   color: #14231d;
   background: linear-gradient(135deg, #d9ebd8, #cfe4ed 58%, #ddd5ee);
@@ -2804,6 +3050,19 @@ html[data-theme="light"] .focus-actions .primary-action {
 
 html[data-theme="light"] .focus-actions .primary-action:hover:not(:disabled) {
   background: linear-gradient(135deg, #cee4cc, #c2dce7 58%, #d3c9e8);
+}
+
+html[data-theme="light"] .focus-actions .focus-start-primary,
+html[data-theme="light"] .focus-start-primary {
+  color: #102115;
+  background: linear-gradient(135deg, #9bd7a3, #6fb783 58%, #4e9960);
+  border: 1px solid rgba(79, 133, 89, 0.46);
+  box-shadow: 0 16px 30px rgba(94, 130, 83, 0.22);
+}
+
+html[data-theme="light"] .focus-actions .focus-start-primary:hover:not(:disabled),
+html[data-theme="light"] .focus-start-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #a6e0ae, #79bf8c 58%, #589f69);
 }
 
 html[data-theme="light"] .focus-actions .ghost-button {
@@ -3342,8 +3601,14 @@ html[data-theme="light"] .focus-session-ring {
     padding-right: 16px;
   }
 
-  .focus-widget,
-  .focus-log-panel {
+  .focus-launcher-layout,
+  .focus-secondary-grid,
+  .focus-history-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-launcher-card,
+  .focus-secondary-card {
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -3353,31 +3618,20 @@ html[data-theme="light"] .focus-session-ring {
   }
 
   .focus-widget *,
-  .focus-log-panel * {
+  .focus-secondary-card * {
     min-width: 0;
   }
 
   .focus-page .focus-session-ring {
-    width: min(178px, 55vw);
-    margin-bottom: 10px;
+    width: min(220px, 68vw);
   }
 
   .focus-page .focus-session-ring strong {
-    font-size: 2.35rem;
+    font-size: 2.6rem;
   }
 
   .focus-selected-task {
     padding: 12px;
-  }
-
-  .focus-selected-task p {
-    display: none;
-  }
-
-  .focus-heading,
-  .focus-log-heading {
-    flex-wrap: wrap;
-    align-items: flex-start;
   }
 
   .focus-quest-saved,
@@ -3393,11 +3647,6 @@ html[data-theme="light"] .focus-session-ring {
   .focus-quest-saved .ghost-button,
   .focus-quest-saved .primary-action {
     width: 100%;
-  }
-
-  .focus-heading span,
-  .focus-log-heading span {
-    display: none;
   }
 
   .focus-log-actions {
@@ -3457,9 +3706,7 @@ html[data-theme="light"] .focus-session-ring {
   }
 
   .focus-selected-task strong,
-  .focus-selected-task p,
-  .focus-session-list strong,
-  .focus-session-list span {
+  .focus-selected-task p {
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -3484,6 +3731,15 @@ html[data-theme="light"] .focus-session-ring {
   .focus-actions .icon-button {
     max-width: 280px;
     justify-self: center;
+  }
+
+  .focus-calm-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-empty-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .focus-page-active {
@@ -3780,6 +4036,21 @@ html[data-theme="light"] .page-loader-core {
   background: linear-gradient(145deg, rgba(112, 71, 255, 0.13), rgba(109, 155, 179, 0.12));
 }
 
+@media (max-width: 1100px) {
+  .focus-page {
+    width: min(1120px, calc(100vw - 304px));
+  }
+
+  .focus-launcher-layout {
+    grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.15fr);
+    gap: 28px;
+  }
+
+  .focus-calm-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .quest-inline-status {
   margin: 0 0 18px;
   color: var(--text-soft);
@@ -3846,8 +4117,200 @@ html[data-theme="light"] .page-loader-core {
   animation: floating-notice-in 0.18s ease-out;
 }
 
+.floating-notice strong {
+  font-size: 0.98rem;
+  letter-spacing: 0.01em;
+}
+
 .floating-notice span {
   color: rgba(255, 255, 255, 0.88);
+}
+
+.floating-notice-success {
+  background: linear-gradient(135deg, rgba(18, 166, 99, 0.98), rgba(13, 126, 76, 0.98));
+}
+
+.level-up-banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 45;
+  transform: translateX(-50%);
+  min-width: min(520px, calc(100vw - 32px));
+  padding: 18px 24px;
+  border-radius: 22px;
+  color: #fff4d6;
+  background:
+    radial-gradient(circle at top, rgba(255, 218, 109, 0.4), transparent 55%),
+    linear-gradient(135deg, rgba(157, 93, 12, 0.98), rgba(255, 137, 29, 0.92));
+  border: 1px solid rgba(255, 230, 164, 0.34);
+  box-shadow: 0 24px 50px rgba(97, 49, 0, 0.36);
+  animation: floating-notice-in 0.22s ease-out;
+  text-align: center;
+}
+
+.level-up-banner strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.4rem;
+}
+
+.level-up-banner p {
+  margin: 8px 0 0;
+  color: rgba(255, 246, 220, 0.92);
+}
+
+.level-up-kicker {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(255, 245, 204, 0.18);
+}
+
+.progress-guide {
+  margin-bottom: 18px;
+}
+
+.progress-guide-heading {
+  align-items: start;
+}
+
+.progress-guide-heading p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.progress-guide-dismiss {
+  white-space: nowrap;
+}
+
+.progress-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.progress-guide-item {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(114, 126, 168, 0.22);
+}
+
+.progress-guide-item strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.progress-guide-item p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.task-xp-preview {
+  flex: 1 1 280px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+}
+
+.task-xp-preview strong {
+  font-size: 0.96rem;
+  color: #f2f5ff;
+}
+
+.task-xp-preview span {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.streak-card {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.streak-heat-label {
+  display: inline-flex;
+  align-self: start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.streak-card-cool {
+  background: linear-gradient(135deg, rgba(55, 74, 124, 0.32), rgba(22, 28, 51, 0.76));
+}
+
+.streak-card-cool .streak-heat-label {
+  background: rgba(122, 155, 255, 0.18);
+  color: #bdd2ff;
+}
+
+.streak-card-warm {
+  background: linear-gradient(135deg, rgba(22, 111, 146, 0.34), rgba(18, 53, 88, 0.82));
+  box-shadow: 0 14px 28px rgba(10, 41, 72, 0.18);
+}
+
+.streak-card-warm .streak-heat-label {
+  background: rgba(80, 195, 255, 0.18);
+  color: #c7efff;
+}
+
+.streak-card-steady {
+  background: linear-gradient(135deg, rgba(39, 126, 82, 0.34), rgba(18, 61, 43, 0.82));
+  box-shadow: 0 16px 32px rgba(18, 61, 43, 0.18);
+}
+
+.streak-card-steady .streak-heat-label {
+  background: rgba(101, 220, 160, 0.18);
+  color: #dbffe9;
+}
+
+.streak-card-spark {
+  background: linear-gradient(135deg, rgba(181, 118, 24, 0.38), rgba(88, 49, 14, 0.86));
+  box-shadow: 0 18px 34px rgba(96, 51, 10, 0.22);
+}
+
+.streak-card-spark .streak-heat-label {
+  background: rgba(255, 184, 75, 0.2);
+  color: #fff0d0;
+}
+
+.streak-card-ember {
+  background: linear-gradient(135deg, rgba(210, 91, 34, 0.42), rgba(111, 30, 10, 0.9));
+  box-shadow: 0 20px 38px rgba(112, 29, 10, 0.28);
+}
+
+.streak-card-ember .streak-heat-label {
+  background: rgba(255, 148, 112, 0.24);
+  color: #fff0e3;
+}
+
+.streak-card-blaze {
+  background:
+    radial-gradient(circle at top right, rgba(255, 211, 123, 0.2), transparent 40%),
+    linear-gradient(135deg, rgba(223, 115, 37, 0.48), rgba(133, 24, 17, 0.92));
+  box-shadow: 0 24px 45px rgba(133, 24, 17, 0.34);
+}
+
+.streak-card-blaze .streak-heat-label {
+  background: rgba(255, 219, 139, 0.24);
+  color: #fff4db;
+}
+
+@media (max-width: 720px) {
+  .level-up-banner {
+    min-width: calc(100vw - 24px);
+    padding: 16px 18px;
+  }
 }
 
 @keyframes quest-button-spin {
