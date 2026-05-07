@@ -70,6 +70,7 @@ def _oracle_standup_note(work_date, user_id, force=False):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        standup_repository.ensure_standup_storage(cur)
         saved = standup_repository.fetch_standup_note(cur, oracle_user_id, work_date)
         context = standup_repository.build_context(cur, oracle_user_id, work_date)
         if saved and not force:
