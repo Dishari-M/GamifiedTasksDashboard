@@ -74,6 +74,11 @@ export const authApi = {
   getProfile: (identifier) => api.get("/users/profile", { params: { identifier } }).then(unwrap),
 };
 
+export const settingsApi = {
+  get: () => api.get("/users/settings").then(unwrap),
+  save: (payload) => api.put("/users/settings", payload).then(unwrap),
+};
+
 export const tasksApi = {
   list: (params = {}) => dedupeGet(
     getKey("tasks:list", params),

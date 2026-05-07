@@ -43,7 +43,7 @@ import {
 import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
-import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, overviewApi, questsApi, standupApi, tasksApi } from "./api/client";
+import { authApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, overviewApi, questsApi, settingsApi, standupApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
@@ -104,6 +104,66 @@ const readCurrentUser = () => {
 };
 
 const authErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+const settingsErrorMessage = (error, fallback) => error?.response?.data?.detail?.message || error?.message || fallback;
+
+const timeToMinutes = (value) => {
+  const [hours, minutes] = String(value || "").split(":").map((part) => Number(part));
+  return hours * 60 + minutes;
+};
+
+const openNativeTimePicker = (event) => {
+  try {
+    event.currentTarget.showPicker?.();
+  } catch {
+    // Some browsers only allow showPicker during direct pointer gestures.
+  }
+};
+
+const settingsFormFromUser = (user) => ({
+  working_hours_start: user?.working_hours_start || user?.workday_start_local || "09:00",
+  working_hours_end: user?.working_hours_end || user?.workday_end_local || "17:00",
+  focus_xp_multiplier: String(user?.focus_xp_multiplier ?? FOCUS_XP_MULTIPLIER),
+});
+
+const settingsFormFromApi = (settings) => ({
+  working_hours_start: settings?.working_hours_start || "09:00",
+  working_hours_end: settings?.working_hours_end || "17:00",
+  focus_xp_multiplier: String(settings?.focus_xp_multiplier ?? FOCUS_XP_MULTIPLIER),
+});
+
+const multiplierSliderValue = (value) => {
+  const multiplier = Number(value);
+  if (!Number.isFinite(multiplier)) return FOCUS_XP_MULTIPLIER;
+  return Math.min(3, Math.max(0.25, multiplier));
+};
+
+const mergeSettingsIntoUser = (user, settings) => ({
+  ...user,
+  working_hours_start: settings.working_hours_start,
+  working_hours_end: settings.working_hours_end,
+  workday_start_local: settings.working_hours_start,
+  workday_end_local: settings.working_hours_end,
+  focus_xp_multiplier: settings.focus_xp_multiplier,
+});
+
+const validateSettingsForm = (form) => {
+  const errors = {};
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  if (!timePattern.test(form.working_hours_start)) {
+    errors.working_hours_start = "Enter a valid start time.";
+  }
+  if (!timePattern.test(form.working_hours_end)) {
+    errors.working_hours_end = "Enter a valid end time.";
+  }
+  if (!errors.working_hours_start && !errors.working_hours_end && timeToMinutes(form.working_hours_end) <= timeToMinutes(form.working_hours_start)) {
+    errors.working_hours_end = "End time must be after start time.";
+  }
+  const multiplier = Number(form.focus_xp_multiplier);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    errors.focus_xp_multiplier = "Enter a positive multiplier.";
+  }
+  return errors;
+};
 
 const truncateText = (value, maxLength = 46) => {
   const text = String(value || "");
@@ -1527,9 +1587,126 @@ const OverviewPage = ({ tasks, overview, focusSessions, onOverviewChange }) => {
 
 const SyncPage = () => <main className="page-stack" data-testid="sync-page"><section className="surface sync-card" data-testid="sync-management-card"><div className="section-heading"><h2><CloudArrowDown size={26} weight="duotone" aria-hidden="true" /> Sync Center</h2><button className="primary-action" data-testid="run-sync-button"><CloudArrowDown size={19} weight="duotone" aria-hidden="true" /> Sync Now</button></div><div className="sync-grid">{["Jira", "Outlook Calendar", "Microsoft To Do"].map((source) => <article className="sync-source" key={source} data-testid={`sync-source-${slug(source)}`}><CheckCircle size={26} weight="duotone" aria-hidden="true" /><strong data-testid={`sync-source-title-${slug(source)}`}>{source}</strong><span data-testid={`sync-source-status-${slug(source)}`}>Ready to sync</span></article>)}</div></section></main>;
 
-const SettingsPage = () => <main className="page-stack" data-testid="settings-page"><section className="surface settings-card" data-testid="settings-card"><div className="section-heading"><h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2></div><label className="settings-row" data-testid="working-hours-setting-label">Working hours<input value="09:00 - 17:00" readOnly data-testid="working-hours-setting-input" /></label><label className="settings-row" data-testid="xp-multiplier-setting-label">Focus XP multiplier<input value={formatFocusMultiplier(FOCUS_XP_MULTIPLIER)} readOnly data-testid="xp-multiplier-setting-input" /></label></section></main>;
+const SettingsPage = ({ currentUser, onUserUpdate }) => {
+  const initialSettings = settingsFormFromUser(currentUser);
+  const [form, setForm] = useState(initialSettings);
+  const [savedSettings, setSavedSettings] = useState(initialSettings);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError("");
+    settingsApi.get()
+      .then((settings) => {
+        if (cancelled) return;
+        const nextSettings = settingsFormFromApi(settings);
+        setForm(nextSettings);
+        setSavedSettings(nextSettings);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoadError(settingsErrorMessage(error, "Unable to load settings."));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.user_id]);
+
+  const updateField = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+    setSaveError("");
+    setSuccessMessage("");
+  };
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(savedSettings);
+  const controlsDisabled = isLoading || isSaving;
+
+  const cancelChanges = () => {
+    setForm(savedSettings);
+    setFieldErrors({});
+    setSaveError("");
+    setSuccessMessage("");
+  };
+
+  const saveSettings = async (event) => {
+    event.preventDefault();
+    const errors = validateSettingsForm(form);
+    setFieldErrors(errors);
+    setSaveError("");
+    setSuccessMessage("");
+    if (Object.keys(errors).length) return;
+
+    setIsSaving(true);
+    try {
+      const updatedSettings = await settingsApi.save({
+        working_hours_start: form.working_hours_start,
+        working_hours_end: form.working_hours_end,
+        focus_xp_multiplier: Number(form.focus_xp_multiplier),
+      });
+      const nextSettings = settingsFormFromApi(updatedSettings);
+      setForm(nextSettings);
+      setSavedSettings(nextSettings);
+      onUserUpdate?.((user) => mergeSettingsIntoUser(user, updatedSettings));
+      setSuccessMessage("Settings saved.");
+    } catch (error) {
+      setSaveError(settingsErrorMessage(error, "Unable to save settings."));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <main className="page-stack" data-testid="settings-page">
+      <section className="surface settings-card" data-testid="settings-card">
+        <form onSubmit={saveSettings}>
+          <div className="section-heading">
+            <h2><GearSix size={26} weight="duotone" aria-hidden="true" /> Productivity Settings</h2>
+            <div className="settings-actions">
+              <button className="ghost-button" type="button" onClick={cancelChanges} disabled={controlsDisabled || !isDirty} data-testid="settings-cancel-button"><X size={18} weight="bold" aria-hidden="true" /> Cancel</button>
+              <button className="primary-action" type="submit" disabled={controlsDisabled || !isDirty} data-testid="settings-save-button"><FloppyDisk size={19} weight="duotone" aria-hidden="true" /> {isSaving ? "Saving" : "Save"}</button>
+            </div>
+          </div>
+          {loadError && <p className="form-error" role="alert" data-testid="settings-load-error">{loadError}</p>}
+          <div className="settings-time-grid" data-testid="working-hours-setting-label">
+            <label className="settings-row">Working hours start
+              <input type="time" value={form.working_hours_start} onClick={openNativeTimePicker} onChange={(event) => updateField("working_hours_start", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.working_hours_start)} aria-describedby={fieldErrors.working_hours_start ? "working-hours-start-error" : undefined} data-testid="working-hours-start-input" />
+              {fieldErrors.working_hours_start && <span className="field-error" id="working-hours-start-error">{fieldErrors.working_hours_start}</span>}
+            </label>
+            <label className="settings-row">Working hours end
+              <input type="time" value={form.working_hours_end} onClick={openNativeTimePicker} onChange={(event) => updateField("working_hours_end", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.working_hours_end)} aria-describedby={fieldErrors.working_hours_end ? "working-hours-end-error" : undefined} data-testid="working-hours-end-input" />
+              {fieldErrors.working_hours_end && <span className="field-error" id="working-hours-end-error">{fieldErrors.working_hours_end}</span>}
+            </label>
+          </div>
+          <label className="settings-row settings-slider-row" data-testid="xp-multiplier-setting-label">
+            <span className="settings-slider-header">Focus XP multiplier</span>
+            <span className="settings-slider-control">
+              <span className="settings-slider-value">
+                <input id="xp-multiplier-setting-input" type="number" min="0.25" max="3" step="0.01" value={form.focus_xp_multiplier} onChange={(event) => updateField("focus_xp_multiplier", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.focus_xp_multiplier)} aria-describedby={fieldErrors.focus_xp_multiplier ? "xp-multiplier-error" : undefined} data-testid="xp-multiplier-setting-input" />
+                <span aria-hidden="true">x</span>
+              </span>
+              <input id="xp-multiplier-setting-slider" type="range" min="0.25" max="3" step="0.01" value={multiplierSliderValue(form.focus_xp_multiplier)} onChange={(event) => updateField("focus_xp_multiplier", event.target.value)} disabled={controlsDisabled} aria-invalid={Boolean(fieldErrors.focus_xp_multiplier)} aria-describedby={fieldErrors.focus_xp_multiplier ? "xp-multiplier-error" : undefined} data-testid="xp-multiplier-setting-slider" />
+            </span>
+            {fieldErrors.focus_xp_multiplier && <span className="field-error" id="xp-multiplier-error">{fieldErrors.focus_xp_multiplier}</span>}
+          </label>
+          {saveError && <p className="form-error" role="alert" data-testid="settings-save-error">{saveError}</p>}
+          {successMessage && <p className="settings-success" role="status" data-testid="settings-success"><CheckCircle size={18} weight="duotone" aria-hidden="true" /> {successMessage}</p>}
+        </form>
+      </section>
+    </main>
+  );
+};
+
+const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const location = useLocation();
   const [tasks, setTasks] = useState([]);
   const [taskStatus, setTaskStatus] = useState("loading");
@@ -1909,7 +2086,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout }) => {
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} onRefreshInsights={handleRefreshInsights} />} />
           <Route path="/overview" element={<OverviewPage tasks={tasks} overview={overview} focusSessions={focusSessions} onOverviewChange={setOverview} />} />
           <Route path="/sync" element={<SyncPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsPage currentUser={currentUser} onUserUpdate={onUserUpdate} />} />
         </Routes>
       </div>
     </div>
@@ -1938,11 +2115,19 @@ const AuthenticatedApp = () => {
     }
   };
 
+  const handleUserUpdate = (updater) => {
+    setCurrentUser((current) => {
+      const nextUser = typeof updater === "function" ? updater(current) : { ...current, ...updater };
+      window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   if (!currentUser?.user_id) {
     return <AuthPage onAuthenticated={handleAuthenticated} />;
   }
 
-  return <AppShell currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={handleLogout} />;
+  return <AppShell currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />;
 };
 
 function App() {

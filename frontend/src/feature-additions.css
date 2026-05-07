@@ -311,6 +311,172 @@
   font-weight: 800;
 }
 
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.settings-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  color: var(--green);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.settings-card button:disabled,
+.settings-card input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.settings-card input[aria-invalid="true"] {
+  border-color: rgba(255, 59, 48, 0.72);
+}
+
+.settings-slider-row {
+  gap: 12px;
+}
+
+.settings-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.settings-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.settings-slider-value {
+  width: 104px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0 10px;
+  border-radius: 11px;
+  color: #fff;
+  background: rgba(0, 122, 255, 0.18);
+  border: 1px solid rgba(0, 122, 255, 0.36);
+  font-weight: 900;
+  flex: 0 0 auto;
+}
+
+.settings-slider-value input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  width: 4.75ch;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font-weight: 900;
+  text-align: right;
+}
+
+.settings-slider-value input[type="number"]:focus-visible {
+  box-shadow: none;
+}
+
+.settings-slider-value input[type="number"]::-webkit-outer-spin-button,
+.settings-slider-value input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.settings-slider-value:has(input[aria-invalid="true"]) {
+  border-color: rgba(255, 59, 48, 0.72);
+}
+
+.settings-slider-control input[type="range"] {
+  flex: 1 1 180px;
+  min-width: 150px;
+  max-width: 300px;
+}
+
+.settings-card input[type="range"] {
+  width: min(300px, 100%);
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--blue-soft);
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--blue);
+}
+
+.settings-card input[type="range"]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.34);
+}
+
+.settings-card input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  border: 1px solid rgba(98, 111, 153, 0.24);
+}
+
+.settings-card input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--blue);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+}
+
+.settings-card input[type="range"]::-moz-range-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  border: 1px solid rgba(98, 111, 153, 0.24);
+}
+
+.settings-card input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--blue);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+}
+
+.settings-card input[type="time"] {
+  color-scheme: dark;
+}
+
+.settings-card input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.settings-card input[type="time"]:disabled::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
 .task-editor-form input[aria-invalid="true"],
 .task-editor-form select[aria-invalid="true"],
 .task-editor-form textarea[aria-invalid="true"] {
@@ -2978,6 +3144,7 @@ html[data-theme="light"] .accomplished-list article,
 html[data-theme="light"] .next-quest-card,
 html[data-theme="light"] .quest-path-row,
 html[data-theme="light"] .quest-summary,
+html[data-theme="light"] .focus-active-task-card,
 html[data-theme="light"] .focus-selected-task,
 html[data-theme="light"] .focus-breakdown-item,
 html[data-theme="light"] .focus-session-list article,
@@ -2998,9 +3165,11 @@ html[data-theme="light"] .source-row strong,
 html[data-theme="light"] .insight-list strong,
 html[data-theme="light"] .accomplished-list strong,
 html[data-theme="light"] .next-quest-card h3,
+html[data-theme="light"] .completion-momentum-copy strong,
 html[data-theme="light"] .quest-summary strong,
 html[data-theme="light"] .quest-path-copy strong,
 html[data-theme="light"] .completion-undo-notice strong,
+html[data-theme="light"] .focus-active-task-card strong,
 html[data-theme="light"] .focus-quest-saved strong,
 html[data-theme="light"] .focus-selected-task strong,
 html[data-theme="light"] .focus-context-line strong,
@@ -3048,6 +3217,7 @@ html[data-theme="light"] .accomplished-list span,
 html[data-theme="light"] .quest-board-summary,
 html[data-theme="light"] .quest-path-copy span,
 html[data-theme="light"] .quest-path-copy p,
+html[data-theme="light"] .focus-active-task-card span,
 html[data-theme="light"] .focus-selected-task span,
 html[data-theme="light"] .focus-breakdown-item span,
 html[data-theme="light"] .focus-session-list span,
@@ -3150,6 +3320,28 @@ html[data-theme="light"] .focus-chip {
   min-height: 24px;
 }
 
+html[data-theme="light"] .focus-period-control {
+  background: #fffdf7;
+  border-color: var(--a11y-border-soft);
+}
+
+html[data-theme="light"] .focus-period-control button {
+  color: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-period-control button:hover,
+html[data-theme="light"] .focus-period-control button:focus-visible {
+  color: var(--text);
+  background: #f1eadf;
+  border-color: rgba(112, 96, 70, 0.56);
+}
+
+html[data-theme="light"] .focus-period-control button.active {
+  color: #14231d;
+  background: #dcebf1;
+  border-color: #467f9c;
+}
+
 html[data-theme="light"] .field-error,
 html[data-theme="light"] .form-error,
 html[data-theme="light"] .auth-error,
@@ -3160,9 +3352,50 @@ html[data-theme="light"] .quest-focus-warning {
 
 html[data-theme="light"] .success-action,
 html[data-theme="light"] .today-toggle.active,
+html[data-theme="light"] .settings-success,
 html[data-theme="light"] .sync-source,
 html[data-theme="light"] .sync-source svg {
   color: var(--a11y-success);
+}
+
+html[data-theme="light"] .settings-card input[type="time"] {
+  color-scheme: light;
+}
+
+html[data-theme="light"] .settings-card input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+html[data-theme="light"] .settings-slider-value {
+  color: var(--text);
+  background: #eaf3f0;
+  border-color: rgba(76, 128, 116, 0.42);
+}
+
+html[data-theme="light"] .settings-card input[type="range"]::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #5f9f93, #5b86b8);
+  border-color: rgba(147, 128, 98, 0.36);
+}
+
+html[data-theme="light"] .settings-card input[type="range"]::-moz-range-track {
+  background: linear-gradient(90deg, #5f9f93, #5b86b8);
+  border-color: rgba(147, 128, 98, 0.36);
+}
+
+@media (max-width: 760px) {
+  .settings-time-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .settings-actions .ghost-button,
+  .settings-actions .primary-action {
+    flex: 1 1 160px;
+  }
 }
 
 html[data-theme="light"] .pill-critical,
