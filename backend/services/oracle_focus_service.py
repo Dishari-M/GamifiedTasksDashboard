@@ -7,10 +7,12 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import focus_repository
+from services.api_cache import invalidate_user_cache
 from services.xp_service import calculate_focus_reward
 
 
 VALID_OUTCOMES = {"Progress made", "Blocked", "Ready for review", "Completed"}
+FOCUS_RELATED_CACHE_NAMESPACES = ("dashboard_today", "insights_today")
 
 
 def list_oracle_focus_sessions(filters=None, user_id=1):
@@ -48,6 +50,7 @@ def create_oracle_focus_session(payload, user_id=1):
         focus_session_id = focus_repository.insert_focus_session(cur, int(user_id), data, quest_item_id, xp_multiplier, xp_awarded)
         focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_minutes"], xp_multiplier, xp_awarded)
         conn.commit()
+        invalidate_user_cache(int(user_id), FOCUS_RELATED_CACHE_NAMESPACES)
         return focus_repository.fetch_focus_session(cur, int(user_id), focus_session_id)
     except HTTPException:
         if conn:

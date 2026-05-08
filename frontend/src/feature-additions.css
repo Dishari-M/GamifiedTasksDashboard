@@ -254,6 +254,73 @@
   line-height: 1.55;
 }
 
+.focus-history-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.focus-rhythm-callout {
+  display: grid;
+  gap: 8px;
+}
+
+.focus-rhythm-callout strong,
+.focus-rhythm-callout p,
+.focus-rhythm-callout span {
+  margin: 0;
+}
+
+.focus-rhythm-callout p,
+.focus-rhythm-callout span {
+  line-height: 1.6;
+}
+
+.focus-history-list {
+  display: grid;
+  gap: 14px;
+}
+
+.focus-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.focus-history-item > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.focus-history-item strong,
+.focus-history-item p,
+.focus-support-meta span {
+  margin: 0;
+}
+
+.focus-history-item p {
+  line-height: 1.5;
+}
+
+.focus-support-meta {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .focus-history-item {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .focus-support-meta {
+    justify-items: start;
+    white-space: normal;
+  }
+}
+
 .auth-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;

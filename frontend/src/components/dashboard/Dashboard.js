@@ -220,7 +220,7 @@ const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
   const totalXp = dashboardStats?.total_xp ?? tasks.filter((task) => task.status === "Done").reduce((sum, task) => sum + task.xp, 2450);
-  const focusMinutes = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes;
+  const focusMinutes = dashboardStats?.focus_minutes;
   const meetingMinutes = dashboardStats?.meeting_minutes;
   const topMissions = [...(todayTasks.length ? todayTasks : tasks.filter((task) => task.status !== "Done"))]
     .sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0))
@@ -232,8 +232,8 @@ const Dashboard = ({ tasks, onComplete, onStatusChange, onEdit, onToggleToday, o
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
         <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value={focusMinutes ? formatMinutes(focusMinutes) : "2h 35m"} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "22% vs yesterday"} icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Focus Time" value={formatMinutes(focusMinutes ?? 0)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "22% vs yesterday"} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Meetings" value={formatMinutes(meetingMinutes ?? 0)} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">View quests</NavLink></div><div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} />)}</div></section>

@@ -8,6 +8,7 @@ from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import (
     get_calendar_events,
     get_daily_work_items,
+    get_focus_sessions,
     get_work_items,
     resolve_work_date,
 )
@@ -97,6 +98,8 @@ def build_dashboard(date=None, user_id=None):
         daily_work_items = [item for item in snapshot["daily_work_items"] if item["is_working_today"]]
         previous_daily_work_items = [item for item in snapshot["previous_daily_work_items"] if item["is_working_today"]]
         events = snapshot["events"]
+        focus_sessions = snapshot["focus_sessions"]
+        previous_focus_sessions = snapshot["previous_focus_sessions"]
         capacity = build_capacity(work_date, user=snapshot["user"], events=events)
         previous_capacity = build_capacity(previous_date, user=snapshot["user"], events=snapshot["previous_events"])
     else:
@@ -104,6 +107,8 @@ def build_dashboard(date=None, user_id=None):
         daily_work_items = [item for item in get_daily_work_items(work_date, user_id) if item["is_working_today"]]
         previous_daily_work_items = [item for item in get_daily_work_items(previous_date, user_id) if item["is_working_today"]]
         events = get_calendar_events(work_date, user_id)
+        focus_sessions = get_focus_sessions(work_date, user_id)
+        previous_focus_sessions = get_focus_sessions(previous_date, user_id)
         capacity = build_capacity(work_date, user_id=user_id)
         previous_capacity = build_capacity(previous_date, user_id=user_id)
 
@@ -144,8 +149,8 @@ def build_dashboard(date=None, user_id=None):
     previous_tasks_completed = sum(1 for task in tasks if _completed_on_date(task, previous_date))
     total_xp = sum(task["xp_value"] for task in tasks if task["status"] == "Done")
     previous_xp = sum(task["xp_value"] for task in tasks if _completed_on_date(task, previous_date))
-    focus_minutes = max(capacity["available_focus_minutes"] - 10, 0)
-    previous_focus_minutes = max(previous_capacity["available_focus_minutes"] - 10, 0)
+    focus_minutes = sum(int(session.get("actual_minutes") or session.get("duration_minutes") or 0) for session in focus_sessions)
+    previous_focus_minutes = sum(int(session.get("actual_minutes") or session.get("duration_minutes") or 0) for session in previous_focus_sessions)
     schedule = [_schedule_response(event) for event in events]
     if not any(event.get("is_focus_block") for event in events):
         schedule.extend(_focus_window_response(window) for window in capacity["suggested_focus_windows"])
