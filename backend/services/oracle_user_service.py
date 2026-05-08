@@ -580,7 +580,7 @@ def _identity_column():
 
 
 def _display_name(data):
-    return " ".join(part for part in [data.get("first_name"), data.get("last_name")] if part) or data.get("username") or "DevQuest User"
+    return " ".join(part for part in [data.get("first_name"), data.get("last_name")] if part) or data.get("username") or "Gamified Tasks Dashboard User"
 
 
 def _split_display_name(display_name, first_name=None, last_name=None):

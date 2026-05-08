@@ -1,6 +1,6 @@
 # OCI GenAI Team Setup
 
-This guide documents the local setup pattern used to verify access to OCI Generative AI for DevQuest AI features.
+This guide documents the local setup pattern used to verify access to OCI Generative AI for Gamified Tasks Dashboard AI features.
 
 The final hackathon access is through the BOAT/OCI CLI session profile and the `team_aurora` compartment under the `commerce_vibeathon` tenancy override.
 
@@ -27,7 +27,7 @@ region=us-phoenix-1
 security_token_file=<path to .oci/sessions/boat/token>
 ```
 
-3. Set DevQuest real-AI environment variables before starting FastAPI:
+3. Set Gamified Tasks Dashboard real-AI environment variables before starting FastAPI:
 
 ```powershell
 $env:DEVQUEST_AI_MODE="real"
@@ -91,7 +91,7 @@ Yes, after these local prerequisites:
 - Install/configure OCI CLI.
 - Run `oci session authenticate ... --profile-name boat`.
 - Confirm the `boat` profile has `security_token_file`.
-- Set the DevQuest env vars above.
+- Set the Gamified Tasks Dashboard env vars above.
 - Start the backend from the same shell where the env vars are set.
 
 They should not paste someone else's token or key files. Each teammate should run the session-auth command with their own BOAT account/session. Session tokens expire, so if real AI starts returning `401` or auth errors, rerun `oci session authenticate`.
@@ -312,7 +312,7 @@ model_sample_count=<non-zero>
 
 Set these in PowerShell before starting the backend process. They are not code config values and should not be committed to the repository.
 
-For DevQuest real AI mode against the temporary test compartment, use:
+For Gamified Tasks Dashboard real AI mode against the temporary test compartment, use:
 
 ```powershell
 $env:DEVQUEST_AI_MODE="real"

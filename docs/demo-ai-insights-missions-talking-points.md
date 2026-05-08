@@ -2,7 +2,7 @@
 
 ## AI Insights
 
-- AI Insights are generated from the user's actual DevQuest context, not from a generic prompt.
+- AI Insights are generated from the user's actual Gamified Tasks Dashboard context, not from a generic prompt.
 - The backend sends structured evidence to OCI GenAI: today's tasks, Working Today items, completed work, due dates, priority, XP, RCA T-shirt size, effort, notes, blockers, calendar meetings, and available focus time.
 - The AI is instructed to use only this supplied evidence, so it should not invent tasks, meetings, or blockers.
 - The output gives a daily insight, risks, recommendations, themes, and task-level insight.

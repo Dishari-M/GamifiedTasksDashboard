@@ -68,7 +68,7 @@ function Stop-PidFileProcess {
         $processId = [int](Get-Content -Path $PidFile -Raw)
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($process) {
-            Write-Host "Stopping previous DevQuest process $processId ..." -ForegroundColor DarkYellow
+            Write-Host "Stopping previous Gamified Tasks Dashboard process $processId ..." -ForegroundColor DarkYellow
             Stop-Process -Id $processId -Force -ErrorAction Stop
         }
     } catch {
@@ -189,7 +189,7 @@ function Set-OracleEnvironment {
     $env:DB_POOL_INCREMENT = "1"
 }
 
-Write-Host "Starting DevQuest from $root" -ForegroundColor Cyan
+Write-Host "Starting Gamified Tasks Dashboard from $root" -ForegroundColor Cyan
 
 if (-not (Test-Path $backendDir)) {
     throw "Backend folder not found: $backendDir"
@@ -343,7 +343,7 @@ if (-not (Wait-ForHttp -Url "http://127.0.0.1:3000/" -TimeoutSeconds 60)) {
 }
 
 Write-Host ""
-Write-Host "DevQuest is up." -ForegroundColor Green
+Write-Host "Gamified Tasks Dashboard is up." -ForegroundColor Green
 Write-Host "Frontend: http://127.0.0.1:3000"
 Write-Host "Backend:  http://127.0.0.1:8000"
 Write-Host "API Docs: http://127.0.0.1:8000/docs"

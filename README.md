@@ -1,10 +1,12 @@
-# 🚀 DevQuest
+# 🚀 Gamified Tasks Dashboard
 
-DevQuest is an AI-assisted, gamified productivity dashboard for developers. It brings tasks, meetings, focus time, daily missions, quests, XP, standup notes, and productivity overviews into one workspace so a developer can quickly decide what to work on next and explain progress clearly.
+![Gamified Tasks Dashboard hero](docs/assets/gamified-tasks-dashboard-hero.jpg)
 
-The app is built for the hackathon flow where work is scattered across task systems, calendar meetings, notes, and local context. DevQuest turns that raw context into a focused plan for the day.
+Gamified Tasks Dashboard is an AI-assisted, gamified productivity dashboard for developers. It brings tasks, meetings, focus time, daily missions, quests, XP, standup notes, and productivity overviews into one workspace so a developer can quickly decide what to work on next and explain progress clearly.
 
-## ✨ What DevQuest Does
+The app is built for the hackathon flow where work is scattered across task systems, calendar meetings, notes, and local context. Gamified Tasks Dashboard turns that raw context into a focused plan for the day.
+
+## ✨ What Gamified Tasks Dashboard Does
 
 | Area | What it provides |
 | --- | --- |
@@ -18,7 +20,7 @@ The app is built for the hackathon flow where work is scattered across task syst
 
 ## 🤖 AI Usage
 
-DevQuest uses AI as a planning and summarization layer, while keeping core metrics deterministic in the backend.
+Gamified Tasks Dashboard uses AI as a planning and summarization layer, while keeping core metrics deterministic in the backend.
 
 - AI suggests mission order using task priority, due dates, XP, impact, effort, blockers, notes, and available focus capacity.
 - AI Insights explain what needs attention, why it matters, what risks exist, and what the next practical actions should be.

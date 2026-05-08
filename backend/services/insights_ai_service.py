@@ -8,7 +8,7 @@ from integrations import oci_genai_client
 
 
 TODAY_INSIGHT_SYSTEM_PROMPT = """
-You are DevQuest's daily AI insight analyst for a developer.
+You are Gamified Tasks Dashboard's daily AI insight analyst for a developer.
 Use only the supplied task, calendar, capacity, and note evidence.
 Do not calculate totals; the backend supplies numeric totals.
 When explaining XP, use explicit XP first, then RCA T-shirt complexity if present, then backend fallback values.
