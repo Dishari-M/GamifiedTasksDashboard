@@ -65,6 +65,17 @@
   max-width: 460px;
 }
 
+.quest-run-progress {
+  height: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.quest-run-progress .progress-fill {
+  height: 6px;
+  border-radius: 999px;
+}
+
 .quest-progress-big .progress-fill,
 .quest-run-progress .progress-fill,
 .focus-saved-progress .progress-fill {
@@ -7629,6 +7640,24 @@ html[data-theme="light"] .page-loader-core {
   animation: quest-button-spin 1.2s linear infinite;
 }
 
+.today-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.today-toggle.loading,
+.today-toggle.loading:disabled {
+  cursor: wait;
+  opacity: 0.92;
+}
+
+.today-toggle-spinner {
+  flex: 0 0 auto;
+  animation: quest-button-spin 1.2s linear infinite;
+}
+
 .enrichment-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -8745,4 +8774,146 @@ html[data-theme="light"] .focus-chart-legend em {
 
 html[data-theme="light"] .focus-chart-swatch {
   box-shadow: 0 0 0 2px rgba(24, 35, 31, 0.14);
+}
+
+.focus-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(112, 71, 255, 0.22), transparent 28rem),
+    rgba(3, 6, 14, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.focus-confirm-modal {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  text-align: center;
+  padding: 28px;
+  border-color: rgba(112, 71, 255, 0.42);
+  background:
+    linear-gradient(145deg, rgba(18, 23, 34, 0.98), rgba(9, 13, 26, 0.98));
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.46),
+    0 0 40px rgba(112, 71, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.focus-confirm-icon {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(112, 71, 255, 0.42);
+  border-radius: 18px;
+  color: #bda9ff;
+  background: rgba(112, 71, 255, 0.16);
+  box-shadow: 0 0 28px rgba(112, 71, 255, 0.24);
+}
+
+.focus-confirm-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.focus-confirm-copy h2,
+.focus-confirm-copy p {
+  margin: 0;
+}
+
+.focus-confirm-copy h2 {
+  color: var(--text);
+  font-family: "Exo 2", sans-serif;
+  font-size: clamp(1.35rem, 4vw, 1.9rem);
+}
+
+.focus-confirm-copy p {
+  max-width: 34ch;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.focus-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.focus-confirm-actions .primary-action,
+.focus-confirm-actions .ghost-button {
+  min-width: 150px;
+}
+
+html[data-theme="light"] .focus-active-task-card span {
+  color: #33443d;
+}
+
+html[data-theme="light"] .focus-active-task-card strong {
+  color: #18231f;
+  text-shadow: none;
+}
+
+html[data-theme="light"] .focus-confirm-backdrop {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(124, 100, 154, 0.22), transparent 26rem),
+    rgba(43, 35, 23, 0.3);
+}
+
+html[data-theme="light"] .focus-confirm-modal {
+  color: #18231f;
+  border-color: rgba(127, 108, 82, 0.46);
+  background:
+    linear-gradient(145deg, #fffdf7, #fffaf1 58%, #f4efe7);
+  box-shadow:
+    0 28px 78px rgba(86, 76, 61, 0.28),
+    0 0 36px rgba(124, 100, 154, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+html[data-theme="light"] .focus-confirm-icon {
+  color: #5a4576;
+  border-color: rgba(124, 100, 154, 0.4);
+  background: #efe7f6;
+  box-shadow: none;
+}
+
+html[data-theme="light"] .focus-confirm-copy h2 {
+  color: #18231f;
+}
+
+html[data-theme="light"] .focus-confirm-copy p {
+  color: #33443d;
+}
+
+html[data-theme="light"] .focus-confirm-actions .primary-action {
+  color: #14231d;
+  background: linear-gradient(135deg, #d9ebd8, #cfe4ed 58%, #ddd5ee);
+  border: 1px solid rgba(99, 128, 113, 0.46);
+  box-shadow: 0 12px 24px rgba(86, 76, 61, 0.1);
+}
+
+html[data-theme="light"] .focus-confirm-actions .ghost-button {
+  color: #18231f;
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.54);
+}
+
+@media (max-width: 520px) {
+  .focus-confirm-modal {
+    padding: 24px 18px;
+  }
+
+  .focus-confirm-actions .primary-action,
+  .focus-confirm-actions .ghost-button {
+    width: 100%;
+  }
 }
