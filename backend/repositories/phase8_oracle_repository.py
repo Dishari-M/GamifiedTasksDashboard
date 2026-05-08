@@ -231,7 +231,7 @@ def _today_from_db(cur):
 def _default_user(user_id):
     return {
         "user_id": user_id,
-        "first_name": "DevQuest",
+        "first_name": "Gamified Tasks Dashboard",
         "last_name": "User",
         "email": "",
         "timezone": "Asia/Calcutta",
@@ -242,9 +242,9 @@ def _default_user(user_id):
 
 
 def _split_display_name(value):
-    parts = str(value or "DevQuest User").strip().split()
+    parts = str(value or "Gamified Tasks Dashboard User").strip().split()
     if not parts:
-        return "DevQuest", "User"
+        return "Gamified Tasks Dashboard", "User"
     if len(parts) == 1:
         return parts[0], ""
     return parts[0], " ".join(parts[1:])

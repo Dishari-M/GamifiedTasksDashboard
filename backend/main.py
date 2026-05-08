@@ -158,7 +158,7 @@ tags_metadata = [
     },
     {
         "name": "Tasks",
-        "description": "Create, list, and complete DevQuest work items.",
+        "description": "Create, list, and complete Gamified Tasks Dashboard work items.",
     },
     {
         "name": "Quests",
@@ -195,8 +195,8 @@ tags_metadata = [
 ]
 
 app = FastAPI(
-    title="DevQuest API",
-    description="Local API for the DevQuest gamified developer productivity dashboard.",
+    title="Gamified Tasks Dashboard API",
+    description="Local API for the Gamified Tasks Dashboard gamified developer productivity dashboard.",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -225,7 +225,7 @@ def verify_api_key(x_api_key: str | None) -> None:
 
 @app.get("/", tags=["Health"])
 def root():
-    return {"msg": "DevQuest Pro"}
+    return {"msg": "Gamified Tasks Dashboard Pro"}
 
 
 @app.get("/swagger", include_in_schema=False)

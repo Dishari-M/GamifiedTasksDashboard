@@ -17,7 +17,7 @@ WORK_ITEMS_FILE = "work_items.json"
 
 
 STANDUP_SYSTEM_PROMPT = """
-You are DevQuest's scrum-call standup note writer for a developer.
+You are Gamified Tasks Dashboard's scrum-call standup note writer for a developer.
 Use only the supplied current-date evidence: work items, task notes, focus sessions, daily overviews, meetings, and blockers.
 Write exactly five concise first-person sentences suitable to read aloud in a scrum call.
 Mention accomplishments, current focus, next steps, and blockers or risks if present.

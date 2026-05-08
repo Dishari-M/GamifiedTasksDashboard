@@ -2,7 +2,7 @@
 
 ## Overview
 
-DevQuest uses AI to help developers plan the day, choose the right work, understand risks, generate mission and quest recommendations, and prepare daily updates.
+Gamified Tasks Dashboard uses AI to help developers plan the day, choose the right work, understand risks, generate mission and quest recommendations, and prepare daily updates.
 
 The AI is grounded in the app's own task, calendar, capacity, XP, RCA complexity, due-date, and notes data.
 
@@ -37,7 +37,7 @@ Developers had to manually inspect multiple signals before deciding what to work
 
 ## After
 
-DevQuest now uses AI to convert task and schedule context into practical guidance.
+Gamified Tasks Dashboard now uses AI to convert task and schedule context into practical guidance.
 
 Users can:
 
@@ -225,6 +225,6 @@ Expected improvements:
 
 ## Summary
 
-DevQuest uses AI as a planning assistant for developer productivity. It does not replace the user's judgment; it organizes the available evidence and highlights the most practical next steps.
+Gamified Tasks Dashboard uses AI as a planning assistant for developer productivity. It does not replace the user's judgment; it organizes the available evidence and highlights the most practical next steps.
 
 The main value is faster planning, fewer missed priorities, better focus, and clearer daily execution.
