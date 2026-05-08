@@ -321,11 +321,11 @@ const AuthPage = ({ onAuthenticated }) => {
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-brand">
           <span className="brand-mark"><RocketLaunch size={34} weight="fill" aria-hidden="true" /></span>
-          <span className="brand-name">DevQuest</span>
+          <span className="brand-name">Gamified Tasks Dashboard</span>
         </div>
         <div className="auth-heading">
           <h1 id="auth-title">{mode === "login" ? "Welcome back" : "Create your profile"}</h1>
-          <p>{mode === "login" ? "Log in to continue your task dashboard." : "Set up your local profile to personalize DevQuest."}</p>
+          <p>{mode === "login" ? "Log in to continue your task dashboard." : "Set up your local profile to personalize Gamified Tasks Dashboard."}</p>
         </div>
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")} data-testid="login-mode-button">Login</button>
@@ -396,7 +396,7 @@ const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, st
       <span className="brand-mark sidebar-logo-mark" data-testid="app-brand-mark">
         <RocketLaunch size={34} weight="fill" aria-hidden="true" />
       </span>
-      <span className="brand-name sidebar-label">DevQuest</span>
+      <span className="brand-name sidebar-label">Gamified Tasks Dashboard</span>
     </button>
 
     <nav className="nav-list" aria-label="Primary navigation">
@@ -449,7 +449,7 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
     return () => window.clearInterval(intervalId);
   }, []);
   const localGreeting = greetingForDate(currentDate);
-  const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "DevQuest";
+  const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "Gamified Tasks Dashboard";
   const subtitle = location.pathname === "/focus/analytics" ? "Review focus trends, XP, streaks, and consistency." : location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
   const isLight = theme === "light";
 
@@ -1492,7 +1492,7 @@ const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
           ],
         }
       : {
-          title: "How DevQuest progression works",
+          title: "How Gamified Tasks Dashboard progression works",
           caption: "A quick primer for new users.",
           highlights: [
             {

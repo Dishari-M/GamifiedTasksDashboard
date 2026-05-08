@@ -42,5 +42,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`DevQuest frontend is running at http://${host}:${port}`);
+  console.log(`Gamified Tasks Dashboard frontend is running at http://${host}:${port}`);
 });

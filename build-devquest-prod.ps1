@@ -19,7 +19,7 @@ function Require-Path {
     }
 }
 
-Write-Host "Building DevQuest production frontend from $root" -ForegroundColor Cyan
+Write-Host "Building Gamified Tasks Dashboard production frontend from $root" -ForegroundColor Cyan
 
 Require-Path $frontendDir "Frontend folder not found: $frontendDir"
 Require-Path $packageJson "Frontend package.json not found: $packageJson"
@@ -55,6 +55,6 @@ try {
 Require-Path $buildIndex "Production build did not create $buildIndex"
 
 Write-Host ""
-Write-Host "DevQuest production build is ready." -ForegroundColor Green
+Write-Host "Gamified Tasks Dashboard production build is ready." -ForegroundColor Green
 Write-Host "Build folder: $((Join-Path $frontendDir 'build'))"
 Write-Host "To serve locally, run start-devquest.cmd or start node frontend/local-static-server.js after the backend is up."

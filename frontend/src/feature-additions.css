@@ -8439,6 +8439,35 @@ html[data-theme="light"] .settings-slider-value {
   border-color: rgba(70, 127, 156, 0.32);
 }
 
+.brand-name {
+  max-width: 100%;
+  display: inline-block;
+  font-family: "Orbitron", "Exo 2", sans-serif;
+  font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: linear-gradient(115deg, #ffffff 0%, #7be7ff 38%, #9a74ff 72%, #ffffff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 18px rgba(112, 71, 255, 0.46), 0 0 28px rgba(32, 199, 255, 0.22);
+  overflow-wrap: anywhere;
+}
+
+.auth-brand .brand-name {
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+}
+
+html[data-theme="light"] .brand-name {
+  background: linear-gradient(115deg, #101827 0%, #006fcf 42%, #6f39ff 76%, #101827 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 16px rgba(80, 102, 210, 0.16);
+}
+
 @media (max-width: 760px) {
   .ai-guidance-grid,
   .standup-snapshot-grid {

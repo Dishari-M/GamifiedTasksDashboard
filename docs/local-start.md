@@ -1,4 +1,4 @@
-# DevQuest Local Start Guide
+# Gamified Tasks Dashboard Local Start Guide
 
 Use this after extracting or copying the project source code locally. These steps are written so a developer or AI coding assistant can run them from a fresh copy of the project.
 
@@ -110,7 +110,7 @@ Invoke-WebRequest -Uri "http://127.0.0.1:8000/" -UseBasicParsing
 Expected response:
 
 ```json
-{"msg":"DevQuest Pro"}
+{"msg":"Gamified Tasks Dashboard Pro"}
 ```
 
 If port `8000` is already in use, either stop the existing backend process or start on another port:

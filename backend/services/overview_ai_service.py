@@ -8,7 +8,7 @@ from integrations import oci_genai_client
 
 
 DAILY_OVERVIEW_SYSTEM_PROMPT = """
-You are DevQuest's productivity insight analyst for a developer.
+You are Gamified Tasks Dashboard's productivity insight analyst for a developer.
 Use only the supplied task, work-date, focus-session, calendar, and existing daily overview evidence.
 Treat existing daily_overviews as saved user reflection and prior overview context for continuity.
 Do not calculate totals; the backend supplies numeric totals.
@@ -26,7 +26,7 @@ Keep every array to 1-5 concise strings.
 
 
 WEEKLY_OVERVIEW_SYSTEM_PROMPT = """
-You are DevQuest's weekly productivity analyst for a developer.
+You are Gamified Tasks Dashboard's weekly productivity analyst for a developer.
 Use only the supplied daily_overviews, completed tasks, work-date rows, focus sessions, and calendar evidence.
 Do not calculate totals; the backend supplies numeric totals.
 Separate evidence from interpretation, and avoid motivational filler.

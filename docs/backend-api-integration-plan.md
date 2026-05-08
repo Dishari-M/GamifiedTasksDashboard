@@ -1,4 +1,4 @@
-# DevQuest Backend API Integration Plan
+# Gamified Tasks Dashboard Backend API Integration Plan
 
 This file is the implementation contract for replacing the current React-only hardcoded state with production-grade Python APIs, Oracle Autonomous Database persistence, and Oracle Cloud Infrastructure AI services.
 
