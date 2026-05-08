@@ -28,7 +28,6 @@ import {
   PencilSimple,
   Play,
   Plus,
-  RocketLaunch,
   ShieldStar,
   SignOut,
   SidebarSimple,
@@ -320,7 +319,9 @@ const AuthPage = ({ onAuthenticated }) => {
     <main className="auth-page" data-testid="auth-page">
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-brand">
-          <span className="brand-mark"><RocketLaunch size={34} weight="fill" aria-hidden="true" /></span>
+          <span className="brand-mark brand-logo-frame">
+            <img className="brand-logo-image" src="/assets/gamified-tasks-dashboard-logo.png" alt="" aria-hidden="true" />
+          </span>
           <span className="brand-name">Gamified Tasks Dashboard</span>
         </div>
         <div className="auth-heading">
@@ -394,7 +395,7 @@ const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, st
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
     >
       <span className="brand-mark sidebar-logo-mark" data-testid="app-brand-mark">
-        <RocketLaunch size={34} weight="fill" aria-hidden="true" />
+        <img className="brand-logo-image" src="/assets/gamified-tasks-dashboard-logo.png" alt="" aria-hidden="true" />
       </span>
       <span className="brand-name sidebar-label">Gamified Tasks Dashboard</span>
     </button>
@@ -1539,7 +1540,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
   const todayTasks = tasks.filter((task) => task.workingToday);
   const filteredTasks = useMemo(() => filterDashboardTasks(tasks, activeTaskFilter), [tasks, activeTaskFilter]);
   const totalXp = dashboardStats?.total_xp ?? earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions, null, focusMultiplier);
-  const focusedToday = dashboardStats?.focus_minutes ?? dashboardStats?.available_focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
+  const focusedToday = dashboardStats?.focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
   const meetingMinutes = dashboardStats?.meeting_minutes;
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
@@ -1565,7 +1566,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" detailInsight={dashboardStatInsights?.tasks_completed} icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
         <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" detailInsight={dashboardStatInsights?.working_today} icon={Flag} tone="gold" testId="stat-working-today" />
         <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} detailInsight={dashboardStatInsights?.focus_minutes} icon={Clock} tone="green" trend testId="stat-focus-time" />
-        <StatCard label="Meetings" value={meetingMinutes ? formatMinutes(meetingMinutes) : "3h 10m"} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
+        <StatCard label="Meetings" value={formatMinutes(meetingMinutes ?? 0)} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
@@ -3310,6 +3311,14 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     try {
       const persistedSession = await focusApi.create(savedSession);
       setFocusSessions((items) => [persistedSession, ...items.filter((item) => item.focus_session_id !== persistedSession.focus_session_id)]);
+      setDashboardStats((current) => current ? {
+        ...current,
+        focus_minutes: Math.max(0, Number(current.focus_minutes ?? 0)) + Math.max(0, Number(persistedSession.duration_minutes ?? 0)),
+      } : current);
+      setOverview((current) => ({
+        ...current,
+        focusMinutes: Math.max(0, Number(current?.focusMinutes ?? 0)) + Math.max(0, Number(persistedSession.duration_minutes ?? 0)),
+      }));
       setLastSavedFocus(persistedSession);
       setSavingFocusState(null);
       if (savedSession.quest_id) {
