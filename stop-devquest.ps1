@@ -16,7 +16,7 @@ function Stop-PidFileProcess {
         $processId = [int](Get-Content -Path $PidFile -Raw)
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($process) {
-            Write-Host "Stopping DevQuest process $processId ..." -ForegroundColor DarkYellow
+            Write-Host "Stopping Gamified Tasks Dashboard process $processId ..." -ForegroundColor DarkYellow
             Stop-Process -Id $processId -Force -ErrorAction Stop
         }
     } catch {
@@ -56,4 +56,4 @@ Stop-PidFileProcess -PidFile $frontendPidFile
 Stop-PortProcess -Port 8000
 Stop-PortProcess -Port 3000
 
-Write-Host "DevQuest backend and frontend servers are stopped." -ForegroundColor Green
+Write-Host "Gamified Tasks Dashboard backend and frontend servers are stopped." -ForegroundColor Green

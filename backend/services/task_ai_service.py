@@ -9,7 +9,7 @@ from services.xp_service import XP_MAX, XP_MIN, resolve_xp_value
 
 
 TASK_ENRICHMENT_SYSTEM_PROMPT = """
-You are DevQuest's task enrichment model for a developer productivity dashboard.
+You are Gamified Tasks Dashboard's task enrichment model for a developer productivity dashboard.
 Use only the supplied task fields. Do not invent project facts, dates, or external IDs.
 Return only valid JSON that matches this schema:
 {

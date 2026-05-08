@@ -47,6 +47,18 @@ export const formatDateTime = (isoValue) => {
   }).format(new Date(isoValue));
 };
 
+export const formatDate = (isoValue) => {
+  if (!isoValue) return "";
+  const dateValue = String(isoValue).includes("T") ? isoValue : `${isoValue}T00:00:00`;
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
 export const formatTime = (isoValue) => {
   if (!isoValue) return "";
   return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(isoValue));

@@ -1,4 +1,4 @@
-# DevQuest Backend To Do List
+# Gamified Tasks Dashboard Backend To Do List
 
 Use this as the execution checklist for building the production backend. The detailed API contract lives in `docs/backend-api-integration-plan.md`; this file is the step-by-step work queue.
 

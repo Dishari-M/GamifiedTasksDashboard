@@ -878,14 +878,30 @@ def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items,
     if not existing_items:
         return
 
-    incoming_task_ids = {str(quest.get("task_id")) for quest in incoming_quests}
-    referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
     highest_live_rank = max(
         [int(quest.get("rank") or quest.get("rank_order") or 0) for quest in incoming_quests]
         + [int(item.get("rank") or item.get("rank_order") or 0) for item in existing_items]
         + [0]
     )
     next_rank_order = highest_live_rank + 1000
+
+    for item in existing_items:
+        cur.execute(
+            """
+            UPDATE QUEST_ITEMS
+            SET RANK_ORDER = :rank_order,
+                UPDATED_AT = SYSTIMESTAMP,
+                ROW_VERSION = ROW_VERSION + 1
+            WHERE QUEST_ITEM_ID = :quest_item_id
+            """,
+            {"quest_item_id": item["quest_item_id"], "rank_order": next_rank_order},
+        )
+        item["rank_order"] = next_rank_order
+        item["rank"] = next_rank_order
+        next_rank_order += 1
+
+    incoming_task_ids = {str(quest.get("task_id")) for quest in incoming_quests}
+    referenced_item_ids = _referenced_quest_item_ids(cur, quest_plan_id)
 
     for item in existing_items:
         if str(item.get("task_id")) in incoming_task_ids:
@@ -895,16 +911,14 @@ def _prepare_existing_items_for_regeneration(cur, quest_plan_id, existing_items,
                 """
                 UPDATE QUEST_ITEMS
                 SET STATE = 'SKIPPED',
-                    RANK_ORDER = :rank_order,
                     SKIPPED_AT = SYSTIMESTAMP,
                     SKIP_REASON = 'Not today',
                     UPDATED_AT = SYSTIMESTAMP,
                     ROW_VERSION = ROW_VERSION + 1
                 WHERE QUEST_ITEM_ID = :quest_item_id
                 """,
-                {"quest_item_id": item["quest_item_id"], "rank_order": next_rank_order},
+                {"quest_item_id": item["quest_item_id"]},
             )
-            next_rank_order += 1
         else:
             cur.execute("DELETE FROM QUEST_ITEMS WHERE QUEST_ITEM_ID = :quest_item_id", {"quest_item_id": item["quest_item_id"]})
 

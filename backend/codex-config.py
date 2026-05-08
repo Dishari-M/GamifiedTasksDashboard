@@ -1117,7 +1117,7 @@ def build_jira_sso_prompt(jira_key: str) -> str:
     return (
         f"Use the central_jira_confluence MCP server to fetch Jira {jira_key}. "
         "If a browser or SSO window opens, wait for me to complete authentication. "
-        "After authentication succeeds, show the Jira summary and tell me I can retry Generate by AI in DevQuest."
+        "After authentication succeeds, show the Jira summary and tell me I can retry Generate by AI in Gamified Tasks Dashboard."
     )
 
 

@@ -137,6 +137,7 @@ def build_dashboard(date=None, user_id=None):
             planned_minutes=daily_by_task_id.get(task["task_id"], {}).get("planned_minutes"),
         )
         for task in tasks
+        if task.get("status") != "Done"
     ]
 
     tasks_completed_today = sum(1 for task in tasks if _completed_on_date(task, work_date))

@@ -261,6 +261,73 @@ def update_task_fields(cur, user_id, task_id, fields, expected_row_version=None)
     return cur.rowcount == 1
 
 
+def delete_task(cur, user_id, task_id):
+    binds = {"task_id": task_id, "user_id": user_id}
+    cur.execute(
+        """
+        DELETE FROM WORK_ITEM_WORK_DATES
+        WHERE USER_ID = :user_id
+          AND TASK_ID = :task_id
+        """,
+        binds,
+    )
+    cur.execute(
+        """
+        DELETE FROM WORK_ITEM_EVENTS
+        WHERE USER_ID = :user_id
+          AND TASK_ID = :task_id
+        """,
+        binds,
+    )
+    cur.execute(
+        """
+        UPDATE TASK_ENRICHMENT_JOBS
+        SET TASK_ID = NULL,
+            UPDATED_AT = SYSTIMESTAMP
+        WHERE USER_ID = :user_id
+          AND TASK_ID = :task_id
+        """,
+        binds,
+    )
+    cur.execute(
+        """
+        UPDATE QUEST_PLANS qp
+        SET ACTIVE_QUEST_ITEM_ID = NULL,
+            UPDATED_AT = SYSTIMESTAMP,
+            ROW_VERSION = ROW_VERSION + 1
+        WHERE qp.USER_ID = :user_id
+          AND qp.ACTIVE_QUEST_ITEM_ID IN (
+              SELECT qi.QUEST_ITEM_ID
+              FROM QUEST_ITEMS qi
+              WHERE qi.QUEST_PLAN_ID = qp.QUEST_PLAN_ID
+                AND qi.TASK_ID = TO_CHAR(:task_id)
+          )
+        """,
+        binds,
+    )
+    cur.execute(
+        """
+        DELETE FROM QUEST_ITEMS
+        WHERE TASK_ID = TO_CHAR(:task_id)
+          AND QUEST_PLAN_ID IN (
+              SELECT QUEST_PLAN_ID
+              FROM QUEST_PLANS
+              WHERE USER_ID = :user_id
+          )
+        """,
+        binds,
+    )
+    cur.execute(
+        """
+        DELETE FROM WORK_ITEMS
+        WHERE USER_ID = :user_id
+          AND TASK_ID = :task_id
+        """,
+        binds,
+    )
+    return cur.rowcount == 1
+
+
 def touch_task(cur, user_id, task_id, expected_row_version=None):
     binds = {"task_id": task_id, "user_id": user_id}
     where = "TASK_ID = :task_id AND USER_ID = :user_id"
@@ -418,6 +485,8 @@ def _task_filters(user_id, filters, work_date):
     where = ["w.USER_ID = :user_id"]
     binds = {"user_id": user_id, "work_date": work_date}
     _add_in_filter(where, binds, "w.STATUS", "status", filters.get("status"))
+    if _truthy(filters.get("exclude_done")):
+        where.append("NVL(w.STATUS, 'To Do') <> 'Done'")
     _add_in_filter(where, binds, "w.EXTERNAL_SOURCE", "source", filters.get("source") or filters.get("external_source"))
     _add_in_filter(where, binds, "w.PRIORITY", "priority", filters.get("priority"))
     if filters.get("worked_date"):

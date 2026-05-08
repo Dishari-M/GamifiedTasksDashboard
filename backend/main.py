@@ -29,6 +29,7 @@ from services.oracle_user_service import (
 from services.oracle_task_service import (
     complete_oracle_task,
     create_oracle_task,
+    delete_oracle_task,
     get_oracle_task,
     list_oracle_tasks,
     update_oracle_task,
@@ -157,7 +158,7 @@ tags_metadata = [
     },
     {
         "name": "Tasks",
-        "description": "Create, list, and complete DevQuest work items.",
+        "description": "Create, list, and complete Gamified Tasks Dashboard work items.",
     },
     {
         "name": "Quests",
@@ -194,8 +195,8 @@ tags_metadata = [
 ]
 
 app = FastAPI(
-    title="DevQuest API",
-    description="Local API for the DevQuest gamified developer productivity dashboard.",
+    title="Gamified Tasks Dashboard API",
+    description="Local API for the Gamified Tasks Dashboard gamified developer productivity dashboard.",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -224,7 +225,7 @@ def verify_api_key(x_api_key: str | None) -> None:
 
 @app.get("/", tags=["Health"])
 def root():
-    return {"msg": "DevQuest Pro"}
+    return {"msg": "Gamified Tasks Dashboard Pro"}
 
 
 @app.get("/swagger", include_in_schema=False)
@@ -542,6 +543,7 @@ def oracle_tasks(
     completed_to: str | None = None,
     search: str | None = None,
     q: str | None = None,
+    exclude_done: bool = False,
     include_total: bool = True,
     page: int = 1,
     page_size: int = 50,
@@ -560,6 +562,7 @@ def oracle_tasks(
             "completed_to": completed_to,
             "search": search,
             "q": q,
+            "exclude_done": exclude_done,
             "include_total": include_total,
             "page": page,
             "page_size": page_size,
@@ -576,6 +579,11 @@ def oracle_task_detail(task_id: str, user_id: int = Depends(current_oracle_user_
 @app.patch("/api/v1/tasks/{task_id}", tags=["Tasks"])
 def patch_oracle_task(task_id: str, payload: dict, user_id: int = Depends(current_oracle_user_id)):
     return update_oracle_task(task_id, payload, user_id)
+
+
+@app.delete("/api/v1/tasks/{task_id}", tags=["Tasks"])
+def remove_oracle_task(task_id: str, user_id: int = Depends(current_oracle_user_id)):
+    return delete_oracle_task(task_id, user_id)
 
 
 @app.put("/api/v1/tasks/{task_id}/notes", tags=["Tasks"])

@@ -155,7 +155,7 @@ def _load_config_file(oci, config_file, profile):
 def _build_prompt(prompt_payload):
     """Convert dashboard context into a compact prompt for the GenAI model."""
     return (
-        "You are DevQuest, an assistant for a gamified developer task dashboard.\n"
+        "You are Gamified Tasks Dashboard, an assistant for a gamified developer task dashboard.\n"
         "Return only valid JSON with these keys: text, capacity_minutes, impact_score.\n"
         "Keep text to one concise sentence and do not invent task names.\n\n"
         f"Dashboard context:\n{json.dumps(prompt_payload, indent=2)}"

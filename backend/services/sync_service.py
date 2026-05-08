@@ -314,7 +314,7 @@ async def _sync_jira(codex_config, user_id):
 def _jira_sync_prompt(codex_config, email):
     project_keys = "HRA, HEPRT, HLM"
     return f"""
-You are a DevQuest Jira bulk sync worker.
+You are a Gamified Tasks Dashboard Jira bulk sync worker.
 
 Use Jira MCP server: {codex_config.JIRA_MCP_SERVER}.
 Find all Jira issues assigned to the logged-in DevQuest user in these projects:
@@ -643,14 +643,14 @@ async def _sync_outlook(codex_config, user_id, work_date=None):
 
 def _outlook_prompt(email, today, start, end):
     return f"""
-You are syncing DevQuest with Outlook Calendar.
+You are syncing Gamified Tasks Dashboard with Outlook Calendar.
 
 Use the enabled Outlook Calendar plugin from the Codex config, especially list_events.
 Fetch the signed-in user's default Outlook Calendar events for this exact window:
 start_datetime: {start}
 end_datetime: {end}
 
-The DevQuest logged-in user's email is: {email or "unknown"}.
+The Gamified Tasks Dashboard logged-in user's email is: {email or "unknown"}.
 If mailbox settings expose the signed-in mailbox, use it only to verify context. Do not modify any calendar events.
 
 Return only one valid JSON object, with no markdown, in this exact shape:
