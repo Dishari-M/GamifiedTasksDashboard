@@ -2671,7 +2671,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
     try {
-      const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
+      const taskId = task.taskId || task.task_id || id;
+      const updatedTask = await tasksApi.updateToday(taskId, { workingToday: !task.workingToday });
       setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
       setTaskLoadError("");
     } catch (error) {

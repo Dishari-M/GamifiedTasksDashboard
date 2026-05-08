@@ -6934,6 +6934,18 @@ html[data-theme="light"] .focus-session-ring {
     conic-gradient(from -90deg, #2f6b3d var(--timer-progress), #dbe6d3 0);
 }
 
+html[data-theme="light"] .focus-donut-value {
+  fill: var(--text);
+}
+
+html[data-theme="light"] .focus-donut-label {
+  fill: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-active-task-card strong {
+  color: var(--text);
+}
+
 @media (max-width: 1100px) {
   .task-editor-form {
     grid-template-columns: repeat(6, minmax(0, 1fr));
