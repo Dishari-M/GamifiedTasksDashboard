@@ -2,6 +2,19 @@ import uuid
 from db import connection_scope
 from services.api_cache import invalidate_user_cache
 
+
+TASK_RELATED_CACHE_NAMESPACES = (
+    "task_list",
+    "dashboard_today",
+    "insights_today",
+    "quests_today",
+    "quest_progress",
+    "focus_sessions",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
+
 def calculate_xp(est, diff, impact):
     m={"easy":1,"medium":1.3,"hard":1.6}
     return int((est/2)*m.get(diff,1.3)*(1+impact/10))
@@ -36,7 +49,7 @@ def create_task(task, ai, user_id):
             },
         )
         conn.commit()
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
+        invalidate_user_cache(user_id, TASK_RELATED_CACHE_NAMESPACES)
     value = task_id.getvalue()
     tid = value[0] if isinstance(value, list) else value
     return {"id":tid,"xp":xp}
@@ -60,7 +73,7 @@ def complete_task(task_id, user_id):
         )
         conn.commit()
         updated=cur.rowcount
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
+        invalidate_user_cache(user_id, TASK_RELATED_CACHE_NAMESPACES)
     return {"id":task_id,"status":"done","updated":updated}
 
 def _text(value):

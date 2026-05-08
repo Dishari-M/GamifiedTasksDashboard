@@ -293,7 +293,20 @@ def _oracle_generate_quests(quest_date, request_payload, user_id):
 
         ai_run_repository.update_ai_run(cur, ai_run_id, "SUCCEEDED", response_payload=ai)
         conn.commit()
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
+        invalidate_user_cache(
+            user_id,
+            (
+                "task_list",
+                "dashboard_today",
+                "insights_today",
+                "quests_today",
+                "quest_progress",
+                "focus_sessions",
+                "standup_note",
+                "daily_overview",
+                "weekly_overview",
+            ),
+        )
         task_by_id = {task["task_id"]: task for task in _oracle_user_tasks(cur, user_id, quest_date)}
         return {
             "quest_plan_id": quest_plan_id,

@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from config import get_data_mode
 from repositories import phase8_oracle_repository
-from services.api_cache import canonical_cache_key, get_cached_response, invalidate_namespace, set_cached_response
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_namespace, set_cached_response
 from services.phase8_ai_insight_service import build_ai_insight
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import (
@@ -15,7 +15,7 @@ from services.phase8_data_provider import (
 from services.stat_insight_service import build_stat_insights, previous_date_key
 
 
-DASHBOARD_CACHE_TTL_SECONDS = 30
+DASHBOARD_CACHE_TTL_SECONDS = get_default_cache_ttl_seconds
 DASHBOARD_CACHE_NAMESPACE = "dashboard_today"
 
 
@@ -187,7 +187,7 @@ def build_dashboard(date=None, user_id=None):
 def dashboard_today_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
     cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "date": work_date})
-    cached = get_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, DASHBOARD_CACHE_TTL_SECONDS)
+    cached = get_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, DASHBOARD_CACHE_TTL_SECONDS())
     if cached:
         return {
             "data": cached,

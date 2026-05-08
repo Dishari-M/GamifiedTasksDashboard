@@ -7,16 +7,30 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import focus_repository
-from services.api_cache import invalidate_user_cache
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services.xp_service import calculate_focus_reward
 
 
 VALID_OUTCOMES = {"Progress made", "Blocked", "Ready for review", "Completed"}
-FOCUS_RELATED_CACHE_NAMESPACES = ("dashboard_today", "insights_today")
+FOCUS_CACHE_NAMESPACE = "focus_sessions"
+FOCUS_RELATED_CACHE_NAMESPACES = (
+    FOCUS_CACHE_NAMESPACE,
+    "dashboard_today",
+    "insights_today",
+    "quests_today",
+    "quest_progress",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
 
 
 def list_oracle_focus_sessions(filters=None, user_id=1):
     filters = dict(filters or {})
+    cache_key = canonical_cache_key({"user_id": int(user_id), "filters": filters})
+    cached = get_cached_response(FOCUS_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return cached
     date_from = _normalize_date(filters.get("date_from") or filters.get("date") or filters.get("work_date")) if (
         filters.get("date_from") or filters.get("date") or filters.get("work_date")
     ) else None
@@ -27,7 +41,9 @@ def list_oracle_focus_sessions(filters=None, user_id=1):
     try:
         conn = get_connection()
         cur = conn.cursor()
-        return focus_repository.list_focus_sessions(cur, int(user_id), date_from, date_to)
+        data = focus_repository.list_focus_sessions(cur, int(user_id), date_from, date_to)
+        set_cached_response(FOCUS_CACHE_NAMESPACE, cache_key, data, user_id=int(user_id))
+        return data
     except oracledb.DatabaseError as exc:
         raise HTTPException(status_code=503, detail="Focus session storage is unavailable.") from exc
     finally:

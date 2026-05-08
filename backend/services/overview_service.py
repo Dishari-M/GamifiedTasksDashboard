@@ -12,6 +12,7 @@ except ImportError:
 
 from config import get_data_mode, get_oci_genai_model_id
 from repositories import overview_repository
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services import phase8_mock_data
 from services.overview_ai_service import (
     DAILY_OVERVIEW_SYSTEM_PROMPT,
@@ -30,29 +31,47 @@ from services.phase8_data_provider import (
 
 
 logger = logging.getLogger(__name__)
+DAILY_OVERVIEW_CACHE_NAMESPACE = "daily_overview"
+WEEKLY_OVERVIEW_CACHE_NAMESPACE = "weekly_overview"
+OVERVIEW_RELATED_CACHE_NAMESPACES = (DAILY_OVERVIEW_CACHE_NAMESPACE, WEEKLY_OVERVIEW_CACHE_NAMESPACE, "standup_note")
 
 def daily_overview_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
-    return {"data": get_daily_overview(work_date, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "date": work_date})
+    cached = get_cached_response(DAILY_OVERVIEW_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = get_daily_overview(work_date, user_id)
+    set_cached_response(DAILY_OVERVIEW_CACHE_NAMESPACE, cache_key, data, user_id=user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def weekly_overview_response(week_start=None, user_id=None):
     start = _week_start(week_start)
-    return {"data": get_weekly_overview(start, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "week_start": start})
+    cached = get_cached_response(WEEKLY_OVERVIEW_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = get_weekly_overview(start, user_id)
+    set_cached_response(WEEKLY_OVERVIEW_CACHE_NAMESPACE, cache_key, data, user_id=user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def generate_daily_overview_response(payload, user_id=None):
     work_date = resolve_work_date(payload.date)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": generate_daily_overview(work_date, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 
 def save_daily_overview_response(payload, user_id=None):
     work_date = resolve_work_date(payload.date)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": save_daily_overview(work_date, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 
 def generate_weekly_overview_response(payload, user_id=None):
     week_start = _week_start(payload.week_start)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": generate_weekly_overview(week_start, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 

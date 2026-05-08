@@ -26,6 +26,19 @@ class WorkDateDatabaseError(Exception):
     pass
 
 
+WORK_DATE_RELATED_CACHE_NAMESPACES = (
+    "task_list",
+    "dashboard_today",
+    "insights_today",
+    "quests_today",
+    "quest_progress",
+    "focus_sessions",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
+
+
 def get_today_utc_date():
     return datetime.now(UTC).date().isoformat()
 
@@ -57,7 +70,7 @@ def set_working_today(task_id, is_working_today, row_version, user_id):
 
         worked_dates = list_worked_dates(cur, task_id, user_id)
         conn.commit()
-        invalidate_user_cache(user_id, ("task_list", "dashboard_today", "insights_today"))
+        invalidate_user_cache(user_id, WORK_DATE_RELATED_CACHE_NAMESPACES)
         return {
             "task_id": task_id,
             "work_date": work_date,
