@@ -1,7 +1,7 @@
 # 🚀 Gamified Tasks Dashboard
 
 <p align="center">
-  <img src="docs/assets/gamified-tasks-dashboard-hero.jpg" alt="Gamified Tasks Dashboard hero" width="420" />
+  <img src="docs/assets/gamified-tasks-dashboard-hero.png" alt="Gamified Tasks Dashboard hero" width="420" />
 </p>
 
 Gamified Tasks Dashboard is an AI-assisted, gamified productivity dashboard for developers. It brings tasks, meetings, focus time, daily missions, quests, XP, standup notes, and productivity overviews into one workspace so a developer can quickly decide what to work on next and explain progress clearly.
