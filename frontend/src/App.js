@@ -28,7 +28,6 @@ import {
   PencilSimple,
   Play,
   Plus,
-  RocketLaunch,
   ShieldStar,
   SignOut,
   SidebarSimple,
@@ -320,7 +319,9 @@ const AuthPage = ({ onAuthenticated }) => {
     <main className="auth-page" data-testid="auth-page">
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-brand">
-          <span className="brand-mark"><RocketLaunch size={34} weight="fill" aria-hidden="true" /></span>
+          <span className="brand-mark brand-logo-frame">
+            <img className="brand-logo-image" src="/assets/gamified-tasks-dashboard-logo.png" alt="" aria-hidden="true" />
+          </span>
           <span className="brand-name">Gamified Tasks Dashboard</span>
         </div>
         <div className="auth-heading">
@@ -394,7 +395,7 @@ const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, st
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
     >
       <span className="brand-mark sidebar-logo-mark" data-testid="app-brand-mark">
-        <RocketLaunch size={34} weight="fill" aria-hidden="true" />
+        <img className="brand-logo-image" src="/assets/gamified-tasks-dashboard-logo.png" alt="" aria-hidden="true" />
       </span>
       <span className="brand-name sidebar-label">Gamified Tasks Dashboard</span>
     </button>

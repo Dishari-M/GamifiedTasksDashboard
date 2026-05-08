@@ -8535,6 +8535,43 @@ html[data-theme="light"] .brand-name {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 16px rgba(80, 102, 210, 0.16);
 }
 
+.brand-logo-frame,
+.sidebar-logo-mark {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(123, 231, 255, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(226, 236, 255, 0.92));
+  box-shadow: 0 0 18px rgba(32, 199, 255, 0.18), 0 0 24px rgba(112, 71, 255, 0.2);
+  filter: none;
+}
+
+.brand-logo-image {
+  width: 138%;
+  height: 138%;
+  display: block;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+.auth-brand .brand-logo-frame {
+  width: 64px;
+  height: 64px;
+  flex-basis: 64px;
+  border-radius: 20px;
+}
+
+html[data-theme="light"] .brand-logo-frame,
+html[data-theme="light"] .sidebar-logo-mark {
+  border-color: rgba(94, 128, 206, 0.32);
+  background: linear-gradient(145deg, #ffffff, #eef5ff);
+  box-shadow: 0 10px 22px rgba(72, 92, 135, 0.14);
+}
+
 @media (max-width: 760px) {
   .ai-guidance-grid,
   .standup-snapshot-grid {
@@ -8668,7 +8705,7 @@ html[data-theme="light"] .brand-name {
   }
 
   .sidebar-collapsed .sidebar-logo-mark {
-    transform: rotate(-16deg);
+    transform: rotate(-8deg);
   }
 
   .sidebar-collapsed .sidebar-label,
