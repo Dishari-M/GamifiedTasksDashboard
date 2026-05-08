@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from config import get_data_mode, get_oci_genai_model_id
 from db import get_connection
 from repositories import ai_run_repository, task_repository
-from services.api_cache import canonical_cache_key, get_cached_response, invalidate_user_cache, set_cached_response
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services.filesystem_store import read_records, with_store_lock, write_records
 from services.insights_ai_service import TODAY_INSIGHT_SYSTEM_PROMPT, build_today_insight_ai_output
 from services.phase8_capacity_service import build_capacity
@@ -21,14 +21,14 @@ WORK_ITEMS_FILE = "work_items.json"
 AI_RUNS_FILE = "ai_runs.json"
 RUN_TYPE = "TODAY_INSIGHT"
 INSIGHTS_CACHE_NAMESPACE = "insights_today"
-INSIGHTS_CACHE_TTL_SECONDS = 30
+INSIGHTS_CACHE_TTL_SECONDS = get_default_cache_ttl_seconds
 
 
 def today_insight_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
     cache_user_id = _cache_user_id(user_id)
     cache_key = _insight_cache_key(work_date, cache_user_id)
-    cached = get_cached_response(INSIGHTS_CACHE_NAMESPACE, cache_key, INSIGHTS_CACHE_TTL_SECONDS)
+    cached = get_cached_response(INSIGHTS_CACHE_NAMESPACE, cache_key, INSIGHTS_CACHE_TTL_SECONDS())
     if cached:
         return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
     data = get_today_insight(work_date, user_id)

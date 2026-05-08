@@ -1,15 +1,28 @@
 import copy
 import json
+import os
 from datetime import datetime, timezone
 from threading import Lock
 
 
+DEFAULT_CACHE_TTL_SECONDS = 300
 _CACHE = {}
 _CACHE_LOCK = Lock()
 
 
 def canonical_cache_key(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def get_default_cache_ttl_seconds():
+    value = os.getenv("DEVQUEST_API_CACHE_TTL_SECONDS")
+    if value in (None, ""):
+        return DEFAULT_CACHE_TTL_SECONDS
+    try:
+        ttl = int(value)
+    except ValueError:
+        return DEFAULT_CACHE_TTL_SECONDS
+    return max(0, ttl)
 
 
 def get_cached_response(namespace, key, ttl_seconds):
