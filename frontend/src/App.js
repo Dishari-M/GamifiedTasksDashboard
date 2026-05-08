@@ -655,11 +655,45 @@ const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, o
   );
 };
 
+const ShortFocusSessionDialog = ({ open, onCancel, onConfirm }) => {
+  if (!open) return null;
+  return (
+    <div className="focus-confirm-backdrop" role="presentation">
+      <section
+        className="surface focus-confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="short-focus-title"
+        aria-describedby="short-focus-message"
+        data-testid="short-focus-confirm-dialog"
+      >
+        <div className="focus-confirm-icon" aria-hidden="true">
+          <Hourglass size={28} weight="duotone" />
+        </div>
+        <div className="focus-confirm-copy">
+          <h2 id="short-focus-title">Short focus session</h2>
+          <p id="short-focus-message">This session was under 2 minutes. Save it anyway?</p>
+        </div>
+        <div className="focus-confirm-actions">
+          <button className="ghost-button" type="button" onClick={onCancel} data-testid="short-focus-cancel-button">
+            Keep focusing
+          </button>
+          <button className="primary-action" type="button" onClick={onConfirm} data-testid="short-focus-confirm-button">
+            <CheckCircle size={19} weight="duotone" aria-hidden="true" />
+            Save session
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
   const [selectedTaskId, setSelectedTaskId] = useState(() => activeSession?.task_id || taskOptions[0]?.id || "");
   const [outcomeType, setOutcomeType] = useState("Progress made");
   const [outcomeNote, setOutcomeNote] = useState("");
+  const [isShortFocusDialogOpen, setIsShortFocusDialogOpen] = useState(false);
   const [, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -697,11 +731,19 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
     onStartFocus(selectedTask);
   };
 
-  const stopFocus = () => {
-    if (elapsedSeconds > 0 && elapsedSeconds < 120 && !window.confirm("This session was under 2 minutes. Save it anyway?")) return;
+  const saveFocusSession = () => {
+    setIsShortFocusDialogOpen(false);
     onStopFocus({ outcomeType, outcomeNote });
     setOutcomeNote("");
     setOutcomeType("Progress made");
+  };
+
+  const stopFocus = () => {
+    if (elapsedSeconds > 0 && elapsedSeconds < 120) {
+      setIsShortFocusDialogOpen(true);
+      return;
+    }
+    saveFocusSession();
   };
 
   if (activeSession) {
@@ -709,22 +751,29 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
     const activeTaskContext = activeTask?.source ? `${activeTask.source}${activeTask.priority ? ` - ${activeTask.priority}` : ""}` : "Focus session";
 
     return (
-      <section className="surface focus-widget focus-widget-active" data-testid="focus-widget" aria-label="Active focus session">
-        <div className="focus-hero-grid focus-hero-grid-active">
-          <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-            <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+      <>
+        <section className="surface focus-widget focus-widget-active" data-testid="focus-widget" aria-label="Active focus session">
+          <div className="focus-hero-grid focus-hero-grid-active">
+            <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
+              <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+            </div>
           </div>
-        </div>
-        <article className="focus-active-task-card" data-testid="focus-active-task">
-          <span>{activeTaskContext}</span>
-          <strong>{activeTaskTitle}</strong>
-        </article>
-        <div className="focus-actions focus-active-actions">
-          {activeSession.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
-          {!activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
-          <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>
-        </div>
-      </section>
+          <article className="focus-active-task-card" data-testid="focus-active-task">
+            <span>{activeTaskContext}</span>
+            <strong>{activeTaskTitle}</strong>
+          </article>
+          <div className="focus-actions focus-active-actions">
+            {activeSession.isRunning && <button className="primary-action" onClick={onPauseFocus} data-testid="focus-pause-button"><Hourglass size={20} weight="duotone" aria-hidden="true" /> Pause</button>}
+            {!activeSession.isRunning && <button className="primary-action" onClick={onResumeFocus} data-testid="focus-resume-button"><Play size={20} weight="fill" aria-hidden="true" /> Resume</button>}
+            <button className="ghost-button focus-save-action" onClick={stopFocus} data-testid="focus-stop-button"><CheckCircle size={20} weight="duotone" aria-hidden="true" /> Stop &amp; save</button>
+          </div>
+        </section>
+        <ShortFocusSessionDialog
+          open={isShortFocusDialogOpen}
+          onCancel={() => setIsShortFocusDialogOpen(false)}
+          onConfirm={saveFocusSession}
+        />
+      </>
     );
   }
 
