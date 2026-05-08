@@ -116,6 +116,7 @@ export const tasksApi = {
   ),
   create: (payload) => api.post("/tasks", payload).then(unwrap),
   update: (taskId, payload) => api.patch(`/tasks/${taskId}`, payload).then(unwrap),
+  remove: (taskId) => api.delete(`/tasks/${taskId}`).then(unwrap),
   updateNotes: (taskId, payload) => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap),
   updateStatus: (taskId, payload) => api.patch(`/tasks/${taskId}/status`, payload).then(unwrap),
   updateToday: (taskId, payload) => api.put(`/tasks/${taskId}/today`, payload).then(unwrap),

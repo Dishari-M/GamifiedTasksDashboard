@@ -195,6 +195,36 @@ def update_oracle_task(task_id, payload, user_id=None):
             conn.close()
 
 
+def delete_oracle_task(task_id, user_id=None):
+    task_id = _task_id(task_id)
+    resolved_user_id = _user_id(user_id)
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        ensure_task_enrichment_schema(cur)
+        existing = task_repository.fetch_task_for_update(cur, resolved_user_id, task_id)
+        if not existing:
+            _not_found()
+        deleted = task_repository.delete_task(cur, resolved_user_id, task_id)
+        if not deleted:
+            _not_found()
+        conn.commit()
+        _invalidate_task_related_caches(resolved_user_id)
+        return {"task_id": task_id, "id": str(task_id), "deleted": True}
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except oracledb.DatabaseError as exc:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=503, detail="Task storage is unavailable.") from exc
+    finally:
+        if conn:
+            conn.close()
+
+
 def update_oracle_task_notes(task_id, payload, user_id=None):
     return update_oracle_task(task_id, {**dict(payload or {}), "notes": (payload or {}).get("notes", "")}, user_id)
 

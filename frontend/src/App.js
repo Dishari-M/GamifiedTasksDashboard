@@ -39,6 +39,7 @@ import {
   TrendDown,
   TrendUp,
   Trophy,
+  Trash,
   UsersThree,
   X,
 } from "@phosphor-icons/react";
@@ -55,7 +56,7 @@ import { buildProgressSnapshot, mergeMonotonicTotalXp } from "./features/progres
 import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, hasGeneratedQuestRun, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
 import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusRewardsByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
 import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, rcaTshirtSizes, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
-import { addDaysKey, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
+import { addDaysKey, formatDate, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
 
@@ -74,6 +75,7 @@ const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
 const ACTIVE_TASK_LIST_PARAMS = { exclude_done: true };
 
 const THEME_STORAGE_KEY = "devquest.theme.v1";
+const SIDEBAR_COLLAPSED_SESSION_KEY = "devquest.sidebarCollapsed.v1";
 const PROGRESS_GUIDE_STORAGE_KEY = "devquest.progressGuide.dismissed.v2";
 const XP_LEDGER_STORAGE_KEY = "devquest.progress.totalXpByUser.v1";
 
@@ -82,6 +84,15 @@ const readInitialTheme = () => {
   if (stored === "light" || stored === "dark") return stored;
   if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
   return "dark";
+};
+
+const readInitialSidebarCollapsed = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(SIDEBAR_COLLAPSED_SESSION_KEY) === "true";
+  } catch {
+    return false;
+  }
 };
 
 const readPersistedXpLedger = () => readStoredJson(XP_LEDGER_STORAGE_KEY, {});
@@ -329,8 +340,19 @@ const AuthPage = ({ onAuthenticated }) => {
               {fieldErrors.lastName && <span className="field-error">{fieldErrors.lastName}</span>}
               <label>User Name<input value={form.username} onChange={(event) => update("username", event.target.value)} autoComplete="username" data-testid="username-input" /></label>
               {fieldErrors.username && <span className="field-error">{fieldErrors.username}</span>}
-              <label>Email address<input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} autoComplete="email" data-testid="email-input" /></label>
-              {fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}
+              <label>
+                Email address
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => update("email", event.target.value)}
+                  autoComplete="email"
+                  aria-describedby={`email-helper${fieldErrors.email ? " email-error" : ""}`}
+                  data-testid="email-input"
+                />
+                <span className="auth-helper-text" id="email-helper">This email will be used to connect to your Jira and Microsoft Outlook account</span>
+              </label>
+              {fieldErrors.email && <span className="field-error" id="email-error">{fieldErrors.email}</span>}
             </>
           )}
           {mode === "login" && (
@@ -358,37 +380,50 @@ const AuthPage = ({ onAuthenticated }) => {
   );
 };
 
-const Sidebar = ({ open, onClose, levelProgress, streakDays }) => {
+const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, streakDays }) => {
   const streakState = streakHeat(streakDays);
   return (
-  <aside className={`sidebar ${open ? "sidebar-open" : ""}`} data-testid="app-sidebar">
-    <div className="brand" data-testid="app-brand">
-      <span className="brand-mark" data-testid="app-brand-mark">
+  <aside className={`sidebar ${open ? "sidebar-open" : ""} ${collapsed ? "sidebar-collapsed" : ""}`} data-testid="app-sidebar" aria-label={collapsed ? "Collapsed primary navigation" : "Primary navigation"}>
+    <button
+      className="brand sidebar-logo-toggle"
+      type="button"
+      onClick={onToggleCollapse}
+      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      aria-expanded={!collapsed}
+      data-testid="app-brand"
+      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+    >
+      <span className="brand-mark sidebar-logo-mark" data-testid="app-brand-mark">
         <RocketLaunch size={34} weight="fill" aria-hidden="true" />
       </span>
-      <span className="brand-name">DevQuest</span>
-    </div>
+      <span className="brand-name sidebar-label">DevQuest</span>
+    </button>
 
     <nav className="nav-list" aria-label="Primary navigation">
       {navItems.map((item) => {
         const Icon = item.icon;
         return (
-          <NavLink key={item.path} to={item.path} end={item.path === "/"} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} data-testid={`nav-link-${slug(item.label)}`} onClick={onClose}>
+          <NavLink key={item.path} to={item.path} end={item.path === "/"} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} data-testid={`nav-link-${slug(item.label)}`} onClick={onClose} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined}>
             <Icon size={23} weight="duotone" aria-hidden="true" />
-            <span>{item.label}</span>
+            <span className="nav-label sidebar-label">{item.label}</span>
           </NavLink>
         );
       })}
     </nav>
 
-    <div className={`sidebar-card streak-card streak-card-${streakState.tone}`} data-testid="sidebar-streak-card">
+    <div className={`sidebar-card streak-card streak-card-${streakState.tone}`} data-testid="sidebar-streak-card" aria-hidden={collapsed}>
       <div className="mini-title"><Fire size={20} weight="fill" aria-hidden="true" /> Streak</div>
       <strong data-testid="streak-days-value">{streakDays} day{streakDays === 1 ? "" : "s"}</strong>
       <span className="streak-heat-label" data-testid="streak-heat-label">{streakState.label}</span>
       <p>{streakState.description}</p>
     </div>
 
-    <div className="sidebar-card level-card" data-testid="sidebar-level-card">
+    <div className="sidebar-mini-status" title={`${streakDays} day${streakDays === 1 ? "" : "s"} streak. Level ${levelProgress.level}.`} aria-label={`${streakDays} day${streakDays === 1 ? "" : "s"} streak. Level ${levelProgress.level}.`}>
+      <Fire size={18} weight="fill" aria-hidden="true" />
+      <span>{streakDays}</span>
+    </div>
+
+    <div className="sidebar-card level-card" data-testid="sidebar-level-card" aria-hidden={collapsed}>
       <div className="level-row">
         <ShieldStar size={34} weight="duotone" aria-hidden="true" />
         <div>
@@ -761,7 +796,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   );
 };
 
-const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, editable = true }) => {
+const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, deletingTaskId, editable = true }) => {
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dirtyNotes, setDirtyNotes] = useState({});
   const [savingNoteId, setSavingNoteId] = useState(null);
@@ -802,7 +837,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
   return (
     <div className="task-table-wrap" data-testid="task-table-wrap">
       <table className="task-table enriched-task-table" data-testid="task-table">
-        <thead><tr><th>Task</th><th>Today</th><th>Source</th><th>Priority</th><th>AI</th><th>Effort</th><th>XP</th><th>Completed</th><th>Status</th><th>Notes</th>{editable && <th>Action</th>}</tr></thead>
+        <thead><tr><th>Task</th><th>Today</th><th>Source</th><th>Priority</th><th>Due Date</th><th>AI</th><th>Effort</th><th>XP</th><th>Completed</th><th>Status</th><th>Notes</th>{editable && <th>Action</th>}</tr></thead>
         <tbody>
           {tasks.map((task) => {
             const Icon = task.icon;
@@ -831,6 +866,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                 </td>
                 <td data-testid={`task-source-${slug(task.id)}`}>{task.source}</td>
                 <td><Pill tone={task.priority.toLowerCase()} testId={`task-priority-${slug(task.id)}`}>{task.priority}</Pill></td>
+                <td data-testid={`task-due-date-${slug(task.id)}`}>{formatDate(task.dueDate) || "No due date"}</td>
                 <td className="ai-cell" data-testid={`task-ai-${slug(task.id)}`}>
                   {isEnrichmentJob ? (
                     <>
@@ -928,15 +964,27 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onToggleToday, onUpdateNotes
                         </button>
                       </span>
                     ) : (
-                      <button
-                        className="row-icon-action"
-                        aria-label={`Edit ${task.title}`}
-                        title="Edit task"
-                        onClick={() => onEdit(task)}
-                        data-testid={`task-edit-button-${slug(task.id)}`}
-                      >
-                        <PencilSimple size={19} weight="duotone" />
-                      </button>
+                      <span className="row-action-group">
+                        <button
+                          className="row-icon-action"
+                          aria-label={`Edit ${task.title}`}
+                          title="Edit task"
+                          onClick={() => onEdit(task)}
+                          data-testid={`task-edit-button-${slug(task.id)}`}
+                        >
+                          <PencilSimple size={19} weight="duotone" />
+                        </button>
+                        <button
+                          className="row-icon-action row-icon-delete"
+                          aria-label={`Delete ${task.title}`}
+                          title="Delete task"
+                          onClick={() => onDeleteRequest?.(task)}
+                          disabled={deletingTaskId === task.id}
+                          data-testid={`task-delete-button-${slug(task.id)}`}
+                        >
+                          <Trash size={19} weight="duotone" />
+                        </button>
+                      </span>
                     )}
                   </td>
                 )}
@@ -1220,6 +1268,30 @@ const FloatingNotice = ({ notice, onDismiss }) => {
   );
 };
 
+const DeleteTaskDialog = ({ task, onCancel, onConfirm, isDeleting, error }) => {
+  if (!task) return null;
+  return (
+    <div className="enrichment-modal-backdrop" role="presentation">
+      <section className="surface confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="delete-task-title" aria-describedby="delete-task-warning" data-testid="delete-task-dialog">
+        <div className="confirmation-icon" aria-hidden="true"><Trash size={26} weight="duotone" /></div>
+        <div className="confirmation-copy">
+          <h2 id="delete-task-title">Delete task</h2>
+          <p id="delete-task-warning">Are you sure you want to delete the entry?</p>
+          <span>{task.title}</span>
+          {error && <p className="form-error" role="alert" data-testid="delete-task-error">{error}</p>}
+        </div>
+        <div className="editor-actions confirmation-actions">
+          <button className="ghost-button" type="button" onClick={onCancel} disabled={isDeleting} data-testid="delete-task-cancel-button">Cancel</button>
+          <button className="danger-action" type="button" onClick={onConfirm} disabled={isDeleting} data-testid="delete-task-confirm-button">
+            <Trash size={18} weight="duotone" aria-hidden="true" />
+            {isDeleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const activeEnrichmentStatuses = new Set(["QUEUED", "RUNNING"]);
 const terminalEnrichmentStatuses = new Set(["SUCCEEDED", "FAILED", "AUTH_REQUIRED", "CANCELLED"]);
 
@@ -1452,8 +1524,11 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
   );
 };
 
-const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onDelete, onToggleToday, onUpdateNotes }) => {
   const [editingTask, setEditingTask] = useState(null);
+  const [taskPendingDelete, setTaskPendingDelete] = useState(null);
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [taskFilters, setTaskFilters] = useState(emptyTaskFilters);
   const activeExistingEnrichmentJobs = useMemo(
@@ -1496,6 +1571,29 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
   const activeFilterCount = Object.entries(taskFilters).filter(([key, value]) => key === "search" ? Boolean(value.trim()) : value !== "All").length;
   const updateFilter = (field, value) => setTaskFilters((current) => ({ ...current, [field]: value }));
   const resetFilters = () => setTaskFilters(emptyTaskFilters);
+  const requestDeleteTask = (task) => {
+    setTaskPendingDelete(task);
+    setDeleteError("");
+  };
+  const confirmDeleteTask = async () => {
+    if (!taskPendingDelete) return;
+    setDeletingTaskId(taskPendingDelete.id);
+    setDeleteError("");
+    try {
+      await onDelete(taskPendingDelete.id);
+      if (editingTask?.id === taskPendingDelete.id) setEditingTask(null);
+      setTaskPendingDelete(null);
+    } catch (error) {
+      setDeleteError(apiErrorMessage(error, "Unable to delete task."));
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
+  const cancelDeleteTask = () => {
+    if (deletingTaskId) return;
+    setTaskPendingDelete(null);
+    setDeleteError("");
+  };
 
   if (isLoading) {
     return <PageLoader title="Loading tasks" detail="Reading your saved work items from the backend." steps={["Work items", "Dates", "Stats"]} />;
@@ -1567,9 +1665,10 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
             </div>
           </div>
         )}
-        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} />
+        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onDeleteRequest={requestDeleteTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} deletingTaskId={deletingTaskId} />
         {!filteredTasks.length && <p className="empty-state" data-testid="task-filter-empty-state">No tasks match the selected filters.</p>}
       </section>
+      <DeleteTaskDialog task={taskPendingDelete} onCancel={cancelDeleteTask} onConfirm={confirmDeleteTask} isDeleting={Boolean(deletingTaskId)} error={deleteError} />
       <EnrichmentDetailsModal job={selectedEnrichmentJob} onClose={onCloseEnrichmentDetails} onRefresh={onRefreshEnrichmentDetails} />
     </main>
   );
@@ -2411,6 +2510,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const selectedEnrichmentFailureCountRef = useRef(0);
   const [levelUpNotice, setLevelUpNotice] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readInitialSidebarCollapsed);
   const [theme, setTheme] = useState(readInitialTheme);
   const [isProgressGuideDismissed, setIsProgressGuideDismissed] = useState(readProgressGuideDismissed);
   const [persistedXpFloor, setPersistedXpFloor] = useState(() => readPersistedXpForUser(currentUser?.user_id));
@@ -2439,6 +2539,14 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     document.documentElement.dataset.theme = theme;
     writeStoredJson(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(SIDEBAR_COLLAPSED_SESSION_KEY, sidebarCollapsed ? "true" : "false");
+    } catch {
+      // Session storage can be unavailable in private or restricted browser contexts.
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     writeStoredJson(PROGRESS_GUIDE_STORAGE_KEY, isProgressGuideDismissed);
@@ -2587,7 +2695,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       })
       .catch((error) => {
         if (!isActive) return;
-        setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to load saved data.");
+        setTaskLoadError(apiErrorMessage(error, "Unable to load saved data."));
         setTaskStatus("fallback");
       });
 
@@ -2666,7 +2774,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTasks((items) => items.filter((item) => item.id !== id));
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete task.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to complete task."));
     }
   };
   const handleStatusChange = async (id, nextStatus) => {
@@ -2677,7 +2785,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update task status.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to update task status."));
     }
   };
   const handleToggleToday = async (id) => {
@@ -2688,7 +2796,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update working-today state.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to update working-today state."));
     }
   };
   const handleUpdateNotes = async (id, notes, persist = true) => {
@@ -2700,7 +2808,31 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update notes.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to update notes."));
+      throw error;
+    }
+  };
+  const handleDeleteTask = async (id) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    try {
+      await tasksApi.remove(id);
+      setTasks((items) => items.filter((item) => item.id !== id));
+      setTaskLoadError("");
+      showFloatingNotice({
+        title: "Task deleted",
+        message: task.title,
+        tone: "success",
+      });
+      loadQuestRun().catch(() => {});
+    } catch (error) {
+      const message = apiErrorMessage(error, "Unable to delete task.");
+      setTaskLoadError(message);
+      showFloatingNotice({
+        title: "Unable to delete task",
+        message,
+        tone: "error",
+      });
       throw error;
     }
   };
@@ -2880,7 +3012,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     } catch (error) {
       setCalendarSchedule(previousSchedule);
       if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update calendar event.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to update calendar event."));
       throw error;
     }
   };
@@ -2901,7 +3033,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setCalendarSchedule(previousSchedule);
       if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
       setRemovedCalendarEvents(previousRemoved);
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to remove calendar event.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to remove calendar event."));
     }
   };
   const handleRestoreCalendarEvent = async (eventId) => {
@@ -2922,7 +3054,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setCalendarSchedule(previousSchedule);
       if (calendarDate === todayKey()) setDashboardSchedule(previousDashboardSchedule);
       setRemovedCalendarEvents(previousRemoved);
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to restore calendar event.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to restore calendar event."));
     }
   };
   const handleFetchCalendarDate = async () => {
@@ -2974,7 +3106,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       void loadQuestProgress();
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to generate quests.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to generate quests."));
     } finally {
       setIsGeneratingQuests(false);
     }
@@ -3008,7 +3140,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
           setTaskLoadError("");
         })
         .catch((error) => {
-          setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+          setTaskLoadError(apiErrorMessage(error, "Unable to activate quest."));
         });
     }
   };
@@ -3059,7 +3191,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete quest.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to complete quest."));
     } finally {
       setCompletingQuestId(null);
     }
@@ -3070,7 +3202,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setQuestRun(nextRun);
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to skip quest.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to skip quest."));
     }
   };
   const handleActivateQuest = async (questId) => {
@@ -3079,7 +3211,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setQuestRun(nextRun);
       setTaskLoadError("");
     } catch (error) {
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to activate quest.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to activate quest."));
     }
   };
   const handlePauseFocus = () => setActiveSession((session) => {
@@ -3129,7 +3261,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     } catch (error) {
       setSavingFocusState(null);
       setActiveSession(frozenSession);
-      setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to save focus session.");
+      setTaskLoadError(apiErrorMessage(error, "Unable to save focus session."));
     }
   };
 
@@ -3213,16 +3345,16 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   }, []);
 
   return (
-    <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""}`} data-theme={theme} data-testid="app-shell">
-      {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} />}
+    <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""} ${sidebarCollapsed ? "app-shell-sidebar-collapsed" : ""}`} data-theme={theme} data-testid="app-shell">
+      {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} collapsed={sidebarCollapsed} onClose={() => setSidebarOpen(false)} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} />}
       {!isDistractionFreeFocus && <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />}
-      <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""}`} data-testid="workspace">
+      <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""} ${sidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`} data-testid="workspace">
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
         <LevelUpBanner levelUp={levelUpNotice} />
         <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardStatus={dashboardStatus} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
