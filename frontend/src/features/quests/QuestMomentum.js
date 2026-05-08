@@ -1,7 +1,7 @@
 import { CheckCircle, Clock, Lightning, Play, Timer, Trophy } from "@phosphor-icons/react";
 import { formatMinutes } from "../../utils/dateTime";
 import { focusUnlockThresholdMinutes } from "../progress/progressionMath";
-import { FOCUS_XP_MULTIPLIER, formatFocusMultiplier } from "../rewards/xpRewards";
+import { formatFocusMultiplier } from "../rewards/xpRewards";
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
@@ -58,6 +58,7 @@ export const NextQuestCard = ({
   onCompleteQuest,
   onSkipQuest,
   onSkipReasonChange,
+  focusMultiplier,
 }) => {
   const completionPercent = summary.total ? Math.round((summary.completed / summary.total) * 100) : 0;
   const focusUnlockMinutes = focusUnlockThresholdMinutes(nextQuestTask?.time || nextQuestTask?.estimatedMinutes || 60);
@@ -93,7 +94,7 @@ export const NextQuestCard = ({
           </div>
           <span>
             {questPercent(nextQuest)}% of focus target captured
-            {nextQuest.hasFocusReward ? ` - focus bonus +${nextQuest.focusBonusXp} XP is active` : ` - log ${formatMinutes(focusUnlockMinutes)} to unlock up to ${formatFocusMultiplier(Math.max(FOCUS_XP_MULTIPLIER, nextQuest.rewardMultiplier || 0))}`}
+            {nextQuest.hasFocusReward ? ` - focus bonus +${nextQuest.focusBonusXp} XP is active` : ` - log ${formatMinutes(focusUnlockMinutes)} to unlock up to ${formatFocusMultiplier(Math.max(focusMultiplier || 1, nextQuest.rewardMultiplier || 0))}`}
           </span>
         </div>
       </div>

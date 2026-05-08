@@ -18,6 +18,11 @@ test("derives total xp from completed tasks plus focus reward rules", () => {
   expect(deriveTotalXp(tasks, focusSessions)).toBe(66);
 });
 
+test("uses the configured focus multiplier cap for total xp", () => {
+  const deepFocusSessions = [{ ...focusSessions[0], duration_minutes: 50 }];
+  expect(deriveTotalXp([{ ...tasks[0], xp: 80, estimatedMinutes: 60 }], deepFocusSessions, 2)).toBe(160);
+});
+
 test("keeps total xp monotonic when a stale reload computes a lower value", () => {
   expect(mergeMonotonicTotalXp(66, 0)).toBe(66);
   expect(mergeMonotonicTotalXp(0, 85)).toBe(85);

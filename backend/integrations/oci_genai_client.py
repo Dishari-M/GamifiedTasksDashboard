@@ -7,8 +7,10 @@ from config import (
     get_oci_compartment_id,
     get_oci_config_file,
     get_oci_config_profile,
+    get_oci_genai_connect_timeout_seconds,
     get_oci_genai_endpoint,
     get_oci_genai_model_id,
+    get_oci_genai_read_timeout_seconds,
     get_oci_genai_request_format,
     get_oci_genai_serving_mode,
     get_oci_key_file,
@@ -67,8 +69,7 @@ def _build_client(sdk):
             raise NotImplementedError(
                 "OCI config-file authentication failed. Set OCI_CONFIG_FILE/OCI_CONFIG_PROFILE or use another OCI_AUTH_TYPE."
             ) from exc
-        kwargs = {"service_endpoint": endpoint} if endpoint else {}
-        return sdk["client"](config, **kwargs)
+        return sdk["client"](config, **_client_kwargs(endpoint))
 
     if auth_type == "security_token":
         config_file = get_oci_config_file()
@@ -88,8 +89,7 @@ def _build_client(sdk):
                 "OCI_AUTH_TYPE=security_token and OCI_CONFIG_PROFILE to the session profile."
             ) from exc
 
-        kwargs = {"service_endpoint": endpoint} if endpoint else {}
-        return sdk["client"](config, signer=signer, **kwargs)
+        return sdk["client"](config, signer=signer, **_client_kwargs(endpoint))
 
     if auth_type == "api_key":
         config = {
@@ -118,23 +118,32 @@ def _build_client(sdk):
                 "OCI_KEY_FILE, OCI_KEY_FINGERPRINT, OCI_KEY_PASSPHRASE, and OCI_REGION."
             ) from exc
 
-        kwargs = {"service_endpoint": endpoint} if endpoint else {}
-        return sdk["client"](config, **kwargs)
+        return sdk["client"](config, **_client_kwargs(endpoint))
 
     if auth_type == "instance_principal":
         signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-        kwargs = {"service_endpoint": endpoint} if endpoint else {}
-        return sdk["client"]({}, signer=signer, **kwargs)
+        return sdk["client"]({}, signer=signer, **_client_kwargs(endpoint))
 
     if auth_type == "resource_principal":
         signer = oci.auth.signers.get_resource_principals_signer()
-        kwargs = {"service_endpoint": endpoint} if endpoint else {}
-        return sdk["client"]({}, signer=signer, **kwargs)
+        return sdk["client"]({}, signer=signer, **_client_kwargs(endpoint))
 
     raise NotImplementedError(
         f"Unsupported OCI_AUTH_TYPE '{auth_type}'. Use 'config_file', 'security_token', 'api_key', "
         "'instance_principal', or 'resource_principal'."
     )
+
+
+def _client_kwargs(endpoint):
+    kwargs = {
+        "timeout": (
+            get_oci_genai_connect_timeout_seconds(),
+            get_oci_genai_read_timeout_seconds(),
+        )
+    }
+    if endpoint:
+        kwargs["service_endpoint"] = endpoint
+    return kwargs
 
 
 def _load_config_file(oci, config_file, profile):
@@ -364,7 +373,7 @@ def _normalize_insight(text, prompt_payload):
         "capacity_minutes": int(parsed.get("capacity_minutes") or capacity.get("available_focus_minutes") or 0),
         "impact_score": float(
             parsed.get("impact_score")
-            or max((task.get("ai_impact_score", 0) for task in tasks), default=0)
+            or max((task.get("ai_impact_score", task.get("impact_score", 0)) for task in tasks), default=0)
             or 0
         ),
     }

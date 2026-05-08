@@ -485,6 +485,8 @@ def _task_filters(user_id, filters, work_date):
     where = ["w.USER_ID = :user_id"]
     binds = {"user_id": user_id, "work_date": work_date}
     _add_in_filter(where, binds, "w.STATUS", "status", filters.get("status"))
+    if _truthy(filters.get("exclude_done")):
+        where.append("NVL(w.STATUS, 'To Do') <> 'Done'")
     _add_in_filter(where, binds, "w.EXTERNAL_SOURCE", "source", filters.get("source") or filters.get("external_source"))
     _add_in_filter(where, binds, "w.PRIORITY", "priority", filters.get("priority"))
     if filters.get("worked_date"):

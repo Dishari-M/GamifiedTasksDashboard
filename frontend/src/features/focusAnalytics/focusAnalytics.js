@@ -98,19 +98,17 @@ const buildWeeklyRows = (dailyRows) => {
 
 const completedTasksForRange = (tasks, range) => tasks.filter((task) => task.status === "Done" && isWithinRange(dateKeyFromValue(task.completedAt || task.completed_at), range));
 
-const xpForCompletedTasks = (tasks, focusSessions, range, dailyRows) => {
+const xpForCompletedTasks = (tasks, focusSessions, range, dailyRows, focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   const rowByDate = Object.fromEntries(dailyRows.map((row) => [row.date, row]));
   let baseXp = 0;
   let focusBonusXp = 0;
-  const rewardsByTask = focusRewardsByTaskId(focusSessions);
 
   completedTasksForRange(tasks, range).forEach((task) => {
     const completedDay = dateKeyFromValue(task.completedAt || task.completed_at);
-    const focusMinutes = focusSessions
-      .filter((session) => session.task_id === task.id && sessionDayKey(session) === completedDay)
-      .reduce((sum, session) => sum + sessionMinutes(session), 0);
-    const taskReward = rewardsByTask[task.id] || { focusMinutes: 0, rewardMultiplier: FOCUS_XP_MULTIPLIER };
-    const reward = taskRewardDetails(task, focusMinutes, taskReward.rewardMultiplier);
+    const completedDaySessions = focusSessions.filter((session) => session.task_id === task.id && sessionDayKey(session) === completedDay);
+    const focusMinutes = completedDaySessions.reduce((sum, session) => sum + sessionMinutes(session), 0);
+    const taskReward = focusRewardsByTaskId(completedDaySessions)[task.id] || { focusMinutes: 0, rewardMultiplier: null };
+    const reward = taskRewardDetails(task, focusMinutes, taskReward.rewardMultiplier, focusMultiplier);
     baseXp += reward.baseXp;
     focusBonusXp += reward.focusBonusXp;
     if (rowByDate[completedDay]) rowByDate[completedDay].xp += reward.rewardXp;
@@ -122,7 +120,7 @@ const xpForCompletedTasks = (tasks, focusSessions, range, dailyRows) => {
     totalXp: baseXp + focusBonusXp,
     breakdown: [
       { name: "Base XP", value: baseXp },
-      { name: `Focus bonus (thresholded, up to ${FOCUS_XP_MULTIPLIER}x)`, value: focusBonusXp },
+      { name: `Focus bonus (thresholded, up to ${focusMultiplier}x)`, value: focusBonusXp },
     ].filter((item) => item.value > 0),
   };
 };
@@ -179,10 +177,10 @@ const formatImprovement = (currentMinutes, previousMinutes) => {
   return `${Math.abs(percent)}% ${percent > 0 ? "higher" : "lower"} than the previous period.`;
 };
 
-export const buildFocusAnalytics = ({ focusSessions = [], tasks = [], periodDays = 30, referenceDate = todayKey() } = {}) => {
+export const buildFocusAnalytics = ({ focusSessions = [], tasks = [], periodDays = 30, referenceDate = todayKey(), focusMultiplier = FOCUS_XP_MULTIPLIER } = {}) => {
   const range = periodRange(periodDays, referenceDate);
   const { rows: dailyRows, sessions } = buildSessionRows(focusSessions, range);
-  const xp = xpForCompletedTasks(tasks, focusSessions, range, dailyRows);
+  const xp = xpForCompletedTasks(tasks, focusSessions, range, dailyRows, focusMultiplier);
   const weeklyRows = buildWeeklyRows(dailyRows);
   const totalMinutes = dailyRows.reduce((sum, row) => sum + row.minutes, 0);
   const completedSessions = sessions.length;

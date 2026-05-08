@@ -1,136 +1,6 @@
 import json
-from threading import Lock
 
 from repositories import overview_repository
-
-
-_STANDUP_STORAGE_LOCK = Lock()
-_STANDUP_STORAGE_READY = False
-
-
-def ensure_standup_storage(cur):
-    global _STANDUP_STORAGE_READY
-    if _STANDUP_STORAGE_READY:
-        return
-
-    with _STANDUP_STORAGE_LOCK:
-        if _STANDUP_STORAGE_READY:
-            return
-
-        if not sequence_exists(cur, "STANDUP_NOTES_SEQ"):
-            cur.execute("CREATE SEQUENCE STANDUP_NOTES_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
-
-        if not overview_repository.table_exists(cur, "STANDUP_NOTES"):
-            cur.execute(
-                """
-                CREATE TABLE STANDUP_NOTES (
-                  STANDUP_NOTE_ID NUMBER(19) DEFAULT STANDUP_NOTES_SEQ.NEXTVAL PRIMARY KEY,
-                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
-                  NOTE_DATE DATE NOT NULL,
-                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
-                  ACCOMPLISHED CLOB,
-                  IN_PROGRESS CLOB,
-                  BLOCKERS CLOB,
-                  NEXT_STEPS CLOB,
-                  FULL_NOTE CLOB NOT NULL,
-                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  CONSTRAINT STANDUP_NOTES_UK UNIQUE (USER_ID, NOTE_DATE)
-                )
-                """
-            )
-
-        _STANDUP_STORAGE_READY = True
-
-
-def fetch_standup_note(cur, user_id, note_date):
-    cur.execute(
-        """
-        SELECT
-            STANDUP_NOTE_ID,
-            SOURCE_AI_RUN_ID,
-            ACCOMPLISHED,
-            IN_PROGRESS,
-            BLOCKERS,
-            NEXT_STEPS,
-            FULL_NOTE,
-            UPDATED_AT
-        FROM STANDUP_NOTES
-        WHERE USER_ID = :user_id
-          AND NOTE_DATE = TO_DATE(:note_date, 'YYYY-MM-DD')
-        """,
-        {"user_id": user_id, "note_date": note_date},
-    )
-    row = cur.fetchone()
-    if not row:
-        return None
-    return {
-        "standup_note_id": row[0],
-        "source_ai_run_id": row[1],
-        "accomplished": _text(row[2]),
-        "in_progress": _text(row[3]),
-        "blockers": _text(row[4]),
-        "next_steps": _text(row[5]),
-        "full_note": _text(row[6]),
-        "updated_at": row[7].isoformat() if row[7] else None,
-    }
-
-
-def upsert_standup_note(cur, user_id, note_date, ai_run_id, note):
-    cur.execute(
-        """
-        MERGE INTO STANDUP_NOTES target
-        USING (
-            SELECT :user_id USER_ID, TO_DATE(:note_date, 'YYYY-MM-DD') NOTE_DATE
-            FROM DUAL
-        ) source
-        ON (target.USER_ID = source.USER_ID AND target.NOTE_DATE = source.NOTE_DATE)
-        WHEN MATCHED THEN UPDATE SET
-            SOURCE_AI_RUN_ID = :ai_run_id,
-            ACCOMPLISHED = :accomplished,
-            IN_PROGRESS = :in_progress,
-            BLOCKERS = :blockers,
-            NEXT_STEPS = :next_steps,
-            FULL_NOTE = :full_note,
-            UPDATED_AT = SYSTIMESTAMP
-        WHEN NOT MATCHED THEN INSERT (
-            STANDUP_NOTE_ID,
-            USER_ID,
-            NOTE_DATE,
-            SOURCE_AI_RUN_ID,
-            ACCOMPLISHED,
-            IN_PROGRESS,
-            BLOCKERS,
-            NEXT_STEPS,
-            FULL_NOTE,
-            CREATED_AT,
-            UPDATED_AT
-        )
-        VALUES (
-            STANDUP_NOTES_SEQ.NEXTVAL,
-            :user_id,
-            TO_DATE(:note_date, 'YYYY-MM-DD'),
-            :ai_run_id,
-            :accomplished,
-            :in_progress,
-            :blockers,
-            :next_steps,
-            :full_note,
-            SYSTIMESTAMP,
-            SYSTIMESTAMP
-        )
-        """,
-        {
-            "user_id": user_id,
-            "note_date": note_date,
-            "ai_run_id": ai_run_id,
-            "accomplished": _string(note.get("accomplished")),
-            "in_progress": _string(note.get("in_progress")),
-            "blockers": _string(note.get("blockers")),
-            "next_steps": _string(note.get("next_steps")),
-            "full_note": note.get("full_note") or " ".join(note.get("sentences") or []),
-        },
-    )
 
 
 def build_context(cur, user_id, work_date):
@@ -153,7 +23,7 @@ def build_context(cur, user_id, work_date):
             w.LABELS_JSON,
             w.AI_INSIGHT,
             w.AI_PRIORITY_SCORE,
-            w.COMPLETED_AT
+            TO_CHAR(w.COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEM_WORK_DATES d
         JOIN WORK_ITEMS w
           ON w.TASK_ID = d.TASK_ID
@@ -184,7 +54,7 @@ def build_context(cur, user_id, work_date):
             LABELS_JSON,
             AI_INSIGHT,
             AI_PRIORITY_SCORE,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Done'
@@ -213,7 +83,7 @@ def build_context(cur, user_id, work_date):
             LABELS_JSON,
             AI_INSIGHT,
             AI_PRIORITY_SCORE,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Blocked'
@@ -283,7 +153,7 @@ def _task_rows(cur, sql, binds):
             "labels": _json_list(row[12]),
             "ai_insight": _text(row[13]),
             "priority_score": float(row[14] or 0),
-            "completed_at": row[15].isoformat() if row[15] else None,
+            "completed_at": row[15] if row[15] else None,
         }
         for row in cur.fetchall()
     ]
@@ -309,23 +179,9 @@ def _notes_from_tasks(tasks):
     return notes
 
 
-def _string(value):
-    if isinstance(value, list):
-        return "; ".join(str(item).strip() for item in value if str(item).strip())
-    return str(value or "")
-
-
 def _text(value):
     if value is None:
         return ""
     if hasattr(value, "read"):
         return value.read()
     return str(value)
-
-
-def sequence_exists(cur, sequence_name):
-    cur.execute(
-        "SELECT COUNT(*) FROM USER_SEQUENCES WHERE SEQUENCE_NAME = :sequence_name",
-        {"sequence_name": sequence_name.upper()},
-    )
-    return cur.fetchone()[0] > 0

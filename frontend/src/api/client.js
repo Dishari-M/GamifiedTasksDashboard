@@ -149,8 +149,14 @@ export const focusApi = {
 };
 
 export const insightsApi = {
-  today: (params = {}) => api.get("/insights/today", { params }).then(unwrap),
-  generateToday: (payload) => api.post("/insights/today/generate", payload).then(unwrap),
+  today: (params = {}) => dedupeGet(
+    getKey("insights:today", params),
+    () => api.get("/insights/today", { params }).then(unwrap),
+  ),
+  generateToday: (payload) => {
+    inFlightGetRequests.delete(getKey("insights:today", { date: payload.date }));
+    return api.post("/insights/today/generate", payload).then(unwrap);
+  },
 };
 
 export const standupApi = {

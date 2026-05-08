@@ -1,79 +1,7 @@
 import json
-from threading import Lock
 
 
-_OVERVIEW_STORAGE_LOCK = Lock()
-_OVERVIEW_STORAGE_READY = False
-
-
-def ensure_overview_storage(cur):
-    global _OVERVIEW_STORAGE_READY
-    if _OVERVIEW_STORAGE_READY:
-        return
-
-    with _OVERVIEW_STORAGE_LOCK:
-        if _OVERVIEW_STORAGE_READY:
-            return
-
-        if not sequence_exists(cur, "DAILY_OVERVIEWS_SEQ"):
-            cur.execute("CREATE SEQUENCE DAILY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
-
-        if not sequence_exists(cur, "WEEKLY_OVERVIEWS_SEQ"):
-            cur.execute("CREATE SEQUENCE WEEKLY_OVERVIEWS_SEQ START WITH 1 INCREMENT BY 1 CACHE 100 NOCYCLE")
-
-        if not table_exists(cur, "DAILY_OVERVIEWS"):
-            cur.execute(
-                """
-                CREATE TABLE DAILY_OVERVIEWS (
-                  DAILY_OVERVIEW_ID NUMBER(19) DEFAULT DAILY_OVERVIEWS_SEQ.NEXTVAL PRIMARY KEY,
-                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
-                  OVERVIEW_DATE DATE NOT NULL,
-                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
-                  TASKS_COMPLETED NUMBER(8) DEFAULT 0 NOT NULL,
-                  XP_EARNED NUMBER(8) DEFAULT 0 NOT NULL,
-                  MEETING_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
-                  FOCUS_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
-                  NEW_LEARNINGS CLOB,
-                  WENT_WELL CLOB,
-                  WENT_WRONG CLOB,
-                  SUMMARY CLOB,
-                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
-                  CONSTRAINT DAILY_OVERVIEWS_UK UNIQUE (USER_ID, OVERVIEW_DATE)
-                )
-                """
-            )
-
-        if not table_exists(cur, "WEEKLY_OVERVIEWS"):
-            cur.execute(
-                """
-                CREATE TABLE WEEKLY_OVERVIEWS (
-                  WEEKLY_OVERVIEW_ID NUMBER(19) DEFAULT WEEKLY_OVERVIEWS_SEQ.NEXTVAL PRIMARY KEY,
-                  USER_ID NUMBER(19) NOT NULL REFERENCES APP_USERS(USER_ID),
-                  WEEK_START_DATE DATE NOT NULL,
-                  WEEK_END_DATE DATE NOT NULL,
-                  SOURCE_AI_RUN_ID NUMBER(19) REFERENCES AI_RUNS(AI_RUN_ID),
-                  TASKS_COMPLETED NUMBER(8) DEFAULT 0 NOT NULL,
-                  XP_EARNED NUMBER(8) DEFAULT 0 NOT NULL,
-                  MEETING_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
-                  FOCUS_MINUTES NUMBER(8) DEFAULT 0 NOT NULL,
-                  TOP_ACCOMPLISHMENTS CLOB,
-                  NEW_LEARNINGS CLOB,
-                  THEMES CLOB,
-                  WENT_WELL CLOB,
-                  WENT_WRONG CLOB,
-                  SUMMARY CLOB,
-                  CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-                  ROW_VERSION NUMBER DEFAULT 1 NOT NULL,
-                  CONSTRAINT WEEKLY_OVERVIEWS_UK UNIQUE (USER_ID, WEEK_START_DATE),
-                  CONSTRAINT WEEKLY_OVERVIEWS_DATE_CK CHECK (WEEK_END_DATE >= WEEK_START_DATE)
-                )
-                """
-            )
-
-        _OVERVIEW_STORAGE_READY = True
+_EXISTING_TABLE_CACHE = set()
 
 
 def fetch_daily_overview_row(cur, user_id, overview_date):
@@ -90,7 +18,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM DAILY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND OVERVIEW_DATE = TO_DATE(:overview_date, 'YYYY-MM-DD')
@@ -111,7 +39,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
         "went_well": _json_list(row[7]),
         "went_wrong": _json_list(row[8]),
         "summary": _text(row[9]),
-        "updated_at": row[10].isoformat() if row[10] else None,
+        "updated_at": row[10],
     }
 
 
@@ -133,7 +61,7 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM WEEKLY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND WEEK_START_DATE = TO_DATE(:week_start, 'YYYY-MM-DD')
@@ -158,7 +86,7 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
         "went_well": _json_list(row[11]),
         "went_wrong": _json_list(row[12]),
         "summary": _text(row[13]),
-        "updated_at": row[14].isoformat() if row[14] else None,
+        "updated_at": row[14],
     }
 
 
@@ -179,7 +107,7 @@ def fetch_completed_tasks(cur, user_id, start_date, end_date):
             LABELS_JSON,
             AI_CATEGORY,
             AI_INSIGHT,
-            COMPLETED_AT
+            TO_CHAR(COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT
         FROM WORK_ITEMS
         WHERE USER_ID = :user_id
           AND STATUS = 'Done'
@@ -209,7 +137,7 @@ def fetch_worked_tasks(cur, user_id, start_date, end_date):
             w.LABELS_JSON,
             w.AI_CATEGORY,
             w.AI_INSIGHT,
-            w.COMPLETED_AT,
+            TO_CHAR(w.COMPLETED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS COMPLETED_AT,
             TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD') AS WORK_DATE,
             d.PLANNED_MINUTES
         FROM WORK_ITEM_WORK_DATES d
@@ -234,8 +162,8 @@ def fetch_calendar_events(cur, user_id, start_date, end_date):
         SELECT
             EVENT_ID,
             TITLE,
-            START_AT,
-            END_AT,
+            TO_CHAR(START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS START_AT,
+            TO_CHAR(END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS END_AT,
             DURATION_MINUTES,
             IS_MEETING,
             IS_FOCUS_BLOCK,
@@ -253,8 +181,8 @@ def fetch_calendar_events(cur, user_id, start_date, end_date):
         {
             "event_id": row[0],
             "title": row[1],
-            "start_at": row[2].isoformat() if row[2] else None,
-            "end_at": row[3].isoformat() if row[3] else None,
+            "start_at": row[2],
+            "end_at": row[3],
             "duration_minutes": row[4] or 0,
             "is_meeting": bool(row[5]),
             "is_focus_block": bool(row[6]),
@@ -275,8 +203,8 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             f.TASK_ID,
             w.TITLE,
             f.SESSION_DATE,
-            f.STARTED_AT,
-            f.ENDED_AT,
+            TO_CHAR(f.STARTED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS STARTED_AT,
+            TO_CHAR(f.ENDED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS ENDED_AT,
             f.PLANNED_MINUTES,
             f.ACTUAL_MINUTES,
             f.STATUS,
@@ -284,7 +212,7 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             f.NOTES
         FROM FOCUS_SESSIONS f
         LEFT JOIN WORK_ITEMS w
-          ON w.TASK_ID = f.TASK_ID
+          ON TO_CHAR(w.TASK_ID) = TO_CHAR(f.TASK_ID)
          AND w.USER_ID = f.USER_ID
         WHERE f.USER_ID = :user_id
           AND f.SESSION_DATE BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD')
@@ -299,13 +227,13 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             "task_id": row[1],
             "task_title": row[2] or "Focus session",
             "session_date": row[3].isoformat()[:10] if row[3] else None,
-            "started_at": row[4].isoformat() if row[4] else None,
-            "ended_at": row[5].isoformat() if row[5] else None,
+            "started_at": row[4],
+            "ended_at": row[5],
             "planned_minutes": row[6] or 0,
             "actual_minutes": row[7] or 0,
             "status": row[8],
             "xp_awarded": row[9] or 0,
-            "notes": row[10] or "",
+            "notes": _text(row[10]),
         }
         for row in cur.fetchall()
     ]
@@ -326,7 +254,7 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             WENT_WELL,
             WENT_WRONG,
             SUMMARY,
-            UPDATED_AT
+            TO_CHAR(UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS UPDATED_AT
         FROM DAILY_OVERVIEWS
         WHERE USER_ID = :user_id
           AND OVERVIEW_DATE BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD')
@@ -346,7 +274,7 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             "went_well": _json_list(row[6]),
             "went_wrong": _json_list(row[7]),
             "summary": _text(row[8]),
-            "updated_at": row[9].isoformat() if row[9] else None,
+            "updated_at": row[9],
         }
         for row in cur.fetchall()
     ]
@@ -416,7 +344,7 @@ def update_ai_run(cur, ai_run_id, status, response_payload=None, error_code=None
             "status": status,
             "response_json": json.dumps(response_payload, separators=(",", ":"), default=str) if response_payload is not None else None,
             "error_code": error_code,
-            "error_message": error_message,
+            "error_message": str(error_message)[:1000] if error_message else None,
         },
     )
 
@@ -571,7 +499,7 @@ def _task_row(row, work_date=None, planned_minutes=None):
         "labels": _json_list(row[10]),
         "ai_category": row[11],
         "ai_insight": _text(row[12]),
-        "completed_at": row[13].isoformat() if row[13] else None,
+        "completed_at": row[13],
         "work_date": work_date,
         "planned_minutes": planned_minutes,
     }
@@ -603,19 +531,17 @@ def _text(value):
 
 
 def table_exists(cur, table_name):
+    normalized = table_name.upper()
+    if normalized in _EXISTING_TABLE_CACHE:
+        return True
     cur.execute(
         "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name",
-        {"table_name": table_name.upper()},
+        {"table_name": normalized},
     )
-    return cur.fetchone()[0] > 0
-
-
-def sequence_exists(cur, sequence_name):
-    cur.execute(
-        "SELECT COUNT(*) FROM USER_SEQUENCES WHERE SEQUENCE_NAME = :sequence_name",
-        {"sequence_name": sequence_name.upper()},
-    )
-    return cur.fetchone()[0] > 0
+    exists = cur.fetchone()[0] > 0
+    if exists:
+        _EXISTING_TABLE_CACHE.add(normalized)
+    return exists
 
 
 def _overview_binds(user_id, overview_date, ai_run_id, overview):

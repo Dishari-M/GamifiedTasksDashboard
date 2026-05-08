@@ -64,7 +64,11 @@ def update_ai_run(cur, ai_run_id, status, response_payload=None, error_code=None
 def latest_successful_run(cur, user_id, run_type, work_date):
     cur.execute(
         """
-        SELECT AI_RUN_ID, REQUEST_JSON, RESPONSE_JSON, CREATED_AT
+        SELECT
+            AI_RUN_ID,
+            REQUEST_JSON,
+            RESPONSE_JSON,
+            TO_CHAR(CREATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS CREATED_AT
         FROM AI_RUNS
         WHERE USER_ID = :user_id
           AND RUN_TYPE = :run_type
@@ -81,7 +85,7 @@ def latest_successful_run(cur, user_id, run_type, work_date):
                 "ai_run_id": row[0],
                 "request_payload": request_payload,
                 "response_payload": _json_load(row[2]),
-                "created_at": row[3].isoformat() if row[3] else None,
+                "created_at": row[3],
             }
     return None
 

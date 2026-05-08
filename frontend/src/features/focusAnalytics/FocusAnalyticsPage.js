@@ -190,15 +190,15 @@ const AnalyticsErrorState = () => (
   </section>
 );
 
-const FocusAnalyticsPage = ({ tasks = [], focusSessions = [] }) => {
+const FocusAnalyticsPage = ({ tasks = [], focusSessions = [], focusMultiplier }) => {
   const [periodDays, setPeriodDays] = useState(30);
   const analyticsResult = useMemo(() => {
     try {
-      return { data: buildFocusAnalytics({ tasks, focusSessions, periodDays }) };
+      return { data: buildFocusAnalytics({ tasks, focusSessions, periodDays, focusMultiplier }) };
     } catch {
       return { error: true };
     }
-  }, [focusSessions, periodDays, tasks]);
+  }, [focusMultiplier, focusSessions, periodDays, tasks]);
 
   if (analyticsResult.error) return <main className="page-stack focus-analytics-page" data-testid="focus-analytics-page"><AnalyticsErrorState /></main>;
 
