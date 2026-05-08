@@ -87,3 +87,13 @@ def get_calendar_events(work_date, user_id=None):
     if mode == "oracle":
         return _oracle_call(phase8_oracle_repository.get_calendar_events, work_date, user_id)
     raise _unsupported_mode_error(mode)
+
+
+def get_focus_sessions(work_date, user_id=None):
+    """Return recorded focus sessions for the requested work date."""
+    mode = _mode()
+    if mode == "mock":
+        return phase8_mock_data.get_mock_focus_sessions(work_date, work_date)
+    if mode == "oracle":
+        return _oracle_call(phase8_oracle_repository.get_focus_sessions, work_date, user_id)
+    raise _unsupported_mode_error(mode)

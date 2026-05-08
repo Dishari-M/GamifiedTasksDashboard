@@ -1,4 +1,5 @@
 from db import connection_scope
+from repositories import focus_repository
 
 
 def get_user(user_id):
@@ -25,6 +26,12 @@ def get_calendar_events(work_date, user_id):
         return _get_calendar_events(cur, user_id, work_date)
 
 
+def get_focus_sessions(work_date, user_id):
+    with connection_scope() as conn:
+        cur = conn.cursor()
+        return focus_repository.list_focus_sessions(cur, user_id, work_date, work_date)
+
+
 def get_dashboard_snapshot(work_date, previous_date, user_id):
     with connection_scope() as conn:
         cur = conn.cursor()
@@ -35,6 +42,8 @@ def get_dashboard_snapshot(work_date, previous_date, user_id):
             "previous_daily_work_items": _get_daily_work_items(cur, user_id, previous_date),
             "events": _get_calendar_events(cur, user_id, work_date),
             "previous_events": _get_calendar_events(cur, user_id, previous_date),
+            "focus_sessions": focus_repository.list_focus_sessions(cur, user_id, work_date, work_date),
+            "previous_focus_sessions": focus_repository.list_focus_sessions(cur, user_id, previous_date, previous_date),
         }
 
 
