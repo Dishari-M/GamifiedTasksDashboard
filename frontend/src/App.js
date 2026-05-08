@@ -71,6 +71,7 @@ const navItems = [
   { label: "Settings", path: "/settings", icon: GearSix },
 ];
 const tableStatuses = ["To Do", "In Progress", "Blocked", "Done"];
+const ACTIVE_TASK_LIST_PARAMS = { exclude_done: true };
 
 const THEME_STORAGE_KEY = "devquest.theme.v1";
 const PROGRESS_GUIDE_STORAGE_KEY = "devquest.progressGuide.dismissed.v2";
@@ -103,6 +104,7 @@ const persistXpForUser = (userId, totalXp) => {
 };
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const isDoneStatus = (status) => String(status || "").trim().toLowerCase() === "done";
 
 const profileFirstName = (user) => user?.first_name || user?.firstName || "User";
 const profileLastName = (user) => user?.last_name || user?.lastName || "";
@@ -1101,7 +1103,7 @@ const completedTodayTasks = (tasks) => tasks.filter((task) => task.status === "D
 
 const uniqueTasksById = (tasks) => [...new Map(tasks.filter(Boolean).map((task) => [task.id, task])).values()];
 
-const dashboardTaskFilters = ["All", "Working Today", "Done"];
+const dashboardTaskFilters = ["All", "Working Today"];
 
 const normalizeTaskPayload = (task) => (
   task && (
@@ -1113,6 +1115,13 @@ const normalizeTaskPayload = (task) => (
     ? normalizeApiTask(task)
     : normalizeTask(task)
 );
+
+const normalizeVisibleTasks = (taskItems) => taskItems.map(normalizeTaskPayload).filter((task) => !isDoneStatus(task.status));
+const upsertVisibleTask = (items, rawTask) => {
+  const task = normalizeTaskPayload(rawTask);
+  if (isDoneStatus(task.status)) return items.filter((item) => item.id !== task.id);
+  return items.map((item) => (item.id === task.id ? task : item));
+};
 
 const taskBackendKey = (task) => String(task?.taskId || task?.id || "").trim();
 const taskMatchesBackendKey = (task, backendKey) => String(taskBackendKey(task)) === String(backendKey || "").trim();
@@ -1566,22 +1575,26 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
   );
 };
 
-const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEvents = [], onUpdateEvent, onRemoveEvent, onRestoreEvent }) => (
-  <main className="page-stack calendar-page" data-testid="calendar-page">
-    <section className="surface weekly-panel" data-testid="weekly-overview-card">
-      <div className="section-heading">
-        <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
-        <NavLink to="/overview">Open overview</NavLink>
-      </div>
-      <div className="weekly-grid calendar-weekly-grid">
-        <StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" />
-        <StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" />
-        <StatCard label="Meeting Time" value={formatMinutes(overview.meetingMinutes)} detail="Tracked from calendar" icon={Clock} tone="blue" trend testId="weekly-time-stat" />
-      </div>
-    </section>
-    <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} />
-  </main>
-);
+const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEvents = [], dashboardStats, dashboardStatInsights, dashboardStatus, onUpdateEvent, onRemoveEvent, onRestoreEvent }) => {
+  const meetingMinutes = dashboardStats?.meeting_minutes ?? overview.meetingMinutes;
+
+  return (
+    <main className="page-stack calendar-page" data-testid="calendar-page">
+      <section className="surface weekly-panel" data-testid="weekly-overview-card">
+        <div className="section-heading">
+          <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+          <NavLink to="/overview">Open overview</NavLink>
+        </div>
+        <div className="weekly-grid calendar-weekly-grid">
+          <StatCard label="Completed" value="24 tasks" detail="6 more than last week" icon={CheckSquare} tone="green" trend testId="weekly-completed-stat" />
+          <StatCard label="XP Earned" value="740 XP" detail="Level 8 is within reach" icon={Trophy} tone="violet" testId="weekly-xp-stat" />
+          <StatCard label="Meeting Time" value={formatMinutes(meetingMinutes)} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked from calendar"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={Clock} tone="blue" trend testId="weekly-time-stat" />
+        </div>
+      </section>
+      <SchedulePanel events={events} removedEvents={removedEvents} onUpdateEvent={onUpdateEvent} onRemoveEvent={onRemoveEvent} onRestoreEvent={onRestoreEvent} />
+    </main>
+  );
+};
 
 const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
   const todaySessions = sessionsForDay(focusSessions);
@@ -2485,9 +2498,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const dismissProgressGuide = () => setIsProgressGuideDismissed(true);
 
   const loadTasks = async () => {
-    const loadedTasks = await tasksApi.list();
+    const loadedTasks = await tasksApi.list(ACTIVE_TASK_LIST_PARAMS);
     const taskItems = Array.isArray(loadedTasks) ? loadedTasks : loadedTasks?.items || [];
-    setTasks(taskItems.map(normalizeTaskPayload));
+    setTasks(normalizeVisibleTasks(taskItems));
   };
 
   const loadEnrichmentJobs = async ({ notify = false } = {}) => {
@@ -2650,7 +2663,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!task) return;
     try {
       const updatedTask = await tasksApi.complete(id, { row_version: task.row_version, completedAt: task.completedAt || nowIso() });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
+      setTasks((items) => items.filter((item) => item.id !== id));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to complete task.");
@@ -2661,7 +2674,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!task || !nextStatus || task.status === nextStatus) return;
     try {
       const updatedTask = await tasksApi.updateStatus(id, { status: nextStatus, row_version: task.row_version });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
+      setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update task status.");
@@ -2672,7 +2685,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!task) return;
     try {
       const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
+      setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update working-today state.");
@@ -2684,7 +2697,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     if (!persist || !task) return;
     try {
       const updatedTask = await tasksApi.updateNotes(id, { notes, row_version: task.row_version });
-      setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
+      setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(error?.response?.data?.detail?.message || error?.message || "Unable to update notes.");
@@ -2715,7 +2728,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       return;
     }
     const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
-    setTasks((items) => items.map((item) => (item.id === id ? normalizeTaskPayload(updatedTask) : item)));
+    setTasks((items) => upsertVisibleTask(items, updatedTask));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
   const handleSelectCodeBase = async (initialPath = "") => {
@@ -2775,7 +2788,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       return job;
     }
     const createdTask = await tasksApi.create(form);
-    setTasks((items) => [normalizeTaskPayload(createdTask), ...items]);
+    const normalizedTask = normalizeTaskPayload(createdTask);
+    if (!isDoneStatus(normalizedTask.status)) setTasks((items) => [normalizedTask, ...items]);
     return createdTask;
   };
   const handleRunSync = (source) => {
@@ -2806,9 +2820,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
           setDashboardSchedule(normalizedEvents);
         }
         if (selectedSources.includes("Jira")) {
-          const refreshedTasks = await tasksApi.list();
+          const refreshedTasks = await tasksApi.list(ACTIVE_TASK_LIST_PARAMS);
           const taskItems = Array.isArray(refreshedTasks) ? refreshedTasks : refreshedTasks?.items || [];
-          setTasks(taskItems.map(normalizeTask));
+          setTasks(normalizeVisibleTasks(taskItems));
         }
         setTaskLoadError("");
         const failedSources = (result?.sources || []).filter((item) => item?.status === "FAILED");
@@ -3009,11 +3023,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setCompletingQuestId(questId);
       const nextRun = await questsApi.update(quest.quest_item_id || questId, { action: "complete" });
       const completedAt = nextRun?.quests?.find((item) => item.id === questId || item.quest_item_id === quest.quest_item_id)?.completedAt || nowIso();
-      setTasks((items) => items.map((item) => (
-        taskMatchesBackendKey(item, quest?.taskId)
-          ? normalizeTask({ ...item, status: "Done", completedAt, completed_at: completedAt, workingToday: false })
-          : item
-      )));
+      setTasks((items) => items.filter((item) => !taskMatchesBackendKey(item, quest?.taskId)));
       setQuestRun(nextRun);
       setQuestProgress((current) => {
         const dates = new Set(current?.completedQuestDates || []);
@@ -3137,7 +3147,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   }, [tasks]);
 
   useEffect(() => {
-    if (location.pathname !== "/") return undefined;
+    if (location.pathname !== "/" && location.pathname !== "/calendar") return undefined;
 
     let cancelled = false;
     const loadTodayCalendarSchedule = () =>
@@ -3214,7 +3224,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         <Routes>
           <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
-          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
+          <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardStatus={dashboardStatus} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} focusMultiplier={focusXpMultiplier} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />

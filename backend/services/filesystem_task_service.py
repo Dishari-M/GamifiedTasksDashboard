@@ -396,6 +396,8 @@ def _filter_tasks(tasks, filters, user_id):
 
     if status_values:
         results = [task for task in results if task.get("status") in status_values]
+    if _truthy(filters.get("exclude_done")):
+        results = [task for task in results if task.get("status") != "Done"]
     if source_values:
         results = [task for task in results if task.get("external_source") in source_values or task.get("source") in source_values]
     if priority_values:
