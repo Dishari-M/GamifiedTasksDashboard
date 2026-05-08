@@ -845,7 +845,7 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   );
 };
 
-const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, deletingTaskId, editable = true }) => {
+const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleToday, onUpdateNotes, onOpenEnrichmentDetails, deletingTaskId, todayToggleLoadingId, editable = true }) => {
   const [noteDrafts, setNoteDrafts] = useState({});
   const [dirtyNotes, setDirtyNotes] = useState({});
   const [savingNoteId, setSavingNoteId] = useState(null);
@@ -897,6 +897,7 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleTod
             const enrichmentStatus = String(task.enrichmentStatus || "").toUpperCase();
             const isTaskEnrichmentActive = activeEnrichmentStatuses.has(enrichmentStatus);
             const canOpenEnrichmentDetails = Boolean(enrichmentJobId && onOpenEnrichmentDetails);
+            const isTodayToggleLoading = String(todayToggleLoadingId || "") === String(task.id);
             return (
               <tr key={task.id} data-testid={`task-row-${slug(task.id)}`}>
                 <td data-testid={`task-title-cell-${slug(task.id)}`}>
@@ -906,11 +907,13 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleTod
                 <td>
                   <button
                     onClick={() => onToggleToday(task.id)}
-                    className={`today-toggle ${task.status !== "Done" && task.workingToday ? "active" : ""}`}
-                    disabled={task.status === "Done" || isEnrichmentJob}
+                    className={`today-toggle ${task.status !== "Done" && task.workingToday ? "active" : ""} ${isTodayToggleLoading ? "loading" : ""}`}
+                    disabled={task.status === "Done" || isEnrichmentJob || isTodayToggleLoading}
                     data-testid={`task-today-button-${slug(task.id)}`}
+                    aria-busy={isTodayToggleLoading}
                   >
-                    {isEnrichmentJob ? "Pending" : task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
+                    {isTodayToggleLoading && <Hourglass className="today-toggle-spinner" size={15} weight="duotone" aria-hidden="true" />}
+                    {isTodayToggleLoading ? "Updating" : isEnrichmentJob ? "Pending" : task.status === "Done" ? "Done" : task.workingToday ? "Working" : "Add"}
                   </button>
                 </td>
                 <td data-testid={`task-source-${slug(task.id)}`}>{task.source}</td>
@@ -1059,9 +1062,9 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
     type: form.type,
     priority: form.priority,
     estimatedMinutes: form.estimatedMinutes,
-    rcaTshirtSize: form.rcaTshirtSize,
+    rcaTshirtSize: mode === "edit" ? form.rcaTshirtSize : "NA",
     notes: form.notes,
-  }), [form]);
+  }), [form, mode]);
 
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
@@ -1175,7 +1178,9 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
       </label>
       <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
       <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
-      <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}>{rcaTshirtSizes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      {mode === "edit" && (
+        <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}>{rcaTshirtSizes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      )}
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
       <label className="checkbox-field"><input type="checkbox" checked={form.workingToday} onChange={(event) => update("workingToday", event.target.checked)} /> Working on this today</label>
@@ -1528,7 +1533,7 @@ const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
   );
 };
 
-const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading, showProgressGuide, onDismissProgressGuide }) => {
+const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, onStatusChange, onEdit, onToggleToday, onUpdateNotes, todayToggleLoadingId, dashboardStats, dashboardStatInsights, dashboardSchedule, dashboardInsight, dashboardStatus, isLoading, showProgressGuide, onDismissProgressGuide }) => {
   const [activeTaskFilter, setActiveTaskFilter] = useState("All");
   const completedCount = dashboardStats?.tasks_completed_today ?? completedTodayTasks(tasks).length;
   const todayTasks = tasks.filter((task) => task.workingToday);
@@ -1565,7 +1570,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
       <div className="content-grid">
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
         <SchedulePanel events={dashboardSchedule} />
-        <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{dashboardTaskFilters.map((tab) => <button key={tab} type="button" className={activeTaskFilter === tab ? "tab active" : "tab"} role="tab" aria-selected={activeTaskFilter === tab} onClick={() => setActiveTaskFilter(tab)} data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} editable={false} /></section>
+        <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{dashboardTaskFilters.map((tab) => <button key={tab} type="button" className={activeTaskFilter === tab ? "tab active" : "tab"} role="tab" aria-selected={activeTaskFilter === tab} onClick={() => setActiveTaskFilter(tab)} data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} editable={false} /></section>
         <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
@@ -1573,7 +1578,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
   );
 };
 
-const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onDelete, onToggleToday, onUpdateNotes }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onDelete, onToggleToday, onUpdateNotes, todayToggleLoadingId }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [taskPendingDelete, setTaskPendingDelete] = useState(null);
   const [deletingTaskId, setDeletingTaskId] = useState(null);
@@ -1714,7 +1719,7 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
             </div>
           </div>
         )}
-        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onDeleteRequest={requestDeleteTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} deletingTaskId={deletingTaskId} />
+        <TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={setEditingTask} onDeleteRequest={requestDeleteTask} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} onOpenEnrichmentDetails={onOpenEnrichmentDetails} deletingTaskId={deletingTaskId} todayToggleLoadingId={todayToggleLoadingId} />
         {!filteredTasks.length && <p className="empty-state" data-testid="task-filter-empty-state">No tasks match the selected filters.</p>}
       </section>
       <DeleteTaskDialog task={taskPendingDelete} onCancel={cancelDeleteTask} onConfirm={confirmDeleteTask} isDeleting={Boolean(deletingTaskId)} error={deleteError} />
@@ -2527,6 +2532,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const [tasks, setTasks] = useState([]);
   const [taskStatus, setTaskStatus] = useState("loading");
   const [taskLoadError, setTaskLoadError] = useState("");
+  const [todayToggleLoadingId, setTodayToggleLoadingId] = useState(null);
   const [overview, setOverview] = useState(defaultOverview);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [dashboardStatInsights, setDashboardStatInsights] = useState(null);
@@ -2839,13 +2845,16 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   };
   const handleToggleToday = async (id) => {
     const task = tasks.find((item) => item.id === id);
-    if (!task) return;
+    if (!task || todayToggleLoadingId) return;
+    setTodayToggleLoadingId(id);
     try {
       const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(apiErrorMessage(error, "Unable to update working-today state."));
+    } finally {
+      setTodayToggleLoadingId(null);
     }
   };
   const handleUpdateNotes = async (id, notes, persist = true) => {
@@ -3403,8 +3412,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} />} />
-          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} />} />
+          <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardStatus={dashboardStatus} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} />} />

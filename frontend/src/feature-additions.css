@@ -65,6 +65,17 @@
   max-width: 460px;
 }
 
+.quest-run-progress {
+  height: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.quest-run-progress .progress-fill {
+  height: 6px;
+  border-radius: 999px;
+}
+
 .quest-progress-big .progress-fill,
 .quest-run-progress .progress-fill,
 .focus-saved-progress .progress-fill {
@@ -7626,6 +7637,24 @@ html[data-theme="light"] .page-loader-core {
 }
 
 .enrichment-spinner svg {
+  animation: quest-button-spin 1.2s linear infinite;
+}
+
+.today-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.today-toggle.loading,
+.today-toggle.loading:disabled {
+  cursor: wait;
+  opacity: 0.92;
+}
+
+.today-toggle-spinner {
+  flex: 0 0 auto;
   animation: quest-button-spin 1.2s linear infinite;
 }
 

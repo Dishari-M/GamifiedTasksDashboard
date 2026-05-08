@@ -1,0 +1,12 @@
+INFO:     127.0.0.1:65288 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65288 - "GET /api/v1/tasks HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:53171 - "GET /api/v1/quests/progress?date=2026-05-08 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58923 - "GET /api/v1/focus-sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58997 - "GET /api/v1/task-enrichments?limit=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53171 - "GET /api/v1/sync/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64682 - "GET /api/v1/tasks?exclude_done=true HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58923 - "GET /api/v1/calendar/events?date=2026-05-08 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61084 - "GET /api/v1/dashboard/today?date=2026-05-08 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55179 - "GET /api/v1/quests/today?date=2026-05-08 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55179 - "PUT /api/v1/tasks/313/today HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55179 - "PUT /api/v1/tasks/313/today HTTP/1.1" 200 OK
