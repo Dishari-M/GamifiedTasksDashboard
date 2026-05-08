@@ -1962,8 +1962,8 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
                     <p>{task.insight || "AI did not return a task-specific insight for this item."}</p>
                   </div>
                   <div className="ai-task-metrics" aria-label={`${task.title} AI metrics`}>
-                    <span>{Math.round((task.priority_score || 0) * 100)} priority</span>
-                    <span>{task.xp_value} XP</span>
+                    <span>{Math.round((task.priority_score || 0) * 100)} priority</span>{" "}
+                    <span>{task.xp_value} XP</span>{" "}
                     <span>{task.effort_minutes} min</span>
                   </div>
                 </article>
