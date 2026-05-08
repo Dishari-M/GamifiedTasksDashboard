@@ -8635,6 +8635,8 @@ html[data-theme="light"] .sidebar-logo-mark {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  gap: 10px;
+  padding: 2px 4px 20px;
   transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
 }
 
@@ -8649,7 +8651,22 @@ html[data-theme="light"] .sidebar-logo-mark {
 }
 
 .sidebar-logo-mark {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+  border-radius: 14px;
   transition: transform 220ms ease, filter 220ms ease;
+}
+
+.sidebar-logo-toggle .brand-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 148px;
+  font-size: clamp(0.82rem, 0.92vw, 1.02rem);
+  line-height: 1.08;
+  letter-spacing: 0.035em;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .sidebar-logo-toggle:hover .sidebar-logo-mark {
