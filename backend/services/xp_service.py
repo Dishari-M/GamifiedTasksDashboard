@@ -48,14 +48,22 @@ def focus_unlock_threshold_minutes(estimated_minutes):
     return _clamp(_round_half_up(effort * FOCUS_UNLOCK_RATIO), FOCUS_UNLOCK_MINUTES, FOCUS_UNLOCK_MAXUTES)
 
 
+def focus_unlock_threshold_seconds(estimated_minutes):
+    return focus_unlock_threshold_minutes(estimated_minutes) * 60
+
+
 def focus_multiplier_for_minutes(estimated_minutes, focus_minutes, max_multiplier=1.25):
+    return focus_multiplier_for_seconds(estimated_minutes, max(0, _int_like(focus_minutes, 0)) * 60, max_multiplier)
+
+
+def focus_multiplier_for_seconds(estimated_minutes, focus_seconds, max_multiplier=1.25):
     effort = _clamp(_int_like(estimated_minutes, 60), 15, 240)
-    minutes = max(0, _int_like(focus_minutes, 0))
+    seconds = max(0, _int_like(focus_seconds, 0))
     reward_cap = max(1.0, _float_like(max_multiplier, 1.25))
-    unlock_minutes = focus_unlock_threshold_minutes(effort)
-    if minutes < unlock_minutes or reward_cap <= 1:
+    unlock_seconds = focus_unlock_threshold_seconds(effort)
+    if seconds < unlock_seconds or reward_cap <= 1:
         return 1.0
-    focus_ratio = minutes / max(1, effort)
+    focus_ratio = seconds / max(1, effort * 60)
     if focus_ratio >= 0.75:
         return round(reward_cap, 2)
     if focus_ratio >= 0.5:
@@ -63,19 +71,23 @@ def focus_multiplier_for_minutes(estimated_minutes, focus_minutes, max_multiplie
     return round(min(reward_cap, 1.1), 2)
 
 
-def calculate_focus_reward(task, focus_minutes, max_multiplier=1.25):
+def calculate_focus_reward(task, focus_seconds, max_multiplier=1.25):
     base_xp = resolve_xp_value(task)
     estimated_minutes = estimate_minutes(task)
-    multiplier = focus_multiplier_for_minutes(estimated_minutes, focus_minutes, max_multiplier)
+    multiplier = focus_multiplier_for_seconds(estimated_minutes, focus_seconds, max_multiplier)
     reward_xp = int(round(base_xp * multiplier))
     unlock_minutes = focus_unlock_threshold_minutes(estimated_minutes)
-    minutes = max(0, _int_like(focus_minutes, 0))
+    unlock_seconds = focus_unlock_threshold_seconds(estimated_minutes)
+    seconds = max(0, _int_like(focus_seconds, 0))
     return {
         "base_xp": base_xp,
         "estimated_minutes": estimated_minutes,
-        "focus_minutes": minutes,
+        "focus_seconds": seconds,
+        "focus_minutes": seconds // 60,
         "unlock_minutes": unlock_minutes,
-        "remaining_unlock_minutes": max(0, unlock_minutes - minutes),
+        "unlock_seconds": unlock_seconds,
+        "remaining_unlock_seconds": max(0, unlock_seconds - seconds),
+        "remaining_unlock_minutes": max(0, (max(0, unlock_seconds - seconds) + 59) // 60),
         "reward_multiplier": multiplier,
         "has_focus_reward": multiplier > 1,
         "reward_xp": reward_xp,

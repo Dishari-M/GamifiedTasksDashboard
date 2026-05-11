@@ -14,7 +14,7 @@ class Phase8DashboardServiceTests(unittest.TestCase):
             patch("services.phase8_dashboard_service.get_calendar_events", return_value=[]),
             patch("services.phase8_dashboard_service.get_focus_sessions", side_effect=[
                 [],
-                [{"actual_minutes": 25}, {"actual_minutes": 35}],
+                [{"duration_seconds": 1500}, {"duration_seconds": 2100}],
             ]),
             patch("services.phase8_dashboard_service.build_capacity", side_effect=[
                 {"meeting_minutes": 0, "available_focus_minutes": 480, "suggested_focus_windows": []},
@@ -26,6 +26,7 @@ class Phase8DashboardServiceTests(unittest.TestCase):
             response = phase8_dashboard_service.build_dashboard("2026-05-08", user_id=123)
 
         self.assertEqual(response["stats"]["focus_minutes"], 0)
+        self.assertEqual(response["stats"]["focus_seconds"], 0)
         self.assertEqual(response["stats"]["available_focus_minutes"], 480)
         self.assertEqual(response["stat_insights"], {})
 

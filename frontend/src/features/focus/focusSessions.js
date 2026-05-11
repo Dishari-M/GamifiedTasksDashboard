@@ -21,19 +21,33 @@ export const isSessionOnDay = (session, day = todayKey()) => session?.work_date 
 
 export const sessionsForDay = (sessions, day = todayKey()) => sessions.filter((session) => isSessionOnDay(session, day));
 
-export const sessionMinutes = (session) => parseNumber(session.duration_minutes, Math.ceil(parseNumber(session.duration_seconds, 0) / 60));
+export const sessionSeconds = (session) => {
+  const explicitSeconds = parseNumber(session?.duration_seconds, Number.NaN);
+  if (!Number.isNaN(explicitSeconds)) return Math.max(0, explicitSeconds);
+  const focusSeconds = parseNumber(session?.focus_seconds, Number.NaN);
+  if (!Number.isNaN(focusSeconds)) return Math.max(0, focusSeconds);
+  const actualMinutes = parseNumber(session?.actual_minutes, Number.NaN);
+  if (!Number.isNaN(actualMinutes)) return Math.max(0, actualMinutes * 60);
+  const durationMinutes = parseNumber(session?.duration_minutes, Number.NaN);
+  if (!Number.isNaN(durationMinutes)) return Math.max(0, durationMinutes * 60);
+  return 0;
+};
+
+export const sessionMinutes = (session) => Math.floor(sessionSeconds(session) / 60);
 
 export const focusMinutesForSessions = (sessions) => sessions.reduce((sum, session) => sum + sessionMinutes(session), 0);
+
+export const focusSecondsForSessions = (sessions) => sessions.reduce((sum, session) => sum + sessionSeconds(session), 0);
 
 export const topFocusedTask = (sessions) => {
   const totals = sessions.reduce((acc, session) => {
     const key = session.task_id || "unassigned";
-    acc[key] = acc[key] || { taskId: key, title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
-    acc[key].minutes += sessionMinutes(session);
+    acc[key] = acc[key] || { taskId: key, title: session.task_title || "Unassigned focus", seconds: 0, count: 0 };
+    acc[key].seconds += sessionSeconds(session);
     acc[key].count += 1;
     return acc;
   }, {});
-  return Object.values(totals).sort((a, b) => b.minutes - a.minutes)[0];
+  return Object.values(totals).sort((a, b) => b.seconds - a.seconds)[0];
 };
 
 export const orderedFocusTasks = (tasks) => [

@@ -48,14 +48,14 @@ import "./feature-additions.css";
 import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, settingsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
-import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
+import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, focusSecondsForSessions, orderedFocusTasks, sessionMinutes, sessionSeconds, sessionsForDay, topFocusedTask } from "./features/focus/focusSessions";
 import { deriveTaskXpBreakdown, levelProgressFromXp, streakHeat } from "./features/progress/progressionMath";
 import { NextQuestCard, QuestPathList, QuestSummaryPanel } from "./features/quests/QuestMomentum";
 import { buildProgressSnapshot, mergeMonotonicTotalXp } from "./features/progress/progressModel";
 import { compareQuestTasks, getNextQuest, getOpenQuestForTask, getQuestById, getQuestOrderedTasks, getQuestTask, hasGeneratedQuestRun, isCurrentQuestRun, isUsableQuestRun, questActionLabel, questGeneratedLabel, questProgressSummary, questRationale, skipReasons } from "./features/quests/questRun";
 import { earnedXpForTasks, FOCUS_XP_MULTIPLIER, focusRewardsByTaskId, formatFocusMultiplier, taskRewardDetails, taskRewardDetailsFromSessions } from "./features/rewards/xpRewards";
 import { defaultOverview, emptyTaskForm, formFromTask, normalizeApiSchedule, normalizeApiTask, normalizeTask, priorities, rcaTshirtSizes, schedule, sources, statuses, TASKS_STORAGE_KEY, taskFromForm, taskTypes } from "./features/tasks/taskModel";
-import { addDaysKey, formatDate, formatDateTime, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
+import { addDaysKey, formatDate, formatDateTime, formatFocusDuration, formatMinutes, formatTimer, isSameDay, isWithinWeek, nowIso, startOfWeekKey, todayKey } from "./utils/dateTime";
 import { parseNumber } from "./utils/number";
 import { readStoredJson, removeStoredJson, writeStoredJson } from "./utils/storage";
 
@@ -735,13 +735,13 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
 
   const elapsedSeconds = activeFocusSeconds(activeSession);
   const todaySessions = sessionsForDay(focusSessions);
-  const focusedToday = focusMinutesForSessions(todaySessions);
+  const focusedTodaySeconds = focusSecondsForSessions(todaySessions);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const activeTask = activeSession ? tasks.find((task) => task.id === activeSession.task_id) || selectedTask : null;
   const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
-  const selectedTaskFocusedToday = focusMinutesForSessions(selectedTaskSessions);
+  const selectedTaskFocusedTodaySeconds = focusSecondsForSessions(selectedTaskSessions);
   const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id ? questContext.quest : null;
-  const selectedQuestFocusMinutes = selectedQuest ? selectedQuest.focusMinutes : selectedTaskFocusedToday;
+  const selectedQuestFocusSeconds = selectedQuest ? selectedQuest.focusSeconds : selectedTaskFocusedTodaySeconds;
   const selectedQuestTargetMinutes = selectedQuest?.focusTargetMinutes || selectedTask?.time || 0;
   const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
   const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
@@ -831,8 +831,8 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
               <div className="focus-selected-meta" aria-label="Selected task details">
                 <Pill tone={selectedTask.priority.toLowerCase()}>{selectedTask.priority}</Pill>
                 <span>{plannedMinutes}</span>
-                <span>{formatMinutes(selectedTaskFocusedToday)} today</span>
-                <FocusQuestBadge quest={selectedQuest ? { ...selectedQuest, focusMinutes: selectedQuestFocusMinutes, focusTargetMinutes: selectedQuestTargetMinutes } : null} />
+                <span>{formatFocusDuration(selectedTaskFocusedTodaySeconds)} today</span>
+                <FocusQuestBadge quest={selectedQuest ? { ...selectedQuest, focusSeconds: selectedQuestFocusSeconds, focusTargetMinutes: selectedQuestTargetMinutes } : null} />
               </div>
             </article>
           )}
@@ -1483,20 +1483,20 @@ const LevelUpBanner = ({ levelUp }) => {
 const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
   const guideCopy = page === "quests"
     ? {
-        title: "Quest flow in one glance",
-        caption: "Generate once for today's Working tasks, then clear quests one by one.",
+        title: "How Quests work",
+        caption: "Turn your Working Today tasks into a clear plan for the day.",
         highlights: [
           {
-            title: "Daily run order",
-            body: "Generated quests become your sequence for today, so you can move from one clear target to the next.",
+            title: "Working Today is the input",
+            body: "Start by marking the tasks you want to tackle today. Quests are built from that list.",
           },
           {
-            title: "Focus unlocks bonus XP",
-            body: "A short timer is not enough. You need meaningful focus on the task before the multiplier kicks in.",
+            title: "Quests give you an order",
+            body: "Once built, Quests give you a simple sequence so you always know what to do next.",
           },
           {
-            title: "Regenerate only when scope changes",
-            body: "If you add or remove Working Today tasks, regenerate. Otherwise keep progressing through the current run.",
+            title: "Refresh when the list changes",
+            body: "If you add or remove Working Today tasks, refresh Quests so the plan matches your latest list.",
           },
         ],
       }
@@ -1520,20 +1520,20 @@ const ProgressGuideCard = ({ page = "dashboard", onDismiss }) => {
           ],
         }
       : {
-          title: "How Gamified Tasks Dashboard progression works",
-          caption: "A quick primer for new users.",
+          title: "How to use DevQuest each day",
+          caption: "DevQuest helps you turn a messy task list into a focused, high-momentum workday, with AI supporting prioritization, quest ordering, and insights.",
           highlights: [
             {
-              title: "XP reflects real task weight",
-              body: "Estimate, priority, impact, type, and complexity all shape the XP value instead of using a flat reward.",
+              title: "Start with what matters today",
+              body: "Mark the work you truly want to move today. DevQuest adds the context and signals needed to separate important work from background noise.",
             },
             {
-              title: "Levels are paced like a game",
-              body: "Early levels move quickly, then the curve slows down so later progress feels more meaningful.",
+              title: "Get a clear path, not just a pile of tasks",
+              body: "Quests turn that list into a practical order, with useful reasoning about what deserves your attention next.",
             },
             {
-              title: "Streaks are quest-based",
-              body: "A streak only grows on days where you complete at least one quest from your generated run.",
+              title: "Build momentum you can actually see",
+              body: "As you focus and complete work, progress, rewards, and next-step guidance stay visible so it is easier to keep moving with intention.",
             },
           ],
         };
@@ -1567,7 +1567,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
   const todayTasks = tasks.filter((task) => task.workingToday);
   const filteredTasks = useMemo(() => filterDashboardTasks(tasks, activeTaskFilter), [tasks, activeTaskFilter]);
   const totalXp = dashboardStats?.total_xp ?? earnedXpForTasks(tasks.filter((task) => task.status === "Done"), focusSessions, null, focusMultiplier);
-  const focusedToday = dashboardStats?.focus_minutes ?? focusMinutesForSessions(sessionsForDay(focusSessions));
+  const focusedTodaySeconds = dashboardStats?.focus_seconds ?? focusSecondsForSessions(sessionsForDay(focusSessions));
   const meetingMinutes = dashboardStats?.meeting_minutes;
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
@@ -1577,8 +1577,8 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
     ...(questRun.quests || []).filter((quest) => quest.id !== nextQuest?.id).map((quest) => getQuestTask(tasks, quest)),
   ].filter((task) => task && task.status !== "Done") : [];
   const orderedOpenQuestTasks = orderedQuestTasks.filter((task) => task.status !== "Done");
-  const rankedOpenTasks = [...tasks].filter((task) => task.status !== "Done").sort(compareQuestTasks);
-  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedOpenQuestTasks.length ? orderedOpenQuestTasks : rankedOpenTasks;
+  const rankedTodayTasks = [...todayTasks].filter((task) => task.status !== "Done").sort(compareQuestTasks);
+  const missionSourceTasks = runMissionTasks.length ? runMissionTasks : orderedOpenQuestTasks.length ? orderedOpenQuestTasks : rankedTodayTasks;
   const topMissions = uniqueTasksById(missionSourceTasks.slice(0, 3));
 
   if (isLoading) {
@@ -1591,12 +1591,12 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
       <section className="stats-grid" aria-label="Daily productivity metrics">
         <StatCard label="Total XP" value={`${totalXp.toLocaleString()} XP`} detail="Includes completed work" detailInsight={dashboardStatInsights?.total_xp} icon={Trophy} tone="violet" trend testId="stat-total-xp" />
         <StatCard label="Tasks Completed" value={`${completedCount} today`} detail="Completion date is captured" detailInsight={dashboardStatInsights?.tasks_completed} icon={CheckCircle} tone="blue" progress={Math.min(100, (completedCount / Math.max(1, todayTasks.length)) * 100)} testId="stat-tasks-completed" />
-        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Feeds the Quests page" detailInsight={dashboardStatInsights?.working_today} icon={Flag} tone="gold" testId="stat-working-today" />
-        <StatCard label="Focus Time" value={formatMinutes(focusedToday)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} detailInsight={dashboardStatInsights?.focus_minutes} icon={Clock} tone="green" trend testId="stat-focus-time" />
+        <StatCard label="Working Today" value={`${todayTasks.length} tasks`} detail="Used to build your Quests" detailInsight={dashboardStatInsights?.working_today} icon={Flag} tone="gold" testId="stat-working-today" />
+        <StatCard label="Focus Time" value={formatFocusDuration(focusedTodaySeconds)} detail={dashboardStatus === "live" ? "From Phase 8 capacity API" : "Captured from sessions"} detailInsight={dashboardStatInsights?.focus_minutes} icon={Clock} tone="green" trend testId="stat-focus-time" />
         <StatCard label="Meetings" value={formatMinutes(meetingMinutes ?? 0)} detail={dashboardStatus === "live" ? "From Phase 8 calendar data" : "Tracked in overview"} detailInsight={dashboardStatInsights?.meeting_minutes} icon={CalendarBlank} tone="orange" trend down testId="stat-meetings" />
       </section>
       <div className="content-grid">
-        <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
+        <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Quests</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Refresh Quests" : "Review Quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Your Quests are based on Working Today. Refresh them after you add or remove tasks.</p>}<div className="mission-list">{topMissions.length ? topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />) : <p className="empty-state" data-testid="dashboard-quests-empty-state">No tasks are marked as Working Today yet. Add a task to Working Today from My Tasks to see your Quests here.</p>}</div></section>
         <SchedulePanel events={dashboardSchedule} />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{dashboardTaskFilters.map((tab) => <button key={tab} type="button" className={activeTaskFilter === tab ? "tab active" : "tab"} role="tab" aria-selected={activeTaskFilter === tab} onClick={() => setActiveTaskFilter(tab)} data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} editable={false} /></section>
         <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
@@ -1784,8 +1784,8 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
     const day = session.work_date || new Date(session.started_at).toLocaleDateString("en-CA");
     return day >= weekStart && day <= addDaysKey(weekStart, 6);
   });
-  const focusedToday = focusMinutesForSessions(todaySessions);
-  const focusedWeek = focusMinutesForSessions(weekSessions);
+  const focusedTodaySeconds = focusSecondsForSessions(todaySessions);
+  const focusedWeekSeconds = focusSecondsForSessions(weekSessions);
   const visibleStreakDays = Math.max(0, Number(streakSummary?.displayStreakDays ?? streakDays ?? 0));
   const isStreakAtRisk = Boolean(streakSummary?.streakAtRisk);
   const topTask = topFocusedTask(todaySessions);
@@ -1799,15 +1799,15 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
   const hasMoreSessionHistory = todaySessions.length > recentSessions.length;
   const deepWorkTasks = todaySessions.reduce((acc, session) => {
     const key = session.task_id || "unassigned";
-    acc[key] = acc[key] || { title: session.task_title || "Unassigned focus", minutes: 0, count: 0 };
-    acc[key].minutes += sessionMinutes(session);
+    acc[key] = acc[key] || { title: session.task_title || "Unassigned focus", seconds: 0, count: 0 };
+    acc[key].seconds += sessionSeconds(session);
     acc[key].count += 1;
     return acc;
   }, {});
-  const deepWorkLeaders = Object.values(deepWorkTasks).sort((a, b) => b.minutes - a.minutes).slice(0, 3);
-  const bestSession = [...todaySessions].sort((a, b) => sessionMinutes(b) - sessionMinutes(a))[0];
+  const deepWorkLeaders = Object.values(deepWorkTasks).sort((a, b) => b.seconds - a.seconds).slice(0, 3);
+  const bestSession = [...todaySessions].sort((a, b) => sessionSeconds(b) - sessionSeconds(a))[0];
   const rhythmInsight = topTask
-    ? `${topTask.title} is leading your focus today with ${formatMinutes(topTask.minutes)} logged.`
+    ? `${topTask.title} is leading your focus today with ${formatFocusDuration(topTask.seconds)} logged.`
     : "Complete your first session to see history and rhythm insights.";
 
   return (
@@ -1832,14 +1832,14 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
                 <Hourglass size={20} weight="duotone" aria-hidden="true" />
                 <div>
                   <strong>Saving focus session...</strong>
-                  <p>{savingFocusState.task_title} locked at {formatMinutes(Math.max(1, Math.ceil((savingFocusState.duration_seconds || 0) / 60)))}. The timer has stopped.</p>
+                  <p>{savingFocusState.task_title} locked at {formatFocusDuration(savingFocusState.duration_seconds || 0)}. The timer has stopped.</p>
                 </div>
               </div>
             )}
             <div className="focus-calm-summary" data-testid="focus-calm-summary">
-              <span><strong>{formatMinutes(focusedToday)}</strong>focus today</span>
+              <span><strong>{formatFocusDuration(focusedTodaySeconds)}</strong>focus today</span>
               <span><strong>{todaySessions.length}</strong>sessions today</span>
-              <span><strong>{formatMinutes(focusedWeek)}</strong>this week</span>
+              <span><strong>{formatFocusDuration(focusedWeekSeconds)}</strong>this week</span>
               <span data-testid="focus-streak-summary"><strong>{isProgressLoading ? "..." : visibleStreakDays}</strong>{isProgressLoading ? " loading streak" : isStreakAtRisk ? " day streak at risk" : " day streak"}</span>
             </div>
           </article>
@@ -1858,8 +1858,8 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
                 <div className="focus-rhythm-callout">
                   <strong>Rhythm insight</strong>
                   <p>{rhythmInsight}</p>
-                  {bestSession ? <span>Best session today: {formatMinutes(sessionMinutes(bestSession))} on {bestSession.task_title || "focus work"}.</span> : null}
-                  {deepWorkLeaders[1] ? <span>Next strongest thread: {deepWorkLeaders[1].title} with {formatMinutes(deepWorkLeaders[1].minutes)}.</span> : null}
+                  {bestSession ? <span>Best session today: {formatFocusDuration(sessionSeconds(bestSession))} on {bestSession.task_title || "focus work"}.</span> : null}
+                  {deepWorkLeaders[1] ? <span>Next strongest thread: {deepWorkLeaders[1].title} with {formatFocusDuration(deepWorkLeaders[1].seconds)}.</span> : null}
                 </div>
                 <div className="focus-history-list">
                   {recentSessions.map((session) => (
@@ -1869,7 +1869,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
                         <p>{formatDateTime(session.started_at)} | {session.outcome_type || session.status || "Saved"}</p>
                       </div>
                       <div className="focus-support-meta">
-                        <span>{formatMinutes(sessionMinutes(session))}</span>
+                        <span>{formatFocusDuration(sessionSeconds(session))}</span>
                         {session.xp_awarded ? <span>{session.xp_awarded} XP</span> : null}
                       </div>
                     </article>
@@ -1893,14 +1893,14 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
   const navigate = useNavigate();
   const [skipReason, setSkipReason] = useState(skipReasons[0]);
   if (isLoading) {
-    return <PageLoader title="Loading quests" detail="Reading Working Today tasks and your current quest run from the backend." steps={["Tasks", "Quest run", "Focus"]} />;
+    return <PageLoader title="Loading quests" detail="Reading your Working Today tasks and current quest plan." steps={["Tasks", "Quest plan", "Focus"]} />;
   }
   const todayTasks = getQuestOrderedTasks(tasks, questRun);
   const hasCurrentRun = isCurrentQuestRun(questRun);
   const hasGeneratedRun = hasGeneratedQuestRun(questRun);
   const isGenerated = hasGeneratedRun;
   const isOutOfSync = hasCurrentRun && questRun.status === "needs_update";
-  const generateLabel = isOutOfSync ? "Update Quests" : isGenerated ? "Regenerate Quests" : "Generate Quests";
+  const generateLabel = isOutOfSync ? "Refresh Quests" : isGenerated ? "Rebuild Quests" : "Build Quests";
   const nextQuest = getNextQuest(questRun);
   const nextQuestTask = getQuestTask(tasks, nextQuest);
   const activeSessionMatchesNextQuest = Boolean(activeSession && nextQuest && activeSession.quest_id === nextQuest.id);
@@ -1923,18 +1923,18 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
       <section className="surface quest-run-panel" data-testid="quest-run-panel">
         <div className="section-heading quest-board-heading">
           <div>
-            <h2><Flag size={26} weight="duotone" aria-hidden="true" /> Daily Quest Run</h2>
+            <h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Quests</h2>
             <p className={`quest-board-summary ${isOutOfSync ? "quest-board-warning" : ""}`} data-testid="quest-board-summary" aria-live="polite">{questGeneratedLabel(tasks, questRun, todayTasks.length)}</p>
           </div>
           <div className="quest-board-actions">
-            {hasCurrentRun && <button className="ghost-button" onClick={onClearQuests} disabled={isGenerating} data-testid="clear-quests-button">Reset</button>}
+            {hasCurrentRun && <button className="ghost-button" onClick={onClearQuests} disabled={isGenerating} data-testid="clear-quests-button">Clear quest plan</button>}
             <button className={`primary-action ${isGenerating ? "quest-generate-busy" : ""}`} onClick={onGenerateQuests} disabled={!todayTasks.length || isGenerating} data-testid="generate-quests-button">
               {isGenerating ? <span className="quest-button-loader" aria-hidden="true" /> : <Sparkle size={19} weight="duotone" aria-hidden="true" />}
               {isGenerating ? "Generating..." : generateLabel}
             </button>
           </div>
         </div>
-        {isGenerating && <p className="quest-inline-status" data-testid="quest-generation-status" role="status" aria-live="polite">Generating your next quest run from the latest Working Today tasks...</p>}
+        {isGenerating && <p className="quest-inline-status" data-testid="quest-generation-status" role="status" aria-live="polite">Building your Quests from the latest Working Today tasks...</p>}
         {isGenerated && nextQuestTask && (
           <div className="quest-layout">
             <NextQuestCard
@@ -1955,12 +1955,12 @@ const QuestsPage = ({ tasks, questRun, activeSession, isLoading, isGenerating, c
             <QuestSummaryPanel summary={summary} />
           </div>
         )}
-        {isGenerated && !nextQuestTask && <div className="mission-list"><p className="empty-state">The quest run was generated, but the linked task details have not loaded cleanly yet. Refresh the page or update quests to resync the route.</p></div>}
-        {!isGenerated && <div className="mission-list">{todayTasks.length ? todayTasks.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={null} />) : <p className="empty-state">No tasks are marked as Working Today yet. Open My Tasks and use the Today column to add work here.</p>}</div>}
+        {isGenerated && !nextQuestTask && <div className="mission-list"><p className="empty-state">Your quest plan was built, but the linked task details did not load cleanly. Refresh Quests or reload the page to resync.</p></div>}
+        {!isGenerated && <div className="mission-list">{todayTasks.length ? todayTasks.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={null} />) : <p className="empty-state">No tasks are marked as Working Today yet. Open My Tasks and add a few tasks to Working Today to build Quests here.</p>}</div>}
       </section>
       {isGenerated && questRows.length > 0 && (
         <section className="surface" data-testid="quest-path-card">
-          <div className="section-heading"><h2><ListChecks size={26} weight="duotone" aria-hidden="true" /> Quest Path</h2><span>{questRows.length} quests</span></div>
+          <div className="section-heading"><h2><ListChecks size={26} weight="duotone" aria-hidden="true" /> Quest List</h2><span>{questRows.length} quests</span></div>
           <QuestPathList questRows={questRows} onActivateQuest={onActivateQuest} />
         </section>
       )}
@@ -2199,6 +2199,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   });
   const fallbackDailyFocusMinutes = focusMinutesForSessions(fallbackDailyFocus);
   const fallbackWeeklyFocusMinutes = focusMinutesForSessions(fallbackWeeklyFocus);
+  const fallbackDailyFocusSeconds = focusSecondsForSessions(fallbackDailyFocus);
+  const fallbackWeeklyFocusSeconds = focusSecondsForSessions(fallbackWeeklyFocus);
   const topFocus = topFocusedTask(fallbackDailyFocus);
   const focusRewardsByTask = focusRewardsByTaskId(focusSessions);
   const fallbackDailyXp = earnedXpForTasks(fallbackCompletedDay, focusSessions, selectedDate, focusMultiplier);
@@ -2316,6 +2318,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const dailyXp = dailyData?.xp_earned ?? fallbackDailyXp;
   const dailyMeetingMinutes = dailyData?.meeting_minutes ?? overview.meetingMinutes;
   const dailyFocusMinutes = dailyData?.focus_minutes ?? fallbackDailyFocusMinutes;
+  const dailyFocusSeconds = dailyData?.focus_seconds ?? fallbackDailyFocusSeconds;
   const weeklyThemes = toList(weeklyData?.themes).length ? toList(weeklyData?.themes) : [...new Set(fallbackCompletedWeek.flatMap((task) => task.labels || []))].slice(0, 5);
   const topAccomplishments = toList(weeklyData?.top_accomplishments);
 
@@ -2338,7 +2341,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
         <div className="overview-stats">
           <StatCard label="Tasks Accomplished" value={dailyTaskCount} detail={`${dailyXp} XP earned, focus rewards included`} icon={CheckCircle} tone="green" testId="daily-completed-stat" />
           <StatCard label="Meetings" value={formatMinutes(dailyMeetingMinutes)} detail={dailyData ? `${dailyData.meeting_summary?.meeting_count || 0} scheduled` : "Editable daily tracker"} icon={UsersThree} tone="orange" testId="daily-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(dailyFocusMinutes)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
+          <StatCard label="Focus Time" value={formatFocusDuration(dailyFocusSeconds)} detail={topFocus ? `Top: ${topFocus.title}` : `${dailyFocus.length} session(s)`} icon={Timer} tone="blue" testId="daily-focus-stat" />
         </div>
         <div className="overview-editor">
           <label>Meeting minutes<input type="number" min="0" value={dailyMeetingMinutes} onChange={(event) => updateDailyMetric("meetingMinutes", parseNumber(event.target.value, 0))} /></label>
@@ -2349,19 +2352,19 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
         </div>
         {!!dailyThemes.length && <div className="theme-list" data-testid="daily-theme-list">{dailyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         <div className="accomplished-list focus-evidence-list" data-testid="daily-focus-session-list">
-          {dailyFocus.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatMinutes(session.actual_minutes || sessionMinutes(session))} - {session.status || session.outcome_type}</span><p>{session.notes || session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
+          {dailyFocus.map((session) => <article key={session.focus_session_id}><strong>{session.task_title}</strong><span>{formatDateTime(session.started_at)} - {formatFocusDuration(session.duration_seconds ?? session.focus_seconds ?? ((session.actual_minutes || sessionMinutes(session)) * 60))} - {session.status || session.outcome_type}</span><p>{session.notes || session.outcome_note || "Captured focus session for AI summary context."}</p></article>)}
           {!dailyFocus.length && <article><strong>No focus captured yet</strong><span>Use Focus Mode to create session-backed deep-work evidence.</span></article>}
         </div>
         <div className="accomplished-list">
           {dailyTasks.map((task) => {
             const focusReward = task.id ? focusRewardsByTask[task.id] : null;
-            const reward = task.id ? taskRewardDetails(task, focusReward?.focusMinutes || 0, focusReward?.rewardMultiplier, focusMultiplier) : null;
+            const reward = task.id ? taskRewardDetails(task, focusReward?.focusSeconds || 0, focusReward?.rewardMultiplier, focusMultiplier) : null;
             const earnedXp = reward?.rewardXp ?? task.xp_value ?? task.xp;
             return <article key={task.task_id || task.id}><strong>{task.title}</strong><span>{formatDateTime(task.completed_at || task.completedAt)} - {task.actual_minutes || task.actualMinutes || task.time} mins - {earnedXp} XP{reward?.hasFocusReward ? ` (${formatFocusMultiplier(reward.rewardMultiplier)} focus)` : ""}</span><p>{task.notes}</p></article>;
           })}
           {!dailyTasks.length && <article><strong>No completed tasks</strong><span>{selectedDate}</span><p>Working tasks and focus sessions will still inform the generated overview.</p></article>}
         </div>
-        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {dailyData?.summary || (dailyTasks.length || dailyFocus.length ? `Completed ${dailyTaskCount} task(s), focused ${formatMinutes(dailyFocusMinutes)}, and earned ${dailyXp} XP.` : "No completion or focus evidence for this date yet.")}</p>
+        <p className="insight-copy" data-testid="daily-overview-summary">Summary: {dailyData?.summary || (dailyTasks.length || dailyFocus.length ? `Completed ${dailyTaskCount} task(s), focused ${formatFocusDuration(dailyFocusSeconds)}, and earned ${dailyXp} XP.` : "No completion or focus evidence for this date yet.")}</p>
         <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Draft overview from local evidence"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
@@ -2377,7 +2380,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
         <div className="weekly-grid">
           <StatCard label="Completed" value={`${weeklyData?.tasks_completed ?? fallbackCompletedWeek.length} tasks`} detail={`${weeklyData?.xp_earned ?? fallbackWeeklyXp} XP earned`} icon={CheckSquare} tone="green" testId="overview-weekly-completed-stat" />
           <StatCard label="Meeting Time" value={formatMinutes(weeklyData?.meeting_minutes ?? dailyMeetingMinutes * 5)} detail={`${selectedWeek} to ${weeklyData?.week_end || fallbackWeekEnd}`} icon={CalendarBlank} tone="orange" testId="overview-weekly-meetings-stat" />
-          <StatCard label="Focus Time" value={formatMinutes(weeklyData?.focus_minutes ?? fallbackWeeklyFocusMinutes)} detail={`${weeklyData?.daily_overviews?.length || fallbackWeeklyFocus.length} evidence row(s)`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
+          <StatCard label="Focus Time" value={formatFocusDuration(weeklyData?.focus_seconds ?? fallbackWeeklyFocusSeconds)} detail={`${weeklyData?.daily_overviews?.length || fallbackWeeklyFocus.length} evidence row(s)`} icon={Clock} tone="blue" testId="overview-weekly-focus-stat" />
         </div>
         {!!weeklyThemes.length && <div className="theme-list">{weeklyThemes.map((theme) => <Pill key={theme} tone="task">{theme}</Pill>)}</div>}
         {!!topAccomplishments.length && <div className="accomplished-list" data-testid="weekly-top-accomplishments">{topAccomplishments.map((item) => <article key={item}><strong>{item}</strong><span>Top accomplishment</span></article>)}</div>}
@@ -2881,6 +2884,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     try {
       const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
       setTasks((items) => upsertVisibleTask(items, updatedTask));
+      setQuestRun((current) => isCurrentQuestRun(current) ? null : current);
       setTaskLoadError("");
     } catch (error) {
       setTaskLoadError(apiErrorMessage(error, "Unable to update working-today state."));
@@ -3340,7 +3344,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       started_at: activeSession.started_at,
       ended_at: endedAt,
       duration_seconds: durationSeconds,
-      duration_minutes: Math.max(1, Math.ceil(durationSeconds / 60)),
+      duration_minutes: Math.floor(durationSeconds / 60),
       outcome_type: outcomeType || "Progress made",
       outcome_note: outcomeNote?.trim() || "",
       created_at: activeSession.created_at || endedAt,
@@ -3352,11 +3356,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setFocusSessions((items) => [persistedSession, ...items.filter((item) => item.focus_session_id !== persistedSession.focus_session_id)]);
       setDashboardStats((current) => current ? {
         ...current,
-        focus_minutes: Math.max(0, Number(current.focus_minutes ?? 0)) + Math.max(0, Number(persistedSession.duration_minutes ?? 0)),
+        focus_seconds: Math.max(0, Number(current.focus_seconds ?? Number(current.focus_minutes ?? 0) * 60)) + Math.max(0, Number(persistedSession.duration_seconds ?? 0)),
+        focus_minutes: Math.floor((Math.max(0, Number(current.focus_seconds ?? Number(current.focus_minutes ?? 0) * 60)) + Math.max(0, Number(persistedSession.duration_seconds ?? 0))) / 60),
       } : current);
       setOverview((current) => ({
         ...current,
-        focusMinutes: Math.max(0, Number(current?.focusMinutes ?? 0)) + Math.max(0, Number(persistedSession.duration_minutes ?? 0)),
+        focusSeconds: Math.max(0, Number(current?.focusSeconds ?? Number(current?.focusMinutes ?? 0) * 60)) + Math.max(0, Number(persistedSession.duration_seconds ?? 0)),
+        focusMinutes: Math.floor((Math.max(0, Number(current?.focusSeconds ?? Number(current?.focusMinutes ?? 0) * 60)) + Math.max(0, Number(persistedSession.duration_seconds ?? 0))) / 60),
       }));
       setLastSavedFocus(persistedSession);
       setSavingFocusState(null);
