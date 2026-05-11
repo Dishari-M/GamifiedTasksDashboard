@@ -191,6 +191,57 @@ function Set-OracleEnvironment {
     $env:DEVQUEST_API_CACHE_TTL_SECONDS = "300"
 }
 
+function Test-OracleThickMode {
+    Write-Host "Checking Oracle thick-mode client..." -ForegroundColor DarkCyan
+
+    $testScript = @'
+import os
+import sys
+
+import oracledb
+
+client_dir = os.getenv('ORACLE_CLIENT_LIB_DIR', '').strip()
+wallet_dir = os.getenv('DB_WALLET_DIR', '').strip()
+
+init_kwargs = {}
+if client_dir:
+    init_kwargs['lib_dir'] = client_dir
+if wallet_dir:
+    init_kwargs['config_dir'] = wallet_dir
+
+try:
+    oracledb.init_oracle_client(**init_kwargs)
+except Exception as exc:
+    print(f'{type(exc).__name__}: {exc}', file=sys.stderr)
+    sys.exit(1)
+
+if oracledb.is_thin_mode():
+    print('python-oracledb remained in thin mode after init_oracle_client().', file=sys.stderr)
+    sys.exit(1)
+
+print('Oracle thick-mode client initialized.')
+'@
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $venvPython -c $testScript 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -ne 0) {
+        $details = ($output | Out-String).Trim()
+        if ($details) {
+            throw "Oracle thick-mode preflight failed: $details"
+        }
+        throw "Oracle thick-mode preflight failed."
+    }
+
+    Write-Host (($output | Out-String).Trim()) -ForegroundColor Green
+}
+
 Write-Host "Starting Gamified Tasks Dashboard from $root" -ForegroundColor Cyan
 
 if (-not (Test-Path $backendDir)) {
