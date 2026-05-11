@@ -134,3 +134,10 @@ INFO:     127.0.0.1:56391 - "GET /api/v1/tasks?exclude_done=true HTTP/1.1" 200 O
 INFO:     127.0.0.1:58347 - "GET /api/v1/quests/progress?date=2026-05-11 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:54266 - "GET /api/v1/calendar/events?date=2026-05-11 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53083 - "GET /api/v1/task-enrichments?limit=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62294 - "GET /api/v1/quests/today?date=2026-05-11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59626 - "GET /api/v1/sync/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56454 - "GET /api/v1/tasks?exclude_done=true HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50599 - "GET /api/v1/quests/progress?date=2026-05-11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57035 - "GET /api/v1/focus-sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62294 - "GET /api/v1/calendar/events?date=2026-05-11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60537 - "GET /api/v1/task-enrichments?limit=20 HTTP/1.1" 200 OK

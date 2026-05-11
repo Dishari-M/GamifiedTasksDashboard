@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
@@ -236,6 +236,375 @@ const Pill = ({ children, tone = "neutral", testId }) => (
   </span>
 );
 
+const normalizeSelectOptions = (options) => options.map((option) => (
+  typeof option === "string" ? { value: option, label: option } : option
+));
+
+const TaskSelect = ({
+  value,
+  options,
+  onChange,
+  testId,
+  ariaLabel,
+  invalid,
+  describedBy,
+  disabled,
+  triggerClassName = "",
+  menuClassName = "",
+}) => {
+  const selectId = useId();
+  const normalizedOptions = useMemo(() => normalizeSelectOptions(options), [options]);
+  const selectedIndex = Math.max(0, normalizedOptions.findIndex((option) => option.value === value));
+  const selectedOption = normalizedOptions[selectedIndex] || normalizedOptions[0] || { value, label: value };
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState({});
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const optionRefs = useRef([]);
+
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === "undefined") return;
+    const rect = trigger.getBoundingClientRect();
+    const desiredHeight = Math.min(280, Math.max(48, normalizedOptions.length * 42 + 12));
+    const belowSpace = window.innerHeight - rect.bottom;
+    const aboveSpace = rect.top;
+    const openAbove = belowSpace < desiredHeight + 12 && aboveSpace > belowSpace;
+    const availableSpace = Math.max(96, (openAbove ? aboveSpace : belowSpace) - 12);
+    const maxHeight = Math.min(desiredHeight, availableSpace);
+    const width = Math.max(rect.width, 160);
+    const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+    const top = openAbove
+      ? Math.max(8, rect.top - maxHeight - 8)
+      : Math.min(rect.bottom + 8, window.innerHeight - maxHeight - 8);
+    setMenuStyle({
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      maxHeight: `${maxHeight}px`,
+    });
+  };
+
+  const focusOption = (index) => {
+    window.requestAnimationFrame(() => optionRefs.current[index]?.focus());
+  };
+  const openMenu = (focusIndex) => {
+    updateMenuPosition();
+    setIsOpen(true);
+    if (Number.isInteger(focusIndex)) focusOption(focusIndex);
+  };
+  const closeMenu = (returnFocus = false) => {
+    setIsOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const chooseOption = (option) => {
+    onChange(option.value);
+    closeMenu(true);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      closeMenu();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closeMenu(true);
+    };
+    const outsideEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    updateMenuPosition();
+    outsideEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      outsideEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, normalizedOptions.length]);
+
+  useEffect(() => {
+    if (disabled) closeMenu();
+  }, [disabled]);
+
+  const handleTriggerKeyDown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      openMenu(selectedIndex);
+    }
+  };
+  const handleOptionKeyDown = (event, index) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption((index + 1) % normalizedOptions.length);
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption((index - 1 + normalizedOptions.length) % normalizedOptions.length);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusOption(normalizedOptions.length - 1);
+    }
+  };
+  const handleBlur = (event) => {
+    if (!event.relatedTarget || rootRef.current?.contains(event.relatedTarget)) return;
+    closeMenu();
+  };
+
+  return (
+    <span className="task-custom-select" ref={rootRef} onBlur={handleBlur}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`task-custom-select-trigger ${triggerClassName}`.trim()}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? selectId : undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        onClick={() => (isOpen ? closeMenu() : openMenu())}
+        onKeyDown={handleTriggerKeyDown}
+        disabled={disabled}
+        data-testid={testId}
+      >
+        <span>{selectedOption.label}</span>
+        <CaretDown size={16} weight="bold" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <span
+          className={`task-custom-select-menu ${menuClassName}`.trim()}
+          id={selectId}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={menuStyle}
+        >
+          {normalizedOptions.map((option, index) => {
+            const isSelected = option.value === selectedOption.value;
+            return (
+              <button
+                ref={(node) => { optionRefs.current[index] = node; }}
+                key={option.value}
+                type="button"
+                className={`task-custom-select-option${isSelected ? " is-selected" : ""}`}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => chooseOption(option)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
+                data-testid={testId ? `${testId}-option-${slug(option.value)}` : undefined}
+              >
+                <span>{option.label}</span>
+                {isSelected && <CheckCircle size={17} weight="fill" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </span>
+      )}
+    </span>
+  );
+};
+
+const datePickerDateFromKey = (dateKey) => {
+  if (!dateKey) return null;
+  const date = new Date(`${dateKey}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const datePickerKeyFromDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const shiftMonth = (date, amount) => new Date(date.getFullYear(), date.getMonth() + amount, 1);
+const sameCalendarMonth = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const datePickerLabel = (value, placeholder = "Select date") => {
+  const date = datePickerDateFromKey(value);
+  if (!date) return placeholder;
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
+};
+
+const DatePicker = ({
+  value,
+  onChange,
+  min,
+  max,
+  placeholder = "Select date",
+  ariaLabel = "Choose date",
+  testId,
+  allowClear = false,
+  triggerClassName = "",
+  triggerLabel,
+  showToday = true,
+  align = "start",
+}) => {
+  const pickerId = useId();
+  const selectedDate = datePickerDateFromKey(value);
+  const maxDate = datePickerDateFromKey(max);
+  const minDate = datePickerDateFromKey(min);
+  const today = datePickerDateFromKey(todayKey());
+  const initialMonth = selectedDate || maxDate || today || new Date();
+  const [isOpen, setIsOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1));
+  const [menuStyle, setMenuStyle] = useState({});
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    const nextMonth = selectedDate || maxDate || today || new Date();
+    setVisibleMonth(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1));
+  }, [value, max]);
+
+  const isDisabledDate = (dateKey) => Boolean((min && dateKey < min) || (max && dateKey > max));
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === "undefined") return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(318, Math.max(286, rect.width));
+    const desiredHeight = 360;
+    const belowSpace = window.innerHeight - rect.bottom;
+    const aboveSpace = rect.top;
+    const openAbove = belowSpace < desiredHeight + 12 && aboveSpace > belowSpace;
+    const maxHeight = Math.min(desiredHeight, Math.max(260, (openAbove ? aboveSpace : belowSpace) - 12));
+    const baseLeft = align === "end" ? rect.right - width : rect.left;
+    const left = Math.min(Math.max(8, baseLeft), Math.max(8, window.innerWidth - width - 8));
+    const top = openAbove
+      ? Math.max(8, rect.top - maxHeight - 8)
+      : Math.min(rect.bottom + 8, window.innerHeight - maxHeight - 8);
+    setMenuStyle({
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      maxHeight: `${maxHeight}px`,
+    });
+  };
+  const closePicker = (returnFocus = false) => {
+    setIsOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const openPicker = () => {
+    updateMenuPosition();
+    setIsOpen(true);
+  };
+  const chooseDate = (dateKey) => {
+    if (isDisabledDate(dateKey)) return;
+    onChange(dateKey);
+    closePicker(true);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      closePicker();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closePicker(true);
+    };
+    const outsideEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    updateMenuPosition();
+    outsideEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      outsideEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, visibleMonth, min, max]);
+
+  const monthLabel = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(visibleMonth);
+  const firstDay = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(1 - firstDay.getDay());
+  const dayCells = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    const dateKey = datePickerKeyFromDate(date);
+    return {
+      date,
+      dateKey,
+      isCurrentMonth: sameCalendarMonth(date, visibleMonth),
+      isSelected: value === dateKey,
+      isToday: today && dateKey === datePickerKeyFromDate(today),
+      isDisabled: isDisabledDate(dateKey),
+    };
+  });
+  const triggerText = triggerLabel || datePickerLabel(value, placeholder);
+  const todayDateKey = today ? datePickerKeyFromDate(today) : "";
+  const canChooseToday = Boolean(todayDateKey && !isDisabledDate(todayDateKey));
+
+  return (
+    <span className="date-picker" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`date-picker-trigger ${triggerClassName}`.trim()}
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? pickerId : undefined}
+        onClick={() => (isOpen ? closePicker() : openPicker())}
+        data-testid={testId}
+      >
+        <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
+        <span>{triggerText}</span>
+        <CaretDown size={14} weight="bold" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <span className="date-picker-popover" id={pickerId} role="dialog" aria-label={ariaLabel} style={menuStyle}>
+          <span className="date-picker-header">
+            <button type="button" className="date-picker-nav" onClick={() => setVisibleMonth((current) => shiftMonth(current, -1))} aria-label="Previous month">
+              <CaretLeft size={18} weight="bold" aria-hidden="true" />
+            </button>
+            <strong>{monthLabel}</strong>
+            <button type="button" className="date-picker-nav" onClick={() => setVisibleMonth((current) => shiftMonth(current, 1))} aria-label="Next month">
+              <CaretRight size={18} weight="bold" aria-hidden="true" />
+            </button>
+          </span>
+          <span className="date-picker-weekdays" aria-hidden="true">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}
+          </span>
+          <span className="date-picker-grid" role="grid" aria-label={monthLabel}>
+            {dayCells.map((day) => (
+              <button
+                key={day.dateKey}
+                type="button"
+                className={`date-picker-day${day.isCurrentMonth ? "" : " is-outside"}${day.isSelected ? " is-selected" : ""}${day.isToday ? " is-today" : ""}`}
+                onClick={() => chooseDate(day.dateKey)}
+                disabled={day.isDisabled}
+                role="gridcell"
+                aria-selected={day.isSelected}
+                aria-label={new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(day.date)}
+              >
+                {day.date.getDate()}
+              </button>
+            ))}
+          </span>
+          <span className={`date-picker-footer${allowClear ? "" : " date-picker-footer-single"}`}>
+            {allowClear && <button type="button" onClick={() => { onChange(""); closePicker(true); }}>Clear</button>}
+            {showToday && <button type="button" onClick={() => chooseDate(todayDateKey)} disabled={!canChooseToday}>Today</button>}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+};
+
 const IconBadge = ({ icon: Icon, tone = "violet", testId }) => (
   <span className={`icon-badge icon-badge-${tone}`} data-testid={testId}>
     <Icon size={26} weight="duotone" aria-hidden="true" />
@@ -451,14 +820,62 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
   const location = useLocation();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  const profileClusterRef = useRef(null);
+  const profileButtonRef = useRef(null);
+  const logoutButtonRef = useRef(null);
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentDate(new Date()), 60000);
     return () => window.clearInterval(intervalId);
   }, []);
+  useEffect(() => {
+    setIsProfileMenuOpen(false);
+  }, [location.pathname, location.search, location.hash]);
+  useEffect(() => {
+    if (!isProfileMenuOpen) return undefined;
+
+    const closeProfileMenu = (returnFocus = false) => {
+      setIsProfileMenuOpen(false);
+      if (returnFocus) {
+        window.requestAnimationFrame(() => profileButtonRef.current?.focus());
+      }
+    };
+    const handlePointerDown = (event) => {
+      if (profileClusterRef.current?.contains(event.target)) return;
+      closeProfileMenu();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closeProfileMenu(true);
+    };
+
+    const outsideInteractionEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    outsideInteractionEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      outsideInteractionEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
   const localGreeting = greetingForDate(currentDate);
   const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "Gamified Tasks Dashboard";
   const subtitle = location.pathname === "/focus/analytics" ? "Review focus trends, XP, streaks, and consistency." : location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
   const isLight = theme === "light";
+  const profileMenuId = "profile-menu";
+  const focusLogoutButton = () => window.requestAnimationFrame(() => logoutButtonRef.current?.focus());
+  const handleProfileButtonKeyDown = (event) => {
+    if (event.key !== "ArrowDown") return;
+    event.preventDefault();
+    setIsProfileMenuOpen(true);
+    focusLogoutButton();
+  };
+  const handleProfileMenuBlur = (event) => {
+    if (!event.relatedTarget || event.currentTarget.contains(event.relatedTarget)) return;
+    setIsProfileMenuOpen(false);
+  };
+  const handleLogoutClick = () => {
+    setIsProfileMenuOpen(false);
+    onLogout();
+  };
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -472,13 +889,17 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
         <Moon className="theme-toggle-icon theme-toggle-icon-moon" size={18} weight={isLight ? "duotone" : "fill"} aria-hidden="true" />
         <SunDim className="theme-toggle-icon theme-toggle-icon-sun" size={18} weight={isLight ? "fill" : "duotone"} aria-hidden="true" />
       </button>
-      <div className="profile-cluster">
+      <div className="profile-cluster" ref={profileClusterRef} onBlur={handleProfileMenuBlur}>
         <button
+          ref={profileButtonRef}
+          type="button"
           className="profile-button"
           aria-label={`Profile for ${profileFullName(currentUser)}`}
           aria-haspopup="menu"
           aria-expanded={isProfileMenuOpen}
+          aria-controls={isProfileMenuOpen ? profileMenuId : undefined}
           onClick={() => setIsProfileMenuOpen((value) => !value)}
+          onKeyDown={handleProfileButtonKeyDown}
           data-testid="profile-menu-button"
         >
           <span className="avatar" data-testid="profile-avatar">{profileInitials(currentUser)}</span>
@@ -486,11 +907,12 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
           <CaretDown size={16} weight="bold" aria-hidden="true" />
         </button>
         {isProfileMenuOpen && (
-          <div className="profile-menu" role="menu" data-testid="profile-dropdown-menu">
+          <div className="profile-menu" id={profileMenuId} role="menu" data-testid="profile-dropdown-menu">
             <button
+              ref={logoutButtonRef}
               type="button"
               role="menuitem"
-              onClick={onLogout}
+              onClick={handleLogoutClick}
               disabled={isLoggingOut}
               data-testid="logout-button"
             >
@@ -583,7 +1005,14 @@ const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, o
         <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> {scheduleHeadingForDate(selectedDate)}</h2>
         {onFetchDate && (
           <div className="schedule-date-controls">
-            <input type="date" value={selectedDate} onChange={(event) => onDateChange?.(event.target.value)} aria-label="Calendar date" data-testid="schedule-date-input" />
+            <DatePicker
+              value={selectedDate}
+              onChange={(nextDate) => onDateChange?.(nextDate)}
+              ariaLabel="Calendar date"
+              testId="schedule-date-input"
+              triggerClassName="schedule-date-trigger"
+              align="end"
+            />
             <button className="ghost-button" type="button" onClick={onFetchDate} disabled={isFetchingDate} data-testid="fetch-schedule-date-button">
               {isFetchingDate ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={17} weight="duotone" aria-hidden="true" />}
               {isFetchingDate ? "Fetching..." : "Fetch Calendar"}
@@ -852,10 +1281,20 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questRun, 
         <div className="focus-launcher-panel">
           <label className="focus-task-picker">
             Focus task
-            <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
-              {taskOptions.map((task) => <option key={task.id} value={task.id}>{task.workingToday ? "Today - " : ""}{truncateText(task.title, 24)}</option>)}
-              {!taskOptions.length && <option value="">No open tasks</option>}
-            </select>
+            <TaskSelect
+              value={selectedTaskId}
+              options={taskOptions.length
+                ? taskOptions.map((task) => ({
+                  value: task.id,
+                  label: `${task.workingToday ? "Today - " : ""}${truncateText(task.title, 24)}`,
+                }))
+                : [{ value: "", label: "No open tasks" }]}
+              onChange={setSelectedTaskId}
+              disabled={Boolean(activeSession) || !hasTasks}
+              testId="focus-task-select"
+              ariaLabel="Focus task"
+              triggerClassName="focus-task-select-trigger"
+            />
           </label>
           {!compact && selectedTask && (
             <article className="focus-selected-task focus-launcher-selected" data-testid="focus-selected-task">
@@ -1025,16 +1464,16 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleTod
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
                 <td data-testid={`task-completed-${slug(task.id)}`}>{isEnrichmentJob ? task.enrichmentStatusLabel : formatDateTime(task.completedAt)}</td>
                 <td>
-                  <select
-                    className={`status-select status-select-${slug(task.status)}`}
+                  <TaskSelect
                     value={task.status}
-                    onChange={(event) => onStatusChange(task.id, event.target.value)}
-                    data-testid={`task-status-${slug(task.id)}`}
-                    aria-label={`Status for ${task.title}`}
+                    options={tableStatuses}
+                    onChange={(status) => onStatusChange(task.id, status)}
+                    testId={`task-status-${slug(task.id)}`}
+                    ariaLabel={`Status for ${task.title}`}
                     disabled={isEnrichmentJob}
-                  >
-                    {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
+                    triggerClassName={`status-select status-select-${slug(task.status)}`}
+                    menuClassName="task-status-select-menu"
+                  />
                 </td>
                 <td className="notes-cell">
                   <textarea
@@ -1194,19 +1633,19 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
   return (
     <form className="task-editor-form" onSubmit={submit} noValidate data-testid={`${mode}-task-form`}>
       <label>
-        Title
-        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
+        <span className="required-label">Title <span className="required-star" aria-hidden="true">*</span></span>
+        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" required aria-required="true" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
         {fieldErrors.title && <span className="field-error" id={`${mode}-task-title-error`}>{fieldErrors.title}</span>}
       </label>
       <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
       <label>
         Type
-        <select value={form.type} onChange={(event) => update("type", event.target.value)} aria-invalid={Boolean(fieldErrors.type)} aria-describedby={fieldErrors.type ? `${mode}-task-type-error` : undefined}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.type} options={taskTypes} onChange={(nextValue) => update("type", nextValue)} ariaLabel={`${mode} task type`} invalid={Boolean(fieldErrors.type)} describedBy={fieldErrors.type ? `${mode}-task-type-error` : undefined} testId={`${mode}-task-type-select`} />
         {fieldErrors.type && <span className="field-error" id={`${mode}-task-type-error`}>{fieldErrors.type}</span>}
       </label>
       <label>
         Source
-        <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.source} options={sources} onChange={(nextValue) => update("source", nextValue)} ariaLabel={`${mode} task source`} invalid={Boolean(fieldErrors.source)} describedBy={fieldErrors.source ? `${mode}-task-source-error` : undefined} testId={`${mode}-task-source-select`} />
         {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
       </label>
       <label>
@@ -1226,18 +1665,18 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
       </label>
       <label>
         Priority
-        <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.priority} options={priorities} onChange={(nextValue) => update("priority", nextValue)} ariaLabel={`${mode} task priority`} invalid={Boolean(fieldErrors.priority)} describedBy={fieldErrors.priority ? `${mode}-task-priority-error` : undefined} testId={`${mode}-task-priority-select`} />
         {fieldErrors.priority && <span className="field-error" id={`${mode}-task-priority-error`}>{fieldErrors.priority}</span>}
       </label>
       <label>
         Status
-        <select value={form.status} onChange={(event) => update("status", event.target.value)} aria-invalid={Boolean(fieldErrors.status)} aria-describedby={fieldErrors.status ? `${mode}-task-status-error` : undefined}>{statuses.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.status} options={statuses} onChange={(nextValue) => update("status", nextValue)} ariaLabel={`${mode} task status`} invalid={Boolean(fieldErrors.status)} describedBy={fieldErrors.status ? `${mode}-task-status-error` : undefined} testId={`${mode}-task-status-select`} />
         {fieldErrors.status && <span className="field-error" id={`${mode}-task-status-error`}>{fieldErrors.status}</span>}
       </label>
-      <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
-      <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
+      <label>Due date<DatePicker value={form.dueDate} onChange={(nextDate) => update("dueDate", nextDate)} placeholder="No due date" ariaLabel={`${mode} task due date`} testId={`${mode}-task-due-date-input`} allowClear /></label>
+      <label>Start date<DatePicker value={form.startDate} onChange={(nextDate) => update("startDate", nextDate)} placeholder="No start date" ariaLabel={`${mode} task start date`} testId={`${mode}-task-start-date-input`} allowClear /></label>
       {mode === "edit" && (
-        <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}>{rcaTshirtSizes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+        <label>RCA T-shirt size<TaskSelect value={form.rcaTshirtSize} options={rcaTshirtSizes} onChange={(nextValue) => update("rcaTshirtSize", nextValue)} ariaLabel={`${mode} task RCA T-shirt size`} testId={`${mode}-task-rca-size-select`} /></label>
       )}
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
@@ -1744,32 +2183,19 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
             </label>
             <label>
               Status
-              <select value={taskFilters.status} onChange={(event) => updateFilter("status", event.target.value)} data-testid="task-filter-status">
-                <option>All</option>
-                {tableStatuses.map((status) => <option key={status}>{status}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.status} options={["All", ...tableStatuses]} onChange={(nextValue) => updateFilter("status", nextValue)} ariaLabel="Filter tasks by status" testId="task-filter-status" />
             </label>
             <label>
               Source
-              <select value={taskFilters.source} onChange={(event) => updateFilter("source", event.target.value)} data-testid="task-filter-source">
-                <option>All</option>
-                {sources.map((source) => <option key={source}>{source}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.source} options={["All", ...sources]} onChange={(nextValue) => updateFilter("source", nextValue)} ariaLabel="Filter tasks by source" testId="task-filter-source" />
             </label>
             <label>
               Priority
-              <select value={taskFilters.priority} onChange={(event) => updateFilter("priority", event.target.value)} data-testid="task-filter-priority">
-                <option>All</option>
-                {priorities.map((priority) => <option key={priority}>{priority}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.priority} options={["All", ...priorities]} onChange={(nextValue) => updateFilter("priority", nextValue)} ariaLabel="Filter tasks by priority" testId="task-filter-priority" />
             </label>
             <label>
               Today
-              <select value={taskFilters.today} onChange={(event) => updateFilter("today", event.target.value)} data-testid="task-filter-today">
-                <option>All</option>
-                <option>Working</option>
-                <option>Not Working</option>
-              </select>
+              <TaskSelect value={taskFilters.today} options={["All", "Working", "Not Working"]} onChange={(nextValue) => updateFilter("today", nextValue)} ariaLabel="Filter tasks by today status" testId="task-filter-today" />
             </label>
             <div className="task-filter-actions">
               <span data-testid="task-filter-result-count">{filteredTasks.length} of {unifiedTasks.length} tasks</span>
@@ -2242,8 +2668,6 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const [generating, setGenerating] = useState(null);
   const dailyRequestIdRef = useRef(0);
   const weeklyRequestIdRef = useRef(0);
-  const dailyDateInputRef = useRef(null);
-  const weeklyDateInputRef = useRef(null);
 
   const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
   const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
@@ -2317,21 +2741,6 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const handleDailyDaySelect = (dateKey) => {
     if (dateKey > today) return;
     setSelectedDate(dateKey);
-  };
-
-  const openDatePicker = (inputRef) => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    try {
-      if (typeof input.showPicker === "function") {
-        input.showPicker();
-        return;
-      }
-    } catch {
-      // Some browsers only allow showPicker during direct pointer gestures.
-    }
-    input.click();
   };
 
   useEffect(() => {
@@ -2479,11 +2888,17 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
                 <strong>{dailyWeekRange}</strong>
               </div>
               <div className="week-tools">
-                <button className="week-jump-control" type="button" onClick={() => openDatePicker(dailyDateInputRef)} title="Choose day" aria-label="Choose daily overview date">
-                  <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
-                  <span>Pick</span>
-                </button>
-                <input className="week-jump-input" ref={dailyDateInputRef} type="date" value={selectedDate} max={today} onChange={(event) => handleDailyDateChange(event.target.value)} data-testid="daily-overview-date-input" tabIndex={-1} aria-hidden="true" />
+                <DatePicker
+                  value={selectedDate}
+                  onChange={handleDailyDateChange}
+                  max={today}
+                  ariaLabel="Choose daily overview date"
+                  testId="daily-overview-date-input"
+                  triggerClassName="week-jump-control"
+                  triggerLabel="Pick"
+                  align="end"
+                  allowClear={false}
+                />
                 <span className="week-context-pill">{selectedDate === today ? "Today" : "Past"}</span>
               </div>
             </div>
@@ -2553,11 +2968,17 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
                 <strong>{activeWeekRange}</strong>
               </div>
               <div className="week-tools">
-                <button className="week-jump-control" type="button" onClick={() => openDatePicker(weeklyDateInputRef)} title="Choose week" aria-label="Choose weekly overview week">
-                  <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
-                  <span>Pick</span>
-                </button>
-                <input className="week-jump-input" ref={weeklyDateInputRef} type="date" value={selectedWeek} max={today} onChange={(event) => handleWeeklyDateChange(event.target.value)} data-testid="weekly-overview-week-input" tabIndex={-1} aria-hidden="true" />
+                <DatePicker
+                  value={selectedWeek}
+                  onChange={handleWeeklyDateChange}
+                  max={today}
+                  ariaLabel="Choose weekly overview week"
+                  testId="weekly-overview-week-input"
+                  triggerClassName="week-jump-control"
+                  triggerLabel="Pick"
+                  align="end"
+                  allowClear={false}
+                />
                 <span className="week-context-pill">{isCurrentWeek ? "Active" : "Past"}</span>
               </div>
             </div>
