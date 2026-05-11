@@ -85,6 +85,36 @@ class JiraRcaJobLifecycleTests(unittest.TestCase):
         self.assertEqual(body["type"], "Bug")
         self.assertNotIn("project_key", body)
 
+    def test_rca_prompt_uses_optional_skill_and_memory_bank_only_when_supplied(self):
+        codebase_dir = tempfile.TemporaryDirectory()
+        memory_bank_dir = tempfile.TemporaryDirectory()
+        skill_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(codebase_dir.cleanup)
+        self.addCleanup(memory_bank_dir.cleanup)
+        self.addCleanup(skill_dir.cleanup)
+
+        skill_file = os.path.join(skill_dir.name, "SKILL.md")
+        with open(skill_file, "w", encoding="utf-8") as handle:
+            handle.write("Use the GBU-specific RCA workflow.")
+
+        plain_prompt = self.main.codex_config.build_jira_rca_prompt(
+            "HRA-26819",
+            code_base_path=codebase_dir.name,
+        )
+        self.assertIn("No external RCA skill or memory-bank was provided", plain_prompt)
+        self.assertIn("RCA skill path: Not provided", plain_prompt)
+        self.assertIn("Memory-bank path: Not provided", plain_prompt)
+
+        configured_prompt = self.main.codex_config.build_jira_rca_prompt(
+            "HRA-26819",
+            code_base_path=codebase_dir.name,
+            memory_bank_path=memory_bank_dir.name,
+            skill_path=skill_dir.name,
+        )
+        self.assertIn(os.path.abspath(memory_bank_dir.name), configured_prompt)
+        self.assertIn(os.path.abspath(skill_file), configured_prompt)
+        self.assertIn("Use the GBU-specific RCA workflow.", configured_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

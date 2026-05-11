@@ -1563,10 +1563,10 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleTod
     </div>
   );
 };
-const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBase }) => {
+const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBase, onNotice }) => {
   const [form, setForm] = useState(task ? formFromTask(task) : emptyTaskForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSelectingCodeBase, setIsSelectingCodeBase] = useState(false);
+  const [selectingPathField, setSelectingPathField] = useState("");
   const [submitError, setSubmitError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const submitInFlightRef = useRef(false);
@@ -1584,7 +1584,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
   useEffect(() => {
     setForm(task ? formFromTask(task) : emptyTaskForm);
     setIsSubmitting(false);
-    setIsSelectingCodeBase(false);
+    setSelectingPathField("");
     setSubmitError("");
     setFieldErrors({});
     submitInFlightRef.current = false;
@@ -1594,7 +1594,7 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
     setForm((current) => ({
       ...current,
       [field]: value,
-      ...(field === "source" && value !== "Jira" ? { codeBaseLocation: "" } : {}),
+      ...(field === "source" && value !== "Jira" ? { codeBaseLocation: "", memoryBankLocation: "", skillLocation: "" } : {}),
     }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
     setSubmitError("");
@@ -1613,18 +1613,40 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
     return Object.keys(errors).length === 0;
   };
 
-  const selectCodeBase = async () => {
-    if (!onSelectCodeBase || !isCodeBaseEnabled) return;
-    setIsSelectingCodeBase(true);
+  const showJiraSourceNotice = (label) => {
+    if (isCodeBaseEnabled) return;
+    onNotice?.({
+      title: "Choose Source as Jira",
+      message: `${label} is available only for Jira tasks.`,
+      detail: "Set Source to Jira, then choose the folder.",
+      tone: "warning",
+    });
+  };
+
+  const selectRcaPath = async (field, title, label) => {
+    if (!isCodeBaseEnabled) {
+      showJiraSourceNotice(label);
+      return;
+    }
+    if (!onSelectCodeBase) return;
+    setSelectingPathField(field);
     setSubmitError("");
     try {
-      const path = await onSelectCodeBase(form.codeBaseLocation);
-      if (path) update("codeBaseLocation", path);
+      const path = await onSelectCodeBase(form[field], title);
+      if (path) update(field, path);
     } catch (error) {
-      setSubmitError(apiErrorMessage(error, "Unable to select code base folder."));
+      setSubmitError(apiErrorMessage(error, "Unable to select folder."));
     } finally {
-      setIsSelectingCodeBase(false);
+      setSelectingPathField("");
     }
+  };
+
+  const updateJiraLocation = (field, value, label) => {
+    if (!isCodeBaseEnabled) {
+      showJiraSourceNotice(label);
+      return;
+    }
+    update(field, value);
   };
 
   const submit = async (event) => {
@@ -1674,12 +1696,30 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
       <label className="codebase-location-field">
         Code Base Location
         <span className="codebase-location-picker">
-          <input value={form.codeBaseLocation} onChange={(event) => update("codeBaseLocation", event.target.value)} placeholder="Select codebase folder" disabled={!isCodeBaseEnabled} aria-invalid={Boolean(fieldErrors.codeBaseLocation)} aria-describedby={fieldErrors.codeBaseLocation ? `${mode}-task-codebase-error` : undefined} data-testid={`${mode}-task-codebase-input`} />
-          <button className="ghost-button" type="button" onClick={selectCodeBase} disabled={!isCodeBaseEnabled || isSelectingCodeBase} data-testid={`${mode}-select-codebase-button`}>
-            <FolderOpen size={17} weight="duotone" aria-hidden="true" /> {isSelectingCodeBase ? "Selecting" : "Browse"}
+          <input value={form.codeBaseLocation} onFocus={() => showJiraSourceNotice("Code Base Location")} onChange={(event) => updateJiraLocation("codeBaseLocation", event.target.value, "Code Base Location")} placeholder="Select codebase folder" readOnly={!isCodeBaseEnabled} aria-disabled={!isCodeBaseEnabled} aria-invalid={Boolean(fieldErrors.codeBaseLocation)} aria-describedby={fieldErrors.codeBaseLocation ? `${mode}-task-codebase-error` : undefined} data-testid={`${mode}-task-codebase-input`} />
+          <button className="ghost-button" type="button" onClick={() => selectRcaPath("codeBaseLocation", "Select codebase workspace for Jira RCA", "Code Base Location")} disabled={!onSelectCodeBase || selectingPathField === "codeBaseLocation"} aria-label={selectingPathField === "codeBaseLocation" ? "Selecting codebase folder" : "Browse codebase folder"} title={selectingPathField === "codeBaseLocation" ? "Selecting codebase folder" : "Browse codebase folder"} data-testid={`${mode}-select-codebase-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" />
           </button>
         </span>
         {fieldErrors.codeBaseLocation && <span className="field-error" id={`${mode}-task-codebase-error`}>{fieldErrors.codeBaseLocation}</span>}
+      </label>
+      <label className="codebase-location-field">
+        Memory-bank Location (optional)
+        <span className="codebase-location-picker">
+          <input value={form.memoryBankLocation} onFocus={() => showJiraSourceNotice("Memory-bank Location")} onChange={(event) => updateJiraLocation("memoryBankLocation", event.target.value, "Memory-bank Location")} placeholder="Memory-bank folder" readOnly={!isCodeBaseEnabled} aria-disabled={!isCodeBaseEnabled} data-testid={`${mode}-task-memory-bank-input`} />
+          <button className="ghost-button" type="button" onClick={() => selectRcaPath("memoryBankLocation", "Select memory-bank folder for Jira RCA", "Memory-bank Location")} disabled={!onSelectCodeBase || selectingPathField === "memoryBankLocation"} aria-label={selectingPathField === "memoryBankLocation" ? "Selecting memory-bank folder" : "Browse memory-bank folder"} title={selectingPathField === "memoryBankLocation" ? "Selecting memory-bank folder" : "Browse memory-bank folder"} data-testid={`${mode}-select-memory-bank-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" />
+          </button>
+        </span>
+      </label>
+      <label className="codebase-location-field">
+        Skills Location (optional)
+        <span className="codebase-location-picker">
+          <input value={form.skillLocation} onFocus={() => showJiraSourceNotice("Skills Location")} onChange={(event) => updateJiraLocation("skillLocation", event.target.value, "Skills Location")} placeholder="Skill folder or SKILL.md" readOnly={!isCodeBaseEnabled} aria-disabled={!isCodeBaseEnabled} data-testid={`${mode}-task-skill-input`} />
+          <button className="ghost-button" type="button" onClick={() => selectRcaPath("skillLocation", "Select RCA skill folder for Jira RCA", "Skills Location")} disabled={!onSelectCodeBase || selectingPathField === "skillLocation"} aria-label={selectingPathField === "skillLocation" ? "Selecting skill folder" : "Browse skill folder"} title={selectingPathField === "skillLocation" ? "Selecting skill folder" : "Browse skill folder"} data-testid={`${mode}-select-skill-button`}>
+            <FolderOpen size={17} weight="duotone" aria-hidden="true" />
+          </button>
+        </span>
       </label>
       <label>
         Priority
@@ -1748,6 +1788,7 @@ const sanitizeTaskFormPayload = (form) => {
 
 const taskBackendKey = (task) => String(task?.taskId || task?.id || "").trim();
 const taskMatchesBackendKey = (task, backendKey) => String(taskBackendKey(task)) === String(backendKey || "").trim();
+const taskRowVersion = (task) => task?.rowVersion ?? task?.row_version;
 
 const filterDashboardTasks = (tasks, filter) => {
   if (filter === "Working Today") return tasks.filter((task) => task.workingToday);
@@ -1886,6 +1927,43 @@ const enrichmentStatusLabel = (status) => {
   return "AI enrichment";
 };
 
+const rcaHeadingPattern = (heading) => new RegExp(`^\\s*(?:#+\\s*)?(?:\\*\\*)?\\s*${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*(?:\\*\\*)?\\s*:?\\s*$`, "i");
+
+const extractRcaSection = (text, heading, nextHeadings = []) => {
+  const lines = String(text || "").split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => rcaHeadingPattern(heading).test(line));
+  if (startIndex < 0) return "";
+  const nextPatterns = nextHeadings.map(rcaHeadingPattern);
+  const endIndex = lines.findIndex((line, index) => index > startIndex && nextPatterns.some((pattern) => pattern.test(line)));
+  return lines.slice(startIndex + 1, endIndex < 0 ? undefined : endIndex).join("\n").trim();
+};
+
+const cleanRcaText = (value) => String(value || "")
+  .replace(/\*\*([^*]+)\*\*/g, "$1")
+  .replace(/`([^`]+)`/g, "$1")
+  .trim();
+
+const normalizeAffectedFilesForDisplay = (value) => {
+  const items = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+  return items.map((item) => {
+    if (typeof item === "object" && item) {
+      return {
+        path: String(item.path || item.file || item.name || "").trim(),
+        reason: String(item.reason || item.details || item.description || "").trim(),
+        location: String(item.location || "").trim(),
+      };
+    }
+    const text = String(item || "").trim().replace(/^[-*]\s*/, "");
+    if (!text) return null;
+    const [path, ...reasonParts] = text.includes("->") ? text.split("->") : text.split(/\s-\s/);
+    return { path: cleanRcaText(path), reason: cleanRcaText(reasonParts.join(" - ")), location: "" };
+  }).filter((item) => item?.path);
+};
+
+const affectedFilesFromRawRca = (rawRca) => normalizeAffectedFilesForDisplay(
+  extractRcaSection(rawRca, "Affected Files", ["Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"]),
+);
+
 const jobToTask = (job) => {
   const fields = job?.jira_fields || job?.jiraFields || {};
   const request = job?.request || {};
@@ -1919,8 +1997,26 @@ const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
   const fields = job.jira_fields || job.jiraFields || {};
   const result = job.rca_result || job.rcaResult || {};
   const logs = Array.isArray(job.logs) ? job.logs : [];
-  const affectedFiles = result.affected_files || result.affectedFiles || result.rca_affected_files || result.rcaAffectedFiles || [];
-  const codeSuggestion = result.code_suggestion || result.codeSuggestion || result.code_fix_suggestion || result.codeFixSuggestion || result.rca_code_suggestion || result.rcaCodeSuggestion || "";
+  const rawRca = result.root_cause_analysis || result.rootCauseAnalysis || result.rca_raw_output || result.rcaRawOutput || "";
+  const rootCause = cleanRcaText(
+    result.rca_reason
+    || result.rcaReason
+    || extractRcaSection(rawRca, "Root Cause", ["Affected Modules", "Affected Files", "Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"]),
+  );
+  const affectedFiles = normalizeAffectedFilesForDisplay(
+    result.affected_files || result.affectedFiles || result.rca_affected_files || result.rcaAffectedFiles || [],
+  );
+  const displayAffectedFiles = affectedFiles.length ? affectedFiles : affectedFilesFromRawRca(rawRca);
+  const codeSuggestion = cleanRcaText(
+    result.code_suggestion
+    || result.codeSuggestion
+    || result.code_fix_suggestion
+    || result.codeFixSuggestion
+    || result.rca_code_suggestion
+    || result.rcaCodeSuggestion
+    || extractRcaSection(rawRca, "Code Fix Suggestion", ["Evidence", "Open Questions"])
+    || extractRcaSection(rawRca, "Code Suggestion", ["Evidence", "Open Questions"]),
+  );
   const tshirt = result.tshirt_sizing || result.tshirtSizing || result.jira_tshirt_sizing || result.jiraTshirtSizing || {};
   const tshirtSize = result.tshirt_size || result.tshirtSize || result.rca_tshirt_size || result.rcaTshirtSize || tshirt.size || "";
   const tshirtJustification = result.tshirt_justification || result.tshirtJustification || result.rca_tshirt_justification || result.rcaTshirtJustification || tshirt.reason || tshirt.justification || "";
@@ -1934,7 +2030,7 @@ const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
             <p>{job.external_id || job.externalId} - {enrichmentStatusLabel(job.status)}</p>
           </div>
           <div className="editor-actions">
-            <button className="ghost-button" type="button" onClick={onRefresh} data-testid="refresh-enrichment-details-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh</button>
+            <button className="ghost-button" type="button" onClick={onRefresh} data-testid="refresh-enrichment-details-button"><ArrowClockwise size={18} weight="duotone" aria-hidden="true" /> Refresh saved response</button>
             <button className="row-icon-action" type="button" onClick={onClose} aria-label="Close enrichment details" data-testid="close-enrichment-details-button"><X size={18} weight="bold" /></button>
           </div>
         </div>
@@ -1948,9 +2044,22 @@ const EnrichmentDetailsModal = ({ job, onClose, onRefresh }) => {
             <dl className="enrichment-details-list">
               <dt>Title</dt><dd>{fields.title || "-"}</dd>
               <dt>Description</dt><dd>{fields.description || "-"}</dd>
-              <dt>Root cause</dt><dd>{result.rca_reason || result.rcaReason || "-"}</dd>
-              <dt>Affected files</dt><dd>{affectedFiles.length ? affectedFiles.map((item) => item.path || item).join(", ") : "-"}</dd>
-              <dt>Code suggestion</dt><dd>{codeSuggestion || "-"}</dd>
+              <dt>Root cause</dt><dd>{rootCause || "-"}</dd>
+              <dt>Affected files</dt>
+              <dd>
+                {displayAffectedFiles.length ? (
+                  <ul className="enrichment-affected-files">
+                    {displayAffectedFiles.map((item) => (
+                      <li key={`${item.path}-${item.reason}`}>
+                        <strong>{item.path}</strong>
+                        {item.location && <span>{item.location}</span>}
+                        {item.reason && <p>{item.reason}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : "-"}
+              </dd>
+              <dt>Code suggestion</dt><dd>{codeSuggestion ? <pre className="enrichment-code-suggestion">{codeSuggestion}</pre> : "-"}</dd>
               <dt>T-shirt size</dt><dd>{tshirtSize || "-"}</dd>
               <dt>Justification</dt><dd>{tshirtJustification || "-"}</dd>
               {error && <><dt>Error</dt><dd className="enrichment-error-text">{error}</dd></>}
@@ -2099,7 +2208,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
   );
 };
 
-const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onDelete, onToggleToday, onUpdateNotes, todayToggleLoadingId }) => {
+const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTask, onSelectCodeBase, onNotice, onOpenEnrichmentDetails, onCloseEnrichmentDetails, onRefreshEnrichmentDetails, isLoading, onStatusChange, onEdit, onDelete, onToggleToday, onUpdateNotes, todayToggleLoadingId }) => {
   const [editingTask, setEditingTask] = useState(null);
   const [taskPendingDelete, setTaskPendingDelete] = useState(null);
   const [deletingTaskId, setDeletingTaskId] = useState(null);
@@ -2155,7 +2264,7 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
     setDeletingTaskId(taskPendingDelete.id);
     setDeleteError("");
     try {
-      await onDelete(taskPendingDelete.id);
+      await onDelete(taskBackendKey(taskPendingDelete));
       if (editingTask?.id === taskPendingDelete.id) setEditingTask(null);
       setTaskPendingDelete(null);
     } catch (error) {
@@ -2178,12 +2287,12 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
     <main className="page-stack" data-testid="tasks-page">
       <section className="surface form-card" data-testid="add-task-card">
         <div className="section-heading"><h2><Plus size={26} weight="duotone" aria-hidden="true" /> Add Task With Full Details</h2><span data-testid="task-count-label">{tasks.length} tasks loaded</span></div>
-        <TaskEditor mode="create" onSubmit={onAddTask} onSelectCodeBase={onSelectCodeBase} />
+        <TaskEditor mode="create" onSubmit={onAddTask} onSelectCodeBase={onSelectCodeBase} onNotice={onNotice} />
       </section>
       {editingTask && (
         <section className="surface form-card" data-testid="edit-task-card">
           <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Edit Task</h2><span>{editingTask.id}</span></div>
-          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} onSelectCodeBase={onSelectCodeBase} />
+          <TaskEditor mode="edit" task={editingTask} onSubmit={async (form) => { await onEdit(editingTask.id, form); setEditingTask(null); }} onCancel={() => setEditingTask(null)} onSelectCodeBase={onSelectCodeBase} onNotice={onNotice} />
         </section>
       )}
       <section className="surface" data-testid="unified-task-list-card">
@@ -3510,8 +3619,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleComplete = async (id) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
+    const backendTaskId = taskBackendKey(task);
     try {
-      const updatedTask = await tasksApi.complete(id, { row_version: task.row_version, completedAt: task.completedAt || nowIso() });
+      const updatedTask = await tasksApi.complete(backendTaskId, { row_version: taskRowVersion(task), completedAt: task.completedAt || nowIso() });
       setTasks((items) => items.filter((item) => item.id !== id));
       setTaskLoadError("");
     } catch (error) {
@@ -3521,8 +3631,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleStatusChange = async (id, nextStatus) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || !nextStatus || task.status === nextStatus) return;
+    const backendTaskId = taskBackendKey(task);
     try {
-      const updatedTask = await tasksApi.updateStatus(id, { status: nextStatus, row_version: task.row_version });
+      const updatedTask = await tasksApi.updateStatus(backendTaskId, { status: nextStatus, row_version: taskRowVersion(task) });
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
@@ -3532,9 +3643,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleToggleToday = async (id) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || todayToggleLoadingId) return;
+    const backendTaskId = taskBackendKey(task);
     setTodayToggleLoadingId(id);
     try {
-      const updatedTask = await tasksApi.updateToday(id, { workingToday: !task.workingToday });
+      const updatedTask = await tasksApi.updateToday(backendTaskId, { workingToday: !task.workingToday, row_version: taskRowVersion(task) });
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setQuestRun((current) => isCurrentQuestRun(current) ? null : current);
       setTaskLoadError("");
@@ -3548,8 +3660,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     const task = tasks.find((item) => item.id === id);
     setTasks((items) => items.map((item) => (item.id === id ? normalizeTask({ ...item, notes, aiInsight: "" }) : item)));
     if (!persist || !task) return;
+    const backendTaskId = taskBackendKey(task);
     try {
-      const updatedTask = await tasksApi.updateNotes(id, { notes, row_version: task.row_version });
+      const updatedTask = await tasksApi.updateNotes(backendTaskId, { notes, row_version: taskRowVersion(task) });
       setTasks((items) => upsertVisibleTask(items, updatedTask));
       setTaskLoadError("");
     } catch (error) {
@@ -3558,11 +3671,12 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     }
   };
   const handleDeleteTask = async (id) => {
-    const task = tasks.find((item) => item.id === id);
+    const task = tasks.find((item) => taskMatchesBackendKey(item, id));
     if (!task) return;
+    const backendTaskId = taskBackendKey(task);
     try {
-      await tasksApi.remove(id);
-      setTasks((items) => items.filter((item) => item.id !== id));
+      await tasksApi.remove(backendTaskId);
+      setTasks((items) => items.filter((item) => !taskMatchesBackendKey(item, backendTaskId)));
       setTaskLoadError("");
       showFloatingNotice({
         title: "Task deleted",
@@ -3605,13 +3719,13 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       });
       return;
     }
-    const updatedTask = await tasksApi.update(id, { ...payload, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
+    const updatedTask = await tasksApi.update(taskBackendKey(task), { ...payload, row_version: taskRowVersion(task), runAiEnrichment: form.runAiEnrichment });
     setTasks((items) => upsertVisibleTask(items, updatedTask));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
-  const handleSelectCodeBase = async (initialPath = "") => {
-    const result = await jiraApi.selectRcaWorkspace(initialPath);
-    return result?.code_base_path || result?.codeBasePath || "";
+  const handleSelectCodeBase = async (initialPath = "", title = "") => {
+    const result = await jiraApi.selectRcaWorkspace(initialPath, title);
+    return result?.selected_path || result?.selectedPath || result?.code_base_path || result?.codeBasePath || "";
   };
 
   const handleOpenEnrichmentDetails = async (jobId) => {
@@ -4128,7 +4242,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         <FloatingNotice notice={floatingNotice} onDismiss={() => setFloatingNotice(null)} />
          {!isDistractionFreeFocus && taskLoadError && <p className="form-error" role="alert">{taskLoadError}</p>}
         <Routes>
-          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} />} />
+          <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onNotice={showFloatingNotice} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardStatus={dashboardStatus} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
           <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} streakSummary={progressSnapshot} isProgressLoading={isProgressLoading} />} />

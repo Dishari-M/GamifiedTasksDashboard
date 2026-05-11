@@ -12,8 +12,9 @@ $runDir = Join-Path $root ".devquest"
 $backendPidFile = Join-Path $runDir "backend.pid"
 $frontendPidFile = Join-Path $runDir "frontend.pid"
 $oracleWalletDir = Join-Path $env:USERPROFILE ".oracle\wallet_tasksdb"
+$primaryOracleClientDir = "C:\oracle\instantclient_23_0"
 $oracleClientCandidates = @(
-    "C:\oracle\instantclient_23_0",
+    $primaryOracleClientDir,
     (Join-Path $env:USERPROFILE "Downloads\instantclient-basic-windows.x64-23.26.1.0.0\instantclient_23_0")
 )
 $oracleClientDir = $oracleClientCandidates |
@@ -227,6 +228,7 @@ if ($aiMode -eq "real") {
 }
 
 Set-OracleEnvironment
+Test-OracleThickMode
 
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 

@@ -7648,6 +7648,18 @@ html[data-theme="light"] .focus-session-ring {
     conic-gradient(from -90deg, #2f6b3d var(--timer-progress), #dbe6d3 0);
 }
 
+html[data-theme="light"] .focus-donut-value {
+  fill: var(--text);
+}
+
+html[data-theme="light"] .focus-donut-label {
+  fill: var(--text-soft);
+}
+
+html[data-theme="light"] .focus-active-task-card strong {
+  color: var(--text);
+}
+
 @media (max-width: 1100px) {
   .task-editor-form {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -8271,6 +8283,10 @@ html[data-theme="light"] .page-loader-core {
   background: rgba(174, 55, 55, 0.95);
 }
 
+.floating-notice-warning {
+  background: linear-gradient(135deg, rgba(194, 116, 22, 0.98), rgba(156, 86, 14, 0.98));
+}
+
 .floating-notice-close {
   display: grid;
   place-items: center;
@@ -8319,6 +8335,9 @@ html[data-theme="light"] .page-loader-core {
 
 .codebase-location-picker .ghost-button {
   min-height: 54px;
+  width: 54px;
+  justify-content: center;
+  padding: 0;
   white-space: nowrap;
 }
 
@@ -8520,6 +8539,51 @@ html[data-theme="light"] .danger-action {
   margin: 0;
   color: var(--text-soft);
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.enrichment-affected-files {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enrichment-affected-files li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(98, 111, 153, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.enrichment-affected-files strong {
+  color: var(--text);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.enrichment-affected-files span,
+.enrichment-affected-files p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.enrichment-code-suggestion {
+  max-height: 320px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid rgba(98, 111, 153, 0.22);
+  border-radius: 10px;
+  color: #d8f8ff;
+  background: rgba(5, 10, 18, 0.72);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
@@ -9148,7 +9212,8 @@ html[data-theme="light"] .settings-slider-value {
   background-clip: text;
   color: transparent;
   text-shadow: 0 0 18px rgba(112, 71, 255, 0.46), 0 0 28px rgba(32, 199, 255, 0.22);
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .auth-brand .brand-name {
@@ -9257,6 +9322,13 @@ html[data-theme="light"] .sidebar-logo-mark {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .sidebar-logo-toggle {
@@ -9269,6 +9341,16 @@ html[data-theme="light"] .sidebar-logo-mark {
   gap: 10px;
   padding: 2px 4px 20px;
   transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.sidebar-logo-toggle .brand-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: clamp(1rem, 1.25vw, 1.32rem);
+  line-height: 1.08;
+  letter-spacing: 0.01em;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 .sidebar-logo-toggle:hover {

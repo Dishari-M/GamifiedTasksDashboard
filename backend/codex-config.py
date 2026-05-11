@@ -65,30 +65,28 @@ TSHIRT_SIZES = ("XS", "S", "M", "L", "XL")
 class RcaJobCancelled(Exception):
     pass
 
-JIRA_RCA_SYSTEM_PROMPT_TEMPLATE = """
+JIRA_RCA_BASE_SYSTEM_PROMPT = """
 You are an enterprise Jira root-cause-analysis agent.
 
 MANDATORY SOURCES:
 1. Fetch Jira details and Jira comments from MCP server: {jira_mcp_server}.
-2. Use the enterprise RCA skill instructions from {rca_skill_file}.
-3. Use {memory_bank_dir} as the primary architecture/context reference.
-4. Analyze the codebase rooted at {code_base_dir}.
+2. Analyze the codebase rooted at {code_base_dir}.
+{optional_sources}
 
 STRICT RULES:
 1. Start from the Jira key. Fetch Jira summary, description, status, issue type, priority, components, labels, affects version, fix version, attachments/log snippets if visible, and comments.
-2. If Jira includes Affects Version, use it to choose UI code locations according to the RCA skill.
-3. Read only the memory-bank files that are relevant to the Jira module and symptom before drawing conclusions.
-4. Trace code flow through the most relevant modules and build.gradle dependencies. Stop once there is enough concrete evidence for a root-cause hypothesis and fix.
-5. Root cause must identify the specific failing condition in code or data flow, not just the symptom.
-6. Cite exact local file paths for affected files and explain why each file matters.
-7. If evidence is insufficient, say exactly what is missing and provide the best-supported hypothesis separately.
-8. Do not modify files. This service is analysis-only.
-9. Do not output markdown code fences around the whole response.
-10. Complete the investigation in under 5 minutes. Prefer a concise, evidence-backed RCA over exhaustive repository traversal.
-11. Do not print full file contents, SQL blocks, XML blocks, Gradle files, or large snippets to the console. Quote only tiny snippets when necessary.
+{optional_rules}
+2. Trace code flow through the most relevant modules and dependencies. Stop once there is enough concrete evidence for a root-cause hypothesis and fix.
+3. Root cause must identify the specific failing condition in code or data flow, not just the symptom.
+4. Cite exact local file paths for affected files and explain why each file matters.
+5. If evidence is insufficient, say exactly what is missing and provide the best-supported hypothesis separately.
+6. Do not modify files. This service is analysis-only.
+7. Do not output markdown code fences around the whole response.
+8. Complete the investigation in under 5 minutes. Prefer a concise, evidence-backed RCA over exhaustive repository traversal.
+9. Do not print full file contents, SQL blocks, XML blocks, Gradle files, or large snippets to the console. Quote only tiny snippets when necessary.
 
 REPORTING:
-Follow the enterprise RCA skill's required workflow and output format.
+{reporting_rule}
 Do not add a separate one-line Jira description or task-form summary during RCA.
 Keep the final answer compact: root cause, affected files, code suggestion, evidence, and open questions only.
 """
@@ -143,7 +141,7 @@ def resolve_rca_code_base_dir(code_base_path: str | None = None) -> Path:
     return Path((code_base_path or "").strip() or str(CODE_BASE_DIR)).expanduser().resolve()
 
 
-def select_rca_workspace_folder(initial_path: str | None = None) -> str:
+def select_rca_workspace_folder(initial_path: str | None = None, title: str | None = None) -> str:
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -153,10 +151,13 @@ def select_rca_workspace_folder(initial_path: str | None = None) -> str:
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
+    initial_dir = resolve_rca_code_base_dir(initial_path)
+    if initial_dir.is_file():
+        initial_dir = initial_dir.parent
     try:
         selected_path = filedialog.askdirectory(
-            title="Select codebase workspace for Jira RCA",
-            initialdir=str(resolve_rca_code_base_dir(initial_path)),
+            title=title or "Select workspace folder for Jira RCA",
+            initialdir=str(initial_dir),
             mustexist=True,
         )
     finally:
@@ -173,11 +174,32 @@ def validate_rca_paths(code_base_path: str | None = None) -> Path:
         raise RuntimeError(f"Code base directory not found: {code_base_dir}")
     if not code_base_dir.is_dir():
         raise RuntimeError(f"Code base path is not a directory: {code_base_dir}")
-    if not MEMORY_BANK_DIR.exists():
-        raise RuntimeError(f"Memory-bank directory not found: {MEMORY_BANK_DIR}")
-    if not RCA_SKILL_FILE.exists():
-        raise RuntimeError(f"Enterprise RCA skill not found: {RCA_SKILL_FILE}")
     return code_base_dir
+
+
+def validate_rca_memory_bank_path(memory_bank_path: str | None = None) -> Path | None:
+    path_value = str(memory_bank_path or "").strip()
+    if not path_value:
+        return None
+    memory_bank_dir = Path(path_value).expanduser().resolve()
+    if not memory_bank_dir.exists():
+        raise RuntimeError(f"Memory-bank directory not found: {memory_bank_dir}")
+    if not memory_bank_dir.is_dir():
+        raise RuntimeError(f"Memory-bank path is not a directory: {memory_bank_dir}")
+    return memory_bank_dir
+
+
+def validate_rca_skill_path(skill_path: str | None = None) -> Path | None:
+    path_value = str(skill_path or "").strip()
+    if not path_value:
+        return None
+    resolved_path = Path(path_value).expanduser().resolve()
+    skill_file = resolved_path / "SKILL.md" if resolved_path.is_dir() else resolved_path
+    if not skill_file.exists():
+        raise RuntimeError(f"RCA skill file not found: {skill_file}")
+    if not skill_file.is_file():
+        raise RuntimeError(f"RCA skill path is not a file: {skill_file}")
+    return skill_file
 
 
 def normalize_jira_key(jira_key: str) -> str:
@@ -187,28 +209,55 @@ def normalize_jira_key(jira_key: str) -> str:
     return normalized
 
 
-def build_jira_rca_prompt(jira_key: str, additional_context: str = "", code_base_path: str | None = None) -> str:
+def build_jira_rca_prompt(
+    jira_key: str,
+    additional_context: str = "",
+    code_base_path: str | None = None,
+    memory_bank_path: str | None = None,
+    skill_path: str | None = None,
+) -> str:
     code_base_dir = validate_rca_paths(code_base_path)
-    rca_skill = load_text(RCA_SKILL_FILE)
+    memory_bank_dir = validate_rca_memory_bank_path(memory_bank_path)
+    rca_skill_file = validate_rca_skill_path(skill_path)
+    rca_skill = load_text(rca_skill_file) if rca_skill_file else ""
     context_block = additional_context.strip() or "N/A"
-    system_prompt = JIRA_RCA_SYSTEM_PROMPT_TEMPLATE.format(
+    optional_sources = []
+    optional_rules = []
+    runtime_lines = [
+        f"Jira MCP server: {JIRA_MCP_SERVER}",
+        f"Code base path: {code_base_dir}",
+    ]
+    if rca_skill_file:
+        optional_sources.append(f"3. Use the RCA skill instructions from {rca_skill_file}.")
+        optional_rules.append("- If Jira includes Affects Version, use it to choose code locations according to the RCA skill.")
+        runtime_lines.append(f"RCA skill path: {rca_skill_file}")
+    else:
+        runtime_lines.append("RCA skill path: Not provided")
+    if memory_bank_dir:
+        optional_sources.append(f"{len(optional_sources) + 3}. Use {memory_bank_dir} as architecture/context reference.")
+        optional_rules.append("- Read only the memory-bank files that are relevant to the Jira module and symptom before drawing conclusions.")
+        runtime_lines.append(f"Memory-bank path: {memory_bank_dir}")
+    else:
+        runtime_lines.append("Memory-bank path: Not provided")
+
+    system_prompt = JIRA_RCA_BASE_SYSTEM_PROMPT.format(
         jira_mcp_server=JIRA_MCP_SERVER,
-        rca_skill_file=RCA_SKILL_FILE,
-        memory_bank_dir=MEMORY_BANK_DIR,
         code_base_dir=code_base_dir,
+        optional_sources="\n".join(optional_sources) if optional_sources else "3. No external RCA skill or memory-bank was provided; infer RCA workflow directly from Jira and the codebase.",
+        optional_rules="\n".join(optional_rules),
+        reporting_rule="Follow the provided RCA skill's required workflow and output format." if rca_skill_file else "Use this output format: Root Cause, Affected Files, Code Suggestion, Evidence, Open Questions.",
     )
+    skill_section = f"""
+===== RCA SKILL =====
+{rca_skill}
+""" if rca_skill_file else ""
 
     return f"""
 {system_prompt}
 
 ===== RUNTIME CONFIG =====
-Jira MCP server: {JIRA_MCP_SERVER}
-Code base path: {code_base_dir}
-Memory-bank path: {MEMORY_BANK_DIR}
-Enterprise RCA skill path: {RCA_SKILL_FILE}
-
-===== ENTERPRISE RCA SKILL =====
-{rca_skill}
+{chr(10).join(runtime_lines)}
+{skill_section}
 
 ===== JIRA REQUEST =====
 Jira key: {jira_key}
@@ -904,6 +953,8 @@ def serialize_rca_job(job: dict) -> dict:
         "job_id": job["job_id"],
         "jira_key": job["jira_key"],
         "code_base_path": job.get("code_base_path", str(CODE_BASE_DIR)),
+        "memory_bank_path": job.get("memory_bank_path", ""),
+        "skill_path": job.get("skill_path", ""),
         "status": job["status"],
         "logs": list(job["logs"]),
         "result": job["result"],
@@ -963,7 +1014,15 @@ def read_process_output(job_id: str, process: subprocess.Popen) -> None:
         append_rca_job_log(job_id, line)
 
 
-def run_codex_for_rca_job(job_id: str, prompt: str, user_id: str = LOCAL_USER_ID, priority: str | None = None, code_base_path: str | None = None) -> None:
+def run_codex_for_rca_job(
+    job_id: str,
+    prompt: str,
+    user_id: str = LOCAL_USER_ID,
+    priority: str | None = None,
+    code_base_path: str | None = None,
+    memory_bank_path: str | None = None,
+    skill_path: str | None = None,
+) -> None:
     output_file_path = create_output_file()
     slot_path: Path | None = None
     start = perf_counter()
@@ -971,13 +1030,15 @@ def run_codex_for_rca_job(job_id: str, prompt: str, user_id: str = LOCAL_USER_ID
 
     try:
         code_base_dir = validate_rca_paths(code_base_path)
+        memory_bank_dir = validate_rca_memory_bank_path(memory_bank_path)
+        rca_skill_file = validate_rca_skill_path(skill_path)
         if is_rca_job_cancelled(job_id):
             return
         update_rca_job(job_id, status="running", started_at=time.time())
         append_rca_job_log(job_id, "Starting Codex CLI RCA process.")
         append_rca_job_log(job_id, f"Codebase: {code_base_dir}")
-        append_rca_job_log(job_id, f"Memory-bank: {MEMORY_BANK_DIR}")
-        append_rca_job_log(job_id, f"Skill: {RCA_SKILL_FILE}")
+        append_rca_job_log(job_id, f"Memory-bank: {memory_bank_dir or 'Not provided'}")
+        append_rca_job_log(job_id, f"Skill: {rca_skill_file or 'Not provided'}")
         append_rca_job_log(job_id, f"MCP server: {JIRA_MCP_SERVER}")
 
         slot_path = acquire_codex_slot(lambda: is_rca_job_cancelled(job_id))
@@ -1071,19 +1132,37 @@ def run_codex_for_rca_job(job_id: str, prompt: str, user_id: str = LOCAL_USER_ID
         release_codex_slot(slot_path)
 
 
-def start_rca_job(jira_key: str, additional_context: str = "", user_id: str = LOCAL_USER_ID, priority: str | None = None, code_base_path: str | None = None) -> dict:
+def start_rca_job(
+    jira_key: str,
+    additional_context: str = "",
+    user_id: str = LOCAL_USER_ID,
+    priority: str | None = None,
+    code_base_path: str | None = None,
+    memory_bank_path: str | None = None,
+    skill_path: str | None = None,
+) -> dict:
     normalized_jira_key = normalize_jira_key(jira_key)
     code_base_dir = validate_rca_paths(code_base_path)
+    memory_bank_dir = validate_rca_memory_bank_path(memory_bank_path)
+    rca_skill_file = validate_rca_skill_path(skill_path)
     with rca_jobs_lock:
         for job in rca_jobs.values():
             if (
                 job["jira_key"] == normalized_jira_key
                 and job.get("code_base_path") == str(code_base_dir)
+                and job.get("memory_bank_path", "") == (str(memory_bank_dir) if memory_bank_dir else "")
+                and job.get("skill_path", "") == (str(rca_skill_file) if rca_skill_file else "")
                 and job["status"] in ACTIVE_RCA_STATUSES
             ):
                 return serialize_rca_job(job)
 
-    prompt = build_jira_rca_prompt(normalized_jira_key, additional_context, str(code_base_dir))
+    prompt = build_jira_rca_prompt(
+        normalized_jira_key,
+        additional_context,
+        str(code_base_dir),
+        str(memory_bank_dir) if memory_bank_dir else "",
+        str(rca_skill_file) if rca_skill_file else "",
+    )
     job_id = uuid.uuid4().hex
 
     with rca_jobs_lock:
@@ -1091,6 +1170,8 @@ def start_rca_job(jira_key: str, additional_context: str = "", user_id: str = LO
             "job_id": job_id,
             "jira_key": normalized_jira_key,
             "code_base_path": str(code_base_dir),
+            "memory_bank_path": str(memory_bank_dir) if memory_bank_dir else "",
+            "skill_path": str(rca_skill_file) if rca_skill_file else "",
             "status": "queued",
             "logs": ["Queued Jira RCA job."],
             "result": None,
@@ -1100,7 +1181,19 @@ def start_rca_job(jira_key: str, additional_context: str = "", user_id: str = LO
             "process": None,
         }
 
-    thread = threading.Thread(target=run_codex_for_rca_job, args=(job_id, prompt, user_id, priority, str(code_base_dir)), daemon=True)
+    thread = threading.Thread(
+        target=run_codex_for_rca_job,
+        args=(
+            job_id,
+            prompt,
+            user_id,
+            priority,
+            str(code_base_dir),
+            str(memory_bank_dir) if memory_bank_dir else "",
+            str(rca_skill_file) if rca_skill_file else "",
+        ),
+        daemon=True,
+    )
     thread.start()
     return get_rca_job(job_id)
 
@@ -1143,17 +1236,19 @@ def start_jira_sso_session(jira_key: str) -> subprocess.Popen:
 
 
 def get_health_details() -> dict[str, str]:
-    validate_rca_paths()
     ensure_runtime_codex_home()
+    default_code_base_dir = resolve_rca_code_base_dir()
     return {
         "status": "ok",
         "service": "jira-rca",
         "codex_cli": Path(resolve_codex_path()).name,
         "codex_home": str(RUNTIME_CODEX_HOME),
         "codex_scratch_dir": str(CODEX_SCRATCH_DIR),
-        "code_base_dir": str(CODE_BASE_DIR),
+        "code_base_dir": str(default_code_base_dir),
         "memory_bank_dir": str(MEMORY_BANK_DIR),
+        "memory_bank_available": str(MEMORY_BANK_DIR.exists()).lower(),
         "rca_skill_file": str(RCA_SKILL_FILE),
+        "rca_skill_available": str(RCA_SKILL_FILE.exists()).lower(),
         "jira_mcp_server": JIRA_MCP_SERVER,
         "codex_auto_approve_mcp_tools": str(CODEX_AUTO_APPROVE_MCP_TOOLS).lower(),
         "codex_auto_approve_apps": str(CODEX_AUTO_APPROVE_APPS).lower(),

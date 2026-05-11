@@ -27,6 +27,8 @@ def start_task_enrichment(codex_config, payload, user_id):
     source = str(data.get("source") or data.get("external_source") or "").strip()
     external_id = str(data.get("externalId") or data.get("external_id") or "").strip().upper()
     code_base_path = str(data.get("codeBaseLocation") or data.get("code_base_path") or "").strip()
+    memory_bank_path = str(data.get("memoryBankLocation") or data.get("memory_bank_path") or "").strip()
+    skill_path = str(data.get("skillLocation") or data.get("skill_path") or "").strip()
     existing_task_id = _payload_task_id(data)
 
     if source != "Jira":
@@ -39,12 +41,16 @@ def start_task_enrichment(codex_config, payload, user_id):
     jira_key = codex_config.normalize_jira_key(external_id)
     try:
         resolved_code_base_path = str(codex_config.validate_rca_paths(code_base_path))
+        resolved_memory_bank_path = str(codex_config.validate_rca_memory_bank_path(memory_bank_path) or "")
+        resolved_skill_path = str(codex_config.validate_rca_skill_path(skill_path) or "")
     except Exception as exc:
-        raise HTTPException(status_code=400, detail={"code": "INVALID_CODE_BASE_LOCATION", "message": str(exc)}) from exc
+        raise HTTPException(status_code=400, detail={"code": "INVALID_RCA_LOCATION", "message": str(exc)}) from exc
 
     data["source"] = "Jira"
     data["externalId"] = jira_key
     data["codeBaseLocation"] = resolved_code_base_path
+    data["memoryBankLocation"] = resolved_memory_bank_path
+    data["skillLocation"] = resolved_skill_path
     conn = None
     try:
         conn = get_connection()
@@ -130,6 +136,7 @@ def get_task_enrichment(job_id, user_id):
         job = task_enrichment_repository.fetch_job(cur, user_id, int(job_id))
         if not job:
             raise HTTPException(status_code=404, detail={"code": "ENRICHMENT_JOB_NOT_FOUND", "message": "Task enrichment job was not found."})
+        _hydrate_saved_enrichment_result(cur, user_id, job)
         _attach_logs(job)
         return job
     except HTTPException:
@@ -154,6 +161,8 @@ def _run_task_enrichment_worker(codex_config, user_id, job_id):
         request = dict(job.get("request") or {})
         jira_key = job["external_id"]
         code_base_path = job["code_base_path"]
+        memory_bank_path = request.get("memoryBankLocation") or request.get("memory_bank_path") or ""
+        skill_path = request.get("skillLocation") or request.get("skill_path") or ""
         existing_task_id = _payload_task_id(request)
 
         ai_run_id = _start_ai_run(user_id, job_id, request)
@@ -165,13 +174,23 @@ def _run_task_enrichment_worker(codex_config, user_id, job_id):
 
         additional_context = _additional_context(request, fields)
         priority = fields.get("priority") or request.get("priority") or "Medium"
-        _log(user_id, job_id, "Starting enterprise RCA job.")
+        _log(user_id, job_id, "Starting Jira RCA job.")
+        if memory_bank_path:
+            _log(user_id, job_id, f"Using memory-bank: {memory_bank_path}")
+        else:
+            _log(user_id, job_id, "No memory-bank selected; Codex will infer context from Jira and the codebase.")
+        if skill_path:
+            _log(user_id, job_id, f"Using RCA skill: {skill_path}")
+        else:
+            _log(user_id, job_id, "No RCA skill selected; Codex will use the default RCA output contract.")
         rca_job = codex_config.start_rca_job(
             jira_key,
             additional_context,
             user_id=str(user_id),
             priority=priority,
             code_base_path=code_base_path,
+            memory_bank_path=memory_bank_path,
+            skill_path=skill_path,
         )
         rca_result = _poll_rca_job(codex_config, user_id, job_id, rca_job["job_id"])
         _log(user_id, job_id, "Preparing enriched task.")
@@ -284,8 +303,15 @@ def _build_final_result(codex_config, jira_key, fields, rca_result):
         or rca_result.get("jira_tshirt_sizing")
         or rca_result.get("jiraTshirtSizing")
     )
-    reason = _extract_section(codex_config, raw_output, "Root Cause", ("Affected Modules", "Affected Files", "Code Fix Suggestion", "Evidence", "Open Questions"))
+    reason = _extract_section(
+        codex_config,
+        raw_output,
+        "Root Cause",
+        ("Affected Modules", "Affected Files", "Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"),
+    )
     code_suggestion = _extract_section(codex_config, raw_output, "Code Fix Suggestion", ("Evidence", "Open Questions"))
+    if not code_suggestion:
+        code_suggestion = _extract_section(codex_config, raw_output, "Code Suggestion", ("Evidence", "Open Questions"))
     affected_files = _extract_affected_files(codex_config, raw_output)
     if not affected_files:
         affected_files = _coerce_affected_files(sizing.get("affected_files"))
@@ -308,6 +334,66 @@ def _build_final_result(codex_config, jira_key, fields, rca_result):
         "elapsed_seconds": rca_result.get("elapsed_seconds"),
     }
     return final_result
+
+
+def _hydrate_saved_enrichment_result(cur, user_id, job):
+    result = dict(job.get("rca_result") or {})
+    task = None
+    task_id = job.get("task_id") or job.get("taskId")
+    if task_id:
+        task = task_repository.fetch_task(cur, user_id, task_id, datetime.now(timezone.utc).date().isoformat())
+
+    raw_output = str(
+        result.get("root_cause_analysis")
+        or result.get("rootCauseAnalysis")
+        or result.get("rca_raw_output")
+        or result.get("rcaRawOutput")
+        or (task or {}).get("rca_raw_output")
+        or (task or {}).get("rcaRawOutput")
+        or ""
+    )
+    if raw_output and not result.get("root_cause_analysis"):
+        result["root_cause_analysis"] = raw_output
+
+    if task:
+        result.setdefault("rca_reason", task.get("rca_reason") or task.get("rcaReason") or "")
+        result.setdefault("code_suggestion", task.get("rca_code_suggestion") or task.get("rcaCodeSuggestion") or "")
+        result.setdefault("affected_files", _coerce_affected_files(task.get("rca_affected_files") or task.get("rcaAffectedFiles")))
+        result.setdefault("tshirt_size", task.get("rca_tshirt_size") or task.get("rcaTshirtSize") or "")
+        result.setdefault("tshirt_justification", task.get("rca_tshirt_justification") or task.get("rcaTshirtJustification") or "")
+
+    if raw_output:
+        parsed_reason = _extract_markdown_section(
+            raw_output,
+            "Root Cause",
+            ("Affected Modules", "Affected Files", "Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"),
+        )
+        current_reason = str(result.get("rca_reason") or "").strip()
+        if parsed_reason and (not current_reason or _contains_later_rca_heading(current_reason)):
+            result["rca_reason"] = parsed_reason
+        elif not current_reason:
+            result["rca_reason"] = raw_output[:1000]
+
+        if not _coerce_affected_files(result.get("affected_files")):
+            result["affected_files"] = _extract_affected_files_from_text(raw_output)
+        if not str(result.get("code_suggestion") or "").strip():
+            result["code_suggestion"] = _extract_markdown_section(
+                raw_output,
+                "Code Fix Suggestion",
+                ("Evidence", "Open Questions"),
+            ) or _extract_markdown_section(
+                raw_output,
+                "Code Suggestion",
+                ("Evidence", "Open Questions"),
+            )
+
+    result["affected_files"] = _coerce_affected_files(result.get("affected_files"))
+    job["rca_result"] = result
+    job["rcaResult"] = result
+    if task:
+        job["saved_task"] = task
+        job["savedTask"] = task
+    return job
 
 
 def _build_task_payload(request, fields, final_result, job_id):
@@ -368,7 +454,16 @@ def _extract_section(codex_config, text, heading, next_headings):
 
 
 def _extract_affected_files(codex_config, text):
-    section = _extract_section(codex_config, text, "Affected Files", ("Code Fix Suggestion", "Evidence", "Open Questions"))
+    section = _extract_section(codex_config, text, "Affected Files", ("Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"))
+    return _affected_files_from_section(section)
+
+
+def _extract_affected_files_from_text(text):
+    section = _extract_markdown_section(text, "Affected Files", ("Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"))
+    return _affected_files_from_section(section)
+
+
+def _affected_files_from_section(section):
     files = []
     for line in section.splitlines():
         item = line.strip().lstrip("-*").strip()
@@ -409,7 +504,7 @@ def _extract_markdown_section(text, heading, next_headings):
 def _heading_pattern(heading):
     import re
 
-    return re.compile(rf"(?im)^\s*#*\s*{re.escape(heading)}\s*:?\s*$")
+    return re.compile(rf"(?im)^\s*(?:#+\s*)?(?:\*\*)?\s*{re.escape(heading)}\s*(?:\*\*)?\s*:?\s*$")
 
 
 def _parse_file_reference(value):
@@ -429,7 +524,13 @@ def _coerce_sizing(value):
 def _coerce_affected_files(value):
     if isinstance(value, list):
         return [{"path": item.get("path") or str(item), "reason": item.get("reason") or ""} if isinstance(item, dict) else {"path": str(item), "reason": ""} for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [{"path": line.strip().lstrip("-*").strip(), "reason": ""} for line in value.splitlines() if line.strip().lstrip("-*").strip()]
     return []
+
+
+def _contains_later_rca_heading(value):
+    return any(_heading_pattern(heading).search(value) for heading in ("Affected Modules", "Affected Files", "Code Fix Suggestion", "Code Suggestion", "Evidence", "Open Questions"))
 
 
 def _affected_file_count(affected_files, sizing_affected_files):
