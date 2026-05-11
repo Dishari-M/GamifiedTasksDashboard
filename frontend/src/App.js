@@ -2152,10 +2152,36 @@ const reflectionDraftFrom = (source = {}, fallback = {}) => ({
   wentWell: listToDraftText(source.went_well ?? fallback.wentWell),
   wentWrong: listToDraftText(source.went_wrong ?? fallback.wentWrong),
 });
+const localDateFromKey = (dateKey) => new Date(`${dateKey}T00:00:00`);
+const isoWeekNumber = (dateKey) => {
+  const date = localDateFromKey(dateKey);
+  date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+  const yearStart = new Date(date.getFullYear(), 0, 1);
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+};
+const formatWeekRange = (weekStart, weekEnd) => {
+  const start = localDateFromKey(weekStart);
+  const end = localDateFromKey(weekEnd);
+  const startMonth = new Intl.DateTimeFormat("en", { month: "short" }).format(start);
+  const endMonth = new Intl.DateTimeFormat("en", { month: "short" }).format(end);
+  const endYear = new Intl.DateTimeFormat("en", { year: "numeric" }).format(end);
+  if (start.getFullYear() !== end.getFullYear()) {
+    const startYear = new Intl.DateTimeFormat("en", { year: "numeric" }).format(start);
+    return `${startMonth} ${start.getDate()}, ${startYear} - ${endMonth} ${end.getDate()}, ${endYear}`;
+  }
+  if (start.getMonth() === end.getMonth()) {
+    return `${startMonth} ${start.getDate()} - ${end.getDate()}, ${endYear}`;
+  }
+  return `${startMonth} ${start.getDate()} - ${endMonth} ${end.getDate()}, ${endYear}`;
+};
+const formatCompactDate = (dateKey) => new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(localDateFromKey(dateKey));
+const formatWeekday = (dateKey, format = "short") => new Intl.DateTimeFormat("en", { weekday: format }).format(localDateFromKey(dateKey));
 
 const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverviewChange }) => {
-  const [selectedDate, setSelectedDate] = useState(todayKey());
-  const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
+  const today = todayKey();
+  const currentWeekStart = startOfWeekKey();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedWeek, setSelectedWeek] = useState(currentWeekStart);
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
   const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
@@ -2164,6 +2190,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const [generating, setGenerating] = useState(null);
   const dailyRequestIdRef = useRef(0);
   const weeklyRequestIdRef = useRef(0);
+  const dailyDateInputRef = useRef(null);
+  const weeklyDateInputRef = useRef(null);
 
   const fallbackCompletedDay = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, selectedDate));
   const fallbackWeekEnd = addDaysKey(selectedWeek, 6);
@@ -2179,6 +2207,80 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const focusRewardsByTask = focusRewardsByTaskId(focusSessions);
   const fallbackDailyXp = earnedXpForTasks(fallbackCompletedDay, focusSessions, selectedDate, focusMultiplier);
   const fallbackWeeklyXp = earnedXpForTasks(fallbackCompletedWeek, focusSessions, null, focusMultiplier);
+  const dailyWeekStart = startOfWeekKey(localDateFromKey(selectedDate));
+  const dailyWeekEnd = addDaysKey(dailyWeekStart, 6);
+  const dailyWeekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysKey(dailyWeekStart, index)), [dailyWeekStart]);
+  const dailyWeekNumber = isoWeekNumber(dailyWeekStart);
+  const dailyWeekRange = formatWeekRange(dailyWeekStart, dailyWeekEnd);
+  const isDailyCurrentWeek = dailyWeekStart === currentWeekStart;
+  const dailyDaySummaries = useMemo(() => dailyWeekDays.map((dateKey) => {
+    return {
+      dateKey,
+      isFuture: dateKey > today,
+      isSelected: selectedDate === dateKey,
+      isToday: dateKey === today,
+    };
+  }), [dailyWeekDays, selectedDate, today]);
+  const isWeeklyAtFutureLimit = selectedWeek >= currentWeekStart;
+  const activeWeekNumber = isoWeekNumber(selectedWeek);
+  const activeWeekRange = formatWeekRange(selectedWeek, fallbackWeekEnd);
+  const isCurrentWeek = selectedWeek === currentWeekStart;
+  const isTodayInActiveWeek = today >= selectedWeek && today <= fallbackWeekEnd;
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysKey(selectedWeek, index)), [selectedWeek]);
+  const weeklyDaySummaries = useMemo(() => weekDays.map((dateKey) => {
+    const completed = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, dateKey)).length;
+    const focusMinutes = focusMinutesForSessions(sessionsForDay(focusSessions, dateKey));
+    return {
+      dateKey,
+      completed,
+      focusMinutes,
+      isFuture: dateKey > today,
+      isSelected: false,
+      isToday: dateKey === today,
+    };
+  }), [focusSessions, tasks, today, weekDays]);
+
+  const clampDailyDate = (dateKey) => {
+    if (!dateKey) return today;
+    return dateKey > today ? today : dateKey;
+  };
+
+  const clampWeeklyStart = (weekStart) => {
+    if (!weekStart) return currentWeekStart;
+    return weekStart > currentWeekStart ? currentWeekStart : weekStart;
+  };
+
+  const handleDailyDateChange = (dateKey) => {
+    setSelectedDate(clampDailyDate(dateKey));
+  };
+
+  const handleWeeklyDateChange = (dateKey) => {
+    if (!dateKey) {
+      setSelectedWeek(currentWeekStart);
+      return;
+    }
+    setSelectedWeek(clampWeeklyStart(startOfWeekKey(new Date(`${dateKey}T00:00:00`))));
+  };
+
+  const handleDailyDaySelect = (dateKey) => {
+    if (dateKey > today) return;
+    setSelectedDate(dateKey);
+  };
+
+  const openDatePicker = (inputRef) => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+      }
+    } catch {
+      // Some browsers only allow showPicker during direct pointer gestures.
+    }
+    input.click();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2235,6 +2337,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   }, [selectedWeek]);
 
   const generateDaily = async () => {
+    if (selectedDate > today) {
+      setSelectedDate(today);
+      return;
+    }
     const requestId = dailyRequestIdRef.current + 1;
     dailyRequestIdRef.current = requestId;
     setGenerating("daily");
@@ -2271,6 +2377,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   };
 
   const generateWeekly = async () => {
+    if (selectedWeek > currentWeekStart) {
+      setSelectedWeek(currentWeekStart);
+      return;
+    }
     const requestId = weeklyRequestIdRef.current + 1;
     weeklyRequestIdRef.current = requestId;
     setGenerating("weekly");
@@ -2283,8 +2393,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
     }
   };
 
-  const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
-  const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
+  const shiftDailyWeek = (weeks) => setSelectedDate((current) => clampDailyDate(addDaysKey(current, weeks * 7)));
+  const shiftWeeklyDate = (days) => setSelectedWeek((current) => clampWeeklyStart(addDaysKey(current, days * 7)));
   const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
   const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
   const dailyThemes = toList(dailyData?.themes);
@@ -2302,13 +2412,48 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   return (
     <main className="page-stack" data-testid="overview-page">
       <section className="surface" data-testid="daily-overview-card">
-        <div className="section-heading">
-          <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
-          <div className="overview-controls">
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(-1)} aria-label="Previous day" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
-            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} data-testid="daily-overview-date-input" aria-label="Daily overview date" />
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(1)} aria-label="Next day" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
-            <button className="primary-action" onClick={generateDaily} disabled={generating === "daily"} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+        <div className="section-heading weekly-overview-heading">
+          <div>
+            <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
+            <p>{selectedDate === today ? "Today in focus" : `Reviewing ${formatCompactDate(selectedDate)}`}</p>
+          </div>
+          <button className="primary-action" onClick={generateDaily} disabled={generating === "daily" || selectedDate > today} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+        </div>
+        <div className={`week-navigator day-navigator ${isDailyCurrentWeek ? "week-navigator-current" : ""}`} data-testid="daily-overview-day-nav" aria-label="Daily overview date navigation">
+          <div className="week-navigator-panel">
+            <div className="week-navigator-header">
+              <div className="week-title-block">
+                <span className="week-eyebrow">Week {dailyWeekNumber}</span>
+                <strong>{dailyWeekRange}</strong>
+              </div>
+              <div className="week-tools">
+                <button className="week-jump-control" type="button" onClick={() => openDatePicker(dailyDateInputRef)} title="Choose day" aria-label="Choose daily overview date">
+                  <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
+                  <span>Pick</span>
+                </button>
+                <input className="week-jump-input" ref={dailyDateInputRef} type="date" value={selectedDate} max={today} onChange={(event) => handleDailyDateChange(event.target.value)} data-testid="daily-overview-date-input" tabIndex={-1} aria-hidden="true" />
+                <span className="week-context-pill">{selectedDate === today ? "Today" : "Past"}</span>
+              </div>
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftDailyWeek(-1)} aria-label="Previous week" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <div className="week-day-strip" key={dailyWeekStart} role="group" aria-label={`Days in week ${dailyWeekNumber}`}>
+              {dailyDaySummaries.map((day) => (
+                <button
+                  key={day.dateKey}
+                  type="button"
+                  className={`week-day week-day-button ${day.isSelected ? "week-day-selected" : ""} ${day.isToday ? "week-day-today" : ""} ${day.isFuture ? "week-day-future" : ""}`}
+                  onClick={() => handleDailyDaySelect(day.dateKey)}
+                  disabled={day.isFuture}
+                  aria-pressed={day.isSelected}
+                  aria-label={`${formatWeekday(day.dateKey, "long")}, ${formatCompactDate(day.dateKey)}${day.isToday ? ", today" : ""}`}
+                  data-testid={`daily-day-${day.dateKey}`}
+                >
+                  <span className="week-day-name">{formatWeekday(day.dateKey).slice(0, 1)}</span>
+                  <strong>{localDateFromKey(day.dateKey).getDate()}</strong>
+                </button>
+              ))}
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftDailyWeek(1)} disabled={dailyWeekStart >= currentWeekStart} aria-label="Next week" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
           </div>
         </div>
         <div className="overview-stats">
@@ -2341,13 +2486,45 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
         <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Draft overview from local evidence"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
-        <div className="section-heading">
-          <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
-          <div className="overview-controls">
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
-            <input type="date" value={selectedWeek} onChange={(event) => setSelectedWeek(startOfWeekKey(new Date(`${event.target.value}T00:00:00`)))} data-testid="weekly-overview-week-input" aria-label="Weekly overview week" />
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(1)} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
-            <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly"} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+        <div className="section-heading weekly-overview-heading">
+          <div>
+            <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+            <p>{isCurrentWeek ? "Current week in progress" : "Reviewing a previous sprint week"}</p>
+          </div>
+          <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly" || selectedWeek > currentWeekStart} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+        </div>
+        <div className={`week-navigator ${isCurrentWeek ? "week-navigator-current" : ""}`} data-testid="weekly-overview-week-nav" aria-label="Weekly overview navigation">
+          <div className="week-navigator-panel">
+            <div className="week-navigator-header">
+              <div className="week-title-block">
+                <span className="week-eyebrow">Week {activeWeekNumber}</span>
+                <strong>{activeWeekRange}</strong>
+              </div>
+              <div className="week-tools">
+                <button className="week-jump-control" type="button" onClick={() => openDatePicker(weeklyDateInputRef)} title="Choose week" aria-label="Choose weekly overview week">
+                  <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
+                  <span>Pick</span>
+                </button>
+                <input className="week-jump-input" ref={weeklyDateInputRef} type="date" value={selectedWeek} max={today} onChange={(event) => handleWeeklyDateChange(event.target.value)} data-testid="weekly-overview-week-input" tabIndex={-1} aria-hidden="true" />
+                <span className="week-context-pill">{isCurrentWeek ? "Active" : "Past"}</span>
+              </div>
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <div className="week-day-strip" key={selectedWeek} role="group" aria-label={`Days in week ${activeWeekNumber}`}>
+              {weeklyDaySummaries.map((day) => (
+                <div
+                  key={day.dateKey}
+                  className={`week-day week-day-static ${day.isToday ? "week-day-today" : ""} ${day.isFuture ? "week-day-future" : ""}`}
+                  aria-label={`${formatWeekday(day.dateKey, "long")}, ${formatCompactDate(day.dateKey)}${day.isToday ? ", today" : ""}. ${day.completed} completed task${day.completed === 1 ? "" : "s"}, ${formatMinutes(day.focusMinutes)} focus.`}
+                  data-week-day={day.dateKey}
+                  data-testid={`weekly-day-${day.dateKey}`}
+                >
+                  <span className="week-day-name">{formatWeekday(day.dateKey).slice(0, 1)}</span>
+                  <strong>{localDateFromKey(day.dateKey).getDate()}</strong>
+                </div>
+              ))}
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftWeeklyDate(1)} disabled={isWeeklyAtFutureLimit} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
           </div>
         </div>
         <div className="weekly-grid">
