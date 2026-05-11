@@ -3013,6 +3013,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
     const createdTask = await tasksApi.create(payload);
     const normalizedTask = normalizeTaskPayload(createdTask);
     if (!isDoneStatus(normalizedTask.status)) setTasks((items) => [normalizedTask, ...items]);
+    if (normalizedTask.workingToday) {
+      setQuestRun((current) => isCurrentQuestRun(current) ? null : current);
+    }
     return createdTask;
   };
   const handleRunSync = (source) => {
