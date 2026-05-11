@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from config import get_data_mode
 from repositories import phase8_oracle_repository
-from services.api_cache import canonical_cache_key, get_cached_response, invalidate_namespace, set_cached_response
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_namespace, set_cached_response
 from services.phase8_ai_insight_service import build_ai_insight
 from services.phase8_capacity_service import build_capacity
 from services.phase8_data_provider import (
@@ -15,7 +15,7 @@ from services.phase8_data_provider import (
 from services.stat_insight_service import build_stat_insights, previous_date_key
 
 
-DASHBOARD_CACHE_TTL_SECONDS = 30
+DASHBOARD_CACHE_TTL_SECONDS = get_default_cache_ttl_seconds
 DASHBOARD_CACHE_NAMESPACE = "dashboard_today"
 
 
@@ -89,6 +89,16 @@ def _completed_on_date(task, work_date):
     return bool(completed_at and completed_at.startswith(work_date))
 
 
+def _session_seconds(session):
+    if session.get("duration_seconds") is not None:
+        return int(session.get("duration_seconds") or 0)
+    if session.get("focus_seconds") is not None:
+        return int(session.get("focus_seconds") or 0)
+    if session.get("actual_minutes") is not None:
+        return int(session.get("actual_minutes") or 0) * 60
+    return int(session.get("duration_minutes") or 0) * 60
+
+
 def build_dashboard(date=None, user_id=None):
     work_date = resolve_work_date(date)
     previous_date = previous_date_key(work_date)
@@ -149,8 +159,8 @@ def build_dashboard(date=None, user_id=None):
     previous_tasks_completed = sum(1 for task in tasks if _completed_on_date(task, previous_date))
     total_xp = sum(task["xp_value"] for task in tasks if task["status"] == "Done")
     previous_xp = sum(task["xp_value"] for task in tasks if _completed_on_date(task, previous_date))
-    focus_minutes = sum(int(session.get("actual_minutes") or session.get("duration_minutes") or 0) for session in focus_sessions)
-    previous_focus_minutes = sum(int(session.get("actual_minutes") or session.get("duration_minutes") or 0) for session in previous_focus_sessions)
+    focus_seconds = sum(_session_seconds(session) for session in focus_sessions)
+    previous_focus_seconds = sum(_session_seconds(session) for session in previous_focus_sessions)
     schedule = [_schedule_response(event) for event in events]
     if not any(event.get("is_focus_block") for event in events):
         schedule.extend(_focus_window_response(window) for window in capacity["suggested_focus_windows"])
@@ -160,7 +170,8 @@ def build_dashboard(date=None, user_id=None):
         "total_xp": total_xp,
         "tasks_completed_today": tasks_completed_today,
         "tasks_planned_today": len(daily_work_items),
-        "focus_minutes": focus_minutes,
+        "focus_seconds": focus_seconds,
+        "focus_minutes": focus_seconds // 60,
         "meeting_minutes": capacity["meeting_minutes"],
         "available_focus_minutes": capacity["available_focus_minutes"],
     }
@@ -168,7 +179,8 @@ def build_dashboard(date=None, user_id=None):
         "total_xp": previous_xp,
         "tasks_completed_today": previous_tasks_completed,
         "tasks_planned_today": len(previous_daily_work_items),
-        "focus_minutes": previous_focus_minutes,
+        "focus_seconds": previous_focus_seconds,
+        "focus_minutes": previous_focus_seconds // 60,
         "meeting_minutes": previous_capacity["meeting_minutes"],
         "available_focus_minutes": previous_capacity["available_focus_minutes"],
     }
@@ -187,7 +199,7 @@ def build_dashboard(date=None, user_id=None):
 def dashboard_today_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
     cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "date": work_date})
-    cached = get_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, DASHBOARD_CACHE_TTL_SECONDS)
+    cached = get_cached_response(DASHBOARD_CACHE_NAMESPACE, cache_key, DASHBOARD_CACHE_TTL_SECONDS())
     if cached:
         return {
             "data": cached,

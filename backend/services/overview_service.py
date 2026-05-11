@@ -12,6 +12,7 @@ except ImportError:
 
 from config import get_data_mode, get_oci_genai_model_id
 from repositories import overview_repository
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services import phase8_mock_data
 from services.overview_ai_service import (
     DAILY_OVERVIEW_SYSTEM_PROMPT,
@@ -30,29 +31,47 @@ from services.phase8_data_provider import (
 
 
 logger = logging.getLogger(__name__)
+DAILY_OVERVIEW_CACHE_NAMESPACE = "daily_overview"
+WEEKLY_OVERVIEW_CACHE_NAMESPACE = "weekly_overview"
+OVERVIEW_RELATED_CACHE_NAMESPACES = (DAILY_OVERVIEW_CACHE_NAMESPACE, WEEKLY_OVERVIEW_CACHE_NAMESPACE, "standup_note")
 
 def daily_overview_response(date=None, user_id=None):
     work_date = resolve_work_date(date)
-    return {"data": get_daily_overview(work_date, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "date": work_date})
+    cached = get_cached_response(DAILY_OVERVIEW_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = get_daily_overview(work_date, user_id)
+    set_cached_response(DAILY_OVERVIEW_CACHE_NAMESPACE, cache_key, data, user_id=user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def weekly_overview_response(week_start=None, user_id=None):
     start = _week_start(week_start)
-    return {"data": get_weekly_overview(start, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": user_id, "week_start": start})
+    cached = get_cached_response(WEEKLY_OVERVIEW_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = get_weekly_overview(start, user_id)
+    set_cached_response(WEEKLY_OVERVIEW_CACHE_NAMESPACE, cache_key, data, user_id=user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def generate_daily_overview_response(payload, user_id=None):
     work_date = resolve_work_date(payload.date)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": generate_daily_overview(work_date, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 
 def save_daily_overview_response(payload, user_id=None):
     work_date = resolve_work_date(payload.date)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": save_daily_overview(work_date, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 
 def generate_weekly_overview_response(payload, user_id=None):
     week_start = _week_start(payload.week_start)
+    invalidate_user_cache(user_id, OVERVIEW_RELATED_CACHE_NAMESPACES)
     return {"data": generate_weekly_overview(week_start, payload, user_id), "meta": {"request_id": str(uuid4())}}
 
 
@@ -346,7 +365,8 @@ def _context(start_date, end_date, completed_tasks, worked_tasks, calendar_event
     events = [_normalize_event(event) for event in calendar_events]
     focus = [_normalize_focus(session) for session in focus_sessions]
     meeting_events = [event for event in events if event["is_meeting"]]
-    focus_minutes = sum(item["actual_minutes"] for item in focus)
+    focus_seconds = sum(item["actual_seconds"] for item in focus)
+    focus_minutes = focus_seconds // 60
     meeting_minutes = sum(event["duration_minutes"] for event in meeting_events)
     context = {
         "start_date": start_date,
@@ -356,6 +376,7 @@ def _context(start_date, end_date, completed_tasks, worked_tasks, calendar_event
             "xp_earned": sum(task["xp_value"] for task in completed),
             "meeting_minutes": meeting_minutes,
             "meeting_count": len(meeting_events),
+            "focus_seconds": focus_seconds,
             "focus_minutes": focus_minutes,
             "focus_session_count": len(focus),
             "worked_task_count": len(worked),
@@ -375,6 +396,7 @@ def _daily_response(context, ai):
         "tasks_completed": metrics["tasks_completed"],
         "xp_earned": metrics["xp_earned"],
         "meeting_minutes": metrics["meeting_minutes"],
+        "focus_seconds": metrics["focus_seconds"],
         "focus_minutes": metrics["focus_minutes"],
         "accomplished_tasks": context["completed_tasks"],
         "worked_tasks": context["worked_tasks"],
@@ -400,6 +422,7 @@ def _weekly_response(context, ai):
         "tasks_completed": metrics["tasks_completed"],
         "xp_earned": metrics["xp_earned"],
         "meeting_minutes": metrics["meeting_minutes"],
+        "focus_seconds": metrics["focus_seconds"],
         "focus_minutes": metrics["focus_minutes"],
         "top_accomplishments": ai.get("top_accomplishments", []),
         "new_learnings": ai.get("new_learnings", []),
@@ -452,11 +475,12 @@ def _apply_daily_overrides(overview, payload):
         }
     if payload.focus_minutes is not None:
         overview["focus_minutes"] = payload.focus_minutes
+        overview["focus_seconds"] = payload.focus_minutes * 60
     return overview
 
 
 def _apply_saved_overview_metrics(overview, saved):
-    for field in ("tasks_completed", "xp_earned", "meeting_minutes", "focus_minutes"):
+    for field in ("tasks_completed", "xp_earned", "meeting_minutes", "focus_minutes", "focus_seconds"):
         if field in saved:
             overview[field] = saved.get(field) or 0
     if "meeting_summary" in overview and "meeting_minutes" in saved:
@@ -502,6 +526,9 @@ def _normalize_event(event):
 
 
 def _normalize_focus(session):
+    actual_seconds = session.get("duration_seconds") or session.get("focus_seconds")
+    if actual_seconds is None:
+        actual_seconds = (session.get("actual_minutes") or session.get("duration_minutes") or 0) * 60
     return {
         "focus_session_id": session.get("focus_session_id"),
         "task_id": session.get("task_id"),
@@ -510,6 +537,7 @@ def _normalize_focus(session):
         "started_at": session.get("started_at"),
         "ended_at": session.get("ended_at"),
         "planned_minutes": session.get("planned_minutes") or 0,
+        "actual_seconds": actual_seconds or 0,
         "actual_minutes": session.get("actual_minutes") or session.get("duration_minutes") or 0,
         "status": session.get("status") or session.get("outcome_type") or "Completed",
         "xp_awarded": session.get("xp_awarded") or 0,
@@ -518,11 +546,15 @@ def _normalize_focus(session):
 
 
 def _normalize_daily_overview(overview):
+    focus_seconds = overview.get("focus_seconds")
+    if focus_seconds is None:
+        focus_seconds = (overview.get("focus_minutes") or 0) * 60
     return {
         "date": overview.get("date") or overview.get("overview_date"),
         "tasks_completed": overview.get("tasks_completed") or 0,
         "xp_earned": overview.get("xp_earned") or 0,
         "meeting_minutes": overview.get("meeting_minutes") or 0,
+        "focus_seconds": focus_seconds,
         "focus_minutes": overview.get("focus_minutes") or 0,
         "new_learnings": _list_text(overview.get("new_learnings")),
         "went_well": _list_text(overview.get("went_well")),
@@ -540,6 +572,7 @@ def _with_daily_overviews(context, daily_overviews):
         "tasks_completed": sum(item["tasks_completed"] for item in normalized),
         "xp_earned": sum(item["xp_earned"] for item in normalized),
         "meeting_minutes": sum(item["meeting_minutes"] for item in normalized),
+        "focus_seconds": sum(item["focus_seconds"] for item in normalized),
         "focus_minutes": sum(item["focus_minutes"] for item in normalized),
     }
     return context

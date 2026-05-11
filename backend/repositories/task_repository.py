@@ -42,24 +42,27 @@ TASK_SELECT = """
         TO_CHAR(w.CREATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
         TO_CHAR(w.UPDATED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
         w.ROW_VERSION,
-        (
-            SELECT LISTAGG(TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD'), ',')
-                   WITHIN GROUP (ORDER BY d.WORK_DATE)
-            FROM WORK_ITEM_WORK_DATES d
-            WHERE d.USER_ID = w.USER_ID
-              AND d.TASK_ID = w.TASK_ID
-        ) AS WORKED_DATES,
-        CASE
-            WHEN EXISTS (
-                SELECT 1
-                FROM WORK_ITEM_WORK_DATES td
-                WHERE td.USER_ID = w.USER_ID
-                  AND td.TASK_ID = w.TASK_ID
-                  AND td.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD')
-            )
-            THEN 1 ELSE 0
-        END AS WORKING_TODAY
+        wd.WORKED_DATES,
+        NVL(wd.WORKING_TODAY, 0) AS WORKING_TODAY
     FROM WORK_ITEMS w
+    LEFT JOIN (
+        SELECT
+            d.USER_ID,
+            d.TASK_ID,
+            LISTAGG(TO_CHAR(d.WORK_DATE, 'YYYY-MM-DD'), ',')
+                WITHIN GROUP (ORDER BY d.WORK_DATE) AS WORKED_DATES,
+            MAX(
+                CASE
+                    WHEN d.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD') THEN 1
+                    ELSE 0
+                END
+            ) AS WORKING_TODAY
+        FROM WORK_ITEM_WORK_DATES d
+        WHERE d.USER_ID = :user_id
+        GROUP BY d.USER_ID, d.TASK_ID
+    ) wd
+      ON wd.USER_ID = w.USER_ID
+     AND wd.TASK_ID = w.TASK_ID
 """
 
 
@@ -69,7 +72,13 @@ def list_tasks(cur, user_id, filters, work_date):
     include_total = _truthy(filters.get("include_total"), default=True)
     total = None
     if include_total:
-        total_sql = f"SELECT COUNT(*) FROM WORK_ITEMS w WHERE {' AND '.join(where)}"
+        total_sql = f"""
+            SELECT COUNT(*)
+            FROM (
+                {TASK_SELECT}
+                WHERE {' AND '.join(where)}
+            )
+        """
         total_binds = _binds_used_by_sql(total_sql, binds)
         cur.execute(total_sql, total_binds)
         total = cur.fetchone()[0]
@@ -502,17 +511,8 @@ def _task_filters(user_id, filters, work_date):
         )
         binds["worked_date"] = filters["worked_date"]
     if filters.get("working_today") is not None:
-        operator = "EXISTS" if filters.get("working_today") else "NOT EXISTS"
-        where.append(
-            f"""
-            {operator} (
-                SELECT 1 FROM WORK_ITEM_WORK_DATES td
-                WHERE td.USER_ID = w.USER_ID
-                  AND td.TASK_ID = w.TASK_ID
-                  AND td.WORK_DATE = TO_DATE(:work_date, 'YYYY-MM-DD')
-            )
-            """
-        )
+        where.append("NVL(wd.WORKING_TODAY, 0) = :working_today")
+        binds["working_today"] = 1 if filters.get("working_today") else 0
     if filters.get("completed_date"):
         where.append("TRUNC(CAST(w.COMPLETED_AT AS TIMESTAMP)) = TO_DATE(:completed_date, 'YYYY-MM-DD')")
         binds["completed_date"] = filters["completed_date"]

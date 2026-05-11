@@ -8542,6 +8542,7 @@ html[data-theme="light"] .standup-note {
 .streak-card-steady { background: linear-gradient(135deg, rgba(39, 126, 82, 0.34), rgba(18, 61, 43, 0.82)); }
 .streak-card-spark { background: linear-gradient(135deg, rgba(181, 118, 24, 0.38), rgba(88, 49, 14, 0.86)); }
 .streak-card-ember { background: linear-gradient(135deg, rgba(210, 91, 34, 0.42), rgba(111, 30, 10, 0.9)); }
+.streak-card-risk { background: linear-gradient(135deg, rgba(183, 58, 58, 0.42), rgba(96, 17, 17, 0.9)); }
 
 .streak-card-blaze {
   background:
@@ -8554,6 +8555,7 @@ html[data-theme="light"] .standup-note {
 .streak-card-steady .streak-heat-label { background: rgba(101, 220, 160, 0.18); color: #dbffe9; }
 .streak-card-spark .streak-heat-label { background: rgba(255, 184, 75, 0.2); color: #fff0d0; }
 .streak-card-ember .streak-heat-label { background: rgba(255, 148, 112, 0.24); color: #fff0e3; }
+.streak-card-risk .streak-heat-label { background: rgba(255, 168, 168, 0.24); color: #ffe0e0; }
 .streak-card-blaze .streak-heat-label { background: rgba(255, 219, 139, 0.24); color: #fff4db; }
 
 html[data-theme="light"] .settings-success {
@@ -8692,6 +8694,8 @@ html[data-theme="light"] .sidebar-logo-mark {
 .sidebar {
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -8708,6 +8712,8 @@ html[data-theme="light"] .sidebar-logo-mark {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  gap: 10px;
+  padding: 2px 4px 20px;
   transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
 }
 
@@ -8732,7 +8738,22 @@ html[data-theme="light"] .sidebar-logo-mark {
 }
 
 .sidebar-logo-mark {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+  border-radius: 14px;
   transition: transform 220ms ease, filter 220ms ease;
+}
+
+.sidebar-logo-toggle .brand-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 148px;
+  font-size: clamp(0.82rem, 0.92vw, 1.02rem);
+  line-height: 1.08;
+  letter-spacing: 0.035em;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .sidebar-logo-toggle:hover .sidebar-logo-mark {
@@ -8923,6 +8944,53 @@ html[data-theme="light"] .focus-analytics-stat p,
 html[data-theme="light"] .focus-analytics-chart-summary,
 html[data-theme="light"] .focus-analytics-note p {
   color: #33443d;
+}
+
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid rgba(32, 199, 255, 0.96);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(112, 71, 255, 0.28);
+}
+
+:where(.icon-button, .bell-button, .table-action, .menu-action, .today-toggle, .ghost-button, .primary-action, .tab, .theme-toggle, .profile-button, .floating-notice-close, .overview-step-button) {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.task-actions,
+.editor-actions,
+.overview-controls {
+  gap: 10px;
+}
+
+html[data-theme="light"] :where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline-color: #005fcc;
+  box-shadow: 0 0 0 6px rgba(0, 95, 204, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-loader-orbit,
+  .page-loader-core,
+  .page-loader-steps span::before,
+  .quest-button-loader,
+  .sync-spin {
+    animation: none !important;
+  }
+
+  .sidebar-logo-toggle:hover,
+  .nav-link:hover,
+  .primary-action:hover,
+  .add-task-link:hover,
+  .theme-toggle:hover,
+  .icon-button:hover,
+  .bell-button:hover,
+  .profile-button:hover,
+  .ghost-button:hover,
+  .table-action:hover,
+  .menu-action:hover,
+  .tab:hover {
+    transform: none !important;
+  }
 }
 
 html[data-theme="light"] .focus-analytics-stat strong,

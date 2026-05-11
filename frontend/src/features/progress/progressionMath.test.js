@@ -1,4 +1,4 @@
-import { deriveTaskXp, focusMultiplierForMinutes, focusUnlockThresholdMinutes, levelProgressFromXp, streakHeat, taskRewardDetailsWithThreshold } from "./progressionMath";
+import { deriveTaskXp, focusMultiplierForMinutes, focusMultiplierForSeconds, focusUnlockThresholdMinutes, levelProgressFromXp, streakHeat, taskRewardDetailsWithThreshold } from "./progressionMath";
 
 test("task xp scales with multiple task factors", () => {
   expect(deriveTaskXp({
@@ -24,17 +24,18 @@ test("focus reward unlocks only after the threshold and scales toward the cap", 
   expect(focusMultiplierForMinutes(60, 15, 1.25)).toBe(1);
   expect(focusMultiplierForMinutes(60, 25, 1.25)).toBe(1.1);
   expect(focusMultiplierForMinutes(60, 50, 1.25)).toBe(1.25);
+  expect(focusMultiplierForSeconds(60, 2, 1.25)).toBe(1);
 });
 
 test("reward details expose remaining minutes to unlock the focus bonus", () => {
-  expect(taskRewardDetailsWithThreshold({ xp: 80, estimatedMinutes: 60 }, 15, null, 1.25)).toMatchObject({
+  expect(taskRewardDetailsWithThreshold({ xp: 80, estimatedMinutes: 60 }, 15 * 60, null, 1.25)).toMatchObject({
     baseXp: 80,
     rewardXp: 80,
     hasFocusReward: false,
     nextFocusUnlockMinutes: 6,
   });
 
-  expect(taskRewardDetailsWithThreshold({ xp: 80, estimatedMinutes: 60 }, 25, null, 1.25)).toMatchObject({
+  expect(taskRewardDetailsWithThreshold({ xp: 80, estimatedMinutes: 60 }, 25 * 60, null, 1.25)).toMatchObject({
     rewardXp: 88,
     hasFocusReward: true,
   });
@@ -49,4 +50,11 @@ test("streak heat becomes hotter at higher streak counts", () => {
   expect(streakHeat(0).tone).toBe("cool");
   expect(streakHeat(4).tone).toBe("steady");
   expect(streakHeat(12).tone).toBe("ember");
+});
+
+test("streak heat can surface when a streak is about to break", () => {
+  expect(streakHeat(5, { atRisk: true })).toMatchObject({
+    tone: "risk",
+    label: "At risk",
+  });
 });

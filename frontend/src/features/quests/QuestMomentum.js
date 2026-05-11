@@ -1,11 +1,13 @@
 import { CheckCircle, Clock, Lightning, Play, Timer, Trophy } from "@phosphor-icons/react";
-import { formatMinutes } from "../../utils/dateTime";
+import { formatFocusDuration, formatMinutes } from "../../utils/dateTime";
 import { focusUnlockThresholdMinutes } from "../progress/progressionMath";
 import { formatFocusMultiplier } from "../rewards/xpRewards";
 
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-const questPercent = (quest) => Math.min(100, Math.round((quest.focusMinutes / Math.max(1, quest.focusTargetMinutes)) * 100));
+const questPercent = (quest) => Math.min(100, Math.round((questFocusSeconds(quest) / Math.max(1, questFocusTargetSeconds(quest))) * 100));
+const questFocusSeconds = (quest) => Number(quest?.focusSeconds ?? (quest?.focusMinutes || 0) * 60);
+const questFocusTargetSeconds = (quest) => Number(quest?.focusTargetSeconds ?? (quest?.focusTargetMinutes || 0) * 60);
 
 const rewardText = (quest) => quest?.hasFocusReward
   ? `${quest.rewardXp} XP (${formatFocusMultiplier(quest.rewardMultiplier)} focus)`
@@ -33,12 +35,12 @@ export const QuestSummaryPanel = ({ summary }) => {
   const completionPercent = summary.total ? Math.round((summary.completed / summary.total) * 100) : 0;
   return (
     <aside className="quest-summary quest-reward-summary" data-testid="quest-summary">
-      <div className="quest-run-meter" aria-label="Daily quest run progress">
-        <span><strong>{completionPercent}%</strong>run progress</span>
+      <div className="quest-run-meter" aria-label="Today's quest progress">
+        <span><strong>{completionPercent}%</strong>today complete</span>
         <div className="progress-track quest-run-progress"><span className="progress-fill" style={{ width: `${completionPercent}%` }} /></div>
       </div>
       <span><strong>{summary.completed}/{summary.total}</strong>complete</span>
-      <span><strong>{formatMinutes(summary.focusMinutes)}</strong>focus</span>
+      <span><strong>{formatFocusDuration(summary.focusSeconds ?? (summary.focusMinutes || 0) * 60)}</strong>focus</span>
       <span><strong>{summary.earnedXp}/{summary.availableXp}</strong>XP</span>
       <span><strong>{summary.skipped}</strong>skipped</span>
     </aside>
@@ -66,9 +68,9 @@ export const NextQuestCard = ({
     return (
       <article className="next-quest-card next-quest-complete" data-testid="next-quest-card">
         <div className="next-quest-copy">
-          <span className="quest-eyebrow">Run complete</span>
-          <h3 data-testid="next-quest-title">Daily run complete</h3>
-          <p data-testid="next-quest-reason">Completed {summary.completed} of {summary.total}, skipped {summary.skipped}, earned {summary.earnedXp} XP, and captured {formatMinutes(summary.focusMinutes)} of focus.</p>
+          <span className="quest-eyebrow">All quests complete</span>
+          <h3 data-testid="next-quest-title">Today's Quests are complete</h3>
+          <p data-testid="next-quest-reason">Completed {summary.completed} of {summary.total}, skipped {summary.skipped}, earned {summary.earnedXp} XP, and captured {formatFocusDuration(summary.focusSeconds ?? (summary.focusMinutes || 0) * 60)} of focus.</p>
         </div>
       </article>
     );
@@ -85,7 +87,7 @@ export const NextQuestCard = ({
         <p data-testid="next-quest-reason">{nextQuest.reason}</p>
         <div className="quest-facts" aria-label="Next quest details">
           <span data-testid="next-quest-effort"><Clock size={16} weight="duotone" aria-hidden="true" /> {formatMinutes(nextQuestTask.time)} effort</span>
-          <span data-testid="next-quest-focus-progress"><Timer size={16} weight="duotone" aria-hidden="true" /> {formatMinutes(nextQuest.focusMinutes)} / {formatMinutes(nextQuest.focusTargetMinutes)} focus</span>
+          <span data-testid="next-quest-focus-progress"><Timer size={16} weight="duotone" aria-hidden="true" /> {formatFocusDuration(questFocusSeconds(nextQuest))} / {formatMinutes(nextQuest.focusTargetMinutes)} focus</span>
           <span data-testid="next-quest-xp"><Trophy size={16} weight="duotone" aria-hidden="true" /> {completionPercent}% run</span>
         </div>
         <div className="quest-progress-stack">

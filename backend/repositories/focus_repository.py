@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from repositories import overview_repository
+
 
 def list_focus_sessions(cur, user_id, date_from=None, date_to=None):
     where = ["fs.USER_ID = :user_id"]
@@ -210,13 +212,15 @@ def fetch_focus_session(cur, user_id, focus_session_id):
     return _row_to_session(row) if row else None
 
 
-def sync_quest_focus(cur, quest_item_id, duration_minutes, xp_multiplier, xp_awarded):
+def sync_quest_focus(cur, quest_item_id, duration_seconds, xp_multiplier, xp_awarded):
     if not quest_item_id:
         return
+    _ensure_quest_focus_seconds_columns(cur)
     cur.execute(
         """
         UPDATE QUEST_ITEMS
-        SET FOCUS_MINUTES = NVL(FOCUS_MINUTES, 0) + :duration_minutes,
+        SET FOCUS_SECONDS = NVL(FOCUS_SECONDS, NVL(FOCUS_MINUTES, 0) * 60) + :duration_seconds,
+            FOCUS_MINUTES = FLOOR((NVL(FOCUS_SECONDS, NVL(FOCUS_MINUTES, 0) * 60) + :duration_seconds) / 60),
             HAS_FOCUS_REWARD = CASE WHEN :xp_multiplier > 1 THEN 1 ELSE HAS_FOCUS_REWARD END,
             REWARD_MULTIPLIER = CASE WHEN :xp_multiplier > 1 THEN :xp_multiplier ELSE REWARD_MULTIPLIER END,
             FOCUS_BONUS_XP = GREATEST(0, :xp_awarded - NVL(BASE_XP, 0)),
@@ -227,10 +231,33 @@ def sync_quest_focus(cur, quest_item_id, duration_minutes, xp_multiplier, xp_awa
         """,
         {
             "quest_item_id": quest_item_id,
-            "duration_minutes": duration_minutes,
+            "duration_seconds": duration_seconds,
             "xp_multiplier": xp_multiplier,
             "xp_awarded": xp_awarded,
         },
+    )
+    cur.execute(
+        """
+        UPDATE QUEST_PLANS qp
+        SET FOCUS_SECONDS = (
+                SELECT NVL(SUM(NVL(qi.FOCUS_SECONDS, NVL(qi.FOCUS_MINUTES, 0) * 60)), 0)
+                FROM QUEST_ITEMS qi
+                WHERE qi.QUEST_PLAN_ID = qp.QUEST_PLAN_ID
+            ),
+            FOCUS_MINUTES = FLOOR((
+                SELECT NVL(SUM(NVL(qi.FOCUS_SECONDS, NVL(qi.FOCUS_MINUTES, 0) * 60)), 0)
+                FROM QUEST_ITEMS qi
+                WHERE qi.QUEST_PLAN_ID = qp.QUEST_PLAN_ID
+            ) / 60),
+            UPDATED_AT = SYSTIMESTAMP,
+            ROW_VERSION = ROW_VERSION + 1
+        WHERE qp.QUEST_PLAN_ID = (
+            SELECT QUEST_PLAN_ID
+            FROM QUEST_ITEMS
+            WHERE QUEST_ITEM_ID = :quest_item_id
+        )
+        """,
+        {"quest_item_id": quest_item_id},
     )
 
 
@@ -271,3 +298,24 @@ def _text(value):
 def _returned_id(var):
     value = var.getvalue()
     return value[0] if isinstance(value, list) else value
+
+
+def _ensure_quest_focus_seconds_columns(cur):
+    for table_name in ("QUEST_ITEMS", "QUEST_PLANS"):
+        if not overview_repository.table_exists(cur, table_name):
+            continue
+        if not _column_exists(cur, table_name, "FOCUS_SECONDS"):
+            cur.execute(f"ALTER TABLE {table_name} ADD FOCUS_SECONDS NUMBER(19)")
+
+
+def _column_exists(cur, table_name, column_name):
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM USER_TAB_COLS
+        WHERE TABLE_NAME = :table_name
+          AND COLUMN_NAME = :column_name
+        """,
+        {"table_name": table_name.upper(), "column_name": column_name.upper()},
+    )
+    return bool(cur.fetchone()[0])

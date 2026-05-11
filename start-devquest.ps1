@@ -188,6 +188,7 @@ function Set-OracleEnvironment {
     $env:DB_POOL_MIN = "1"
     $env:DB_POOL_MAX = "10"
     $env:DB_POOL_INCREMENT = "1"
+    $env:DEVQUEST_API_CACHE_TTL_SECONDS = "300"
 }
 
 Write-Host "Starting Gamified Tasks Dashboard from $root" -ForegroundColor Cyan
@@ -310,6 +311,7 @@ $backendCommand = @"
 `$env:DB_POOL_MIN='1'
 `$env:DB_POOL_MAX='10'
 `$env:DB_POOL_INCREMENT='1'
+`$env:DEVQUEST_API_CACHE_TTL_SECONDS='300'
 Set-Location '$backendDir'
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 "@

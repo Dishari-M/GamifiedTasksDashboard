@@ -9,11 +9,13 @@ from config import get_ai_mode, get_ai_provider, get_oci_genai_model_id, get_dat
 from integrations import oci_genai_client
 from db import get_connection
 from repositories import overview_repository, standup_repository
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services.filesystem_store import read_records, with_store_lock
 from services.oracle_user_service import parse_oracle_user_id
 
 
 WORK_ITEMS_FILE = "work_items.json"
+STANDUP_CACHE_NAMESPACE = "standup_note"
 
 
 STANDUP_SYSTEM_PROMPT = """
@@ -34,11 +36,20 @@ Return only valid JSON that matches this schema:
 
 def standup_note_response(date=None, user_id="local-user"):
     work_date = _resolve_work_date(date)
-    return {"data": build_standup_note(work_date, user_id), "meta": {"request_id": str(uuid4())}}
+    cache_user_id = parse_oracle_user_id(user_id) if get_data_mode() == "oracle" else user_id
+    cache_key = canonical_cache_key({"mode": get_data_mode(), "user_id": cache_user_id, "date": work_date})
+    cached = get_cached_response(STANDUP_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
+    data = build_standup_note(work_date, user_id)
+    set_cached_response(STANDUP_CACHE_NAMESPACE, cache_key, data, user_id=cache_user_id)
+    return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
 
 
 def generate_standup_note_response(payload, user_id="local-user"):
     work_date = _resolve_work_date(payload.date)
+    if get_data_mode() == "oracle":
+        invalidate_user_cache(parse_oracle_user_id(user_id), (STANDUP_CACHE_NAMESPACE,))
     return {
         "data": build_standup_note(work_date, user_id, force=payload.force),
         "meta": {"request_id": str(uuid4())},

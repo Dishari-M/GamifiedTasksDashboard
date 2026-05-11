@@ -8,6 +8,12 @@ from repositories import task_repository
 OPEN_STATES = {"ACTIVE", "QUEUED"}
 
 
+def _focus_seconds(value_seconds, value_minutes):
+    if value_seconds is not None:
+        return int(value_seconds or 0)
+    return int(value_minutes or 0) * 60
+
+
 def latest_quest_plan(cur, user_id, quest_date):
     plan = fetch_today_plan(cur, user_id, quest_date)
     if not plan:
@@ -20,6 +26,7 @@ def latest_quest_plan(cur, user_id, quest_date):
         "capacity": {
             "available_focus_minutes": plan.get("capacity_minutes", 0),
             "meeting_minutes": plan.get("meeting_minutes", 0),
+            "focus_seconds": plan.get("focus_seconds", plan.get("focus_minutes", 0) * 60),
             "focus_minutes": plan.get("focus_minutes", 0),
         },
         "summary": plan.get("summary") or "",
@@ -64,6 +71,8 @@ def fetch_quest_items(cur, user_id, quest_plan_id, work_date):
 
 
 def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
+    _ensure_focus_seconds_columns(cur)
+    focus_seconds = _focus_seconds(capacity.get("focus_block_seconds"), capacity.get("focus_block_minutes"))
     existing = fetch_today_plan(cur, user_id, quest_date)
     if existing:
         cur.execute(
@@ -72,6 +81,7 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
             SET SOURCE_AI_RUN_ID = :ai_run_id,
                 CAPACITY_MINUTES = :capacity_minutes,
                 MEETING_MINUTES = :meeting_minutes,
+                FOCUS_SECONDS = :focus_seconds,
                 FOCUS_MINUTES = :focus_minutes,
                 SUMMARY = :summary,
                 UPDATED_AT = SYSTIMESTAMP,
@@ -85,7 +95,8 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
                 "ai_run_id": ai_run_id,
                 "capacity_minutes": capacity.get("available_focus_minutes", 0),
                 "meeting_minutes": capacity.get("meeting_minutes", 0),
-                "focus_minutes": capacity.get("focus_block_minutes", 0),
+                "focus_seconds": focus_seconds,
+                "focus_minutes": focus_seconds // 60,
                 "summary": ai.get("summary") or "",
             },
         )
@@ -105,6 +116,7 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
             STATUS,
             CAPACITY_MINUTES,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             SUMMARY,
             SOURCE_AI_RUN_ID,
@@ -123,6 +135,7 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
             'ACTIVE',
             :capacity_minutes,
             :meeting_minutes,
+            :focus_seconds,
             :focus_minutes,
             :summary,
             :ai_run_id,
@@ -139,7 +152,8 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
             "ai_run_id": ai_run_id,
             "capacity_minutes": capacity.get("available_focus_minutes", 0),
             "meeting_minutes": capacity.get("meeting_minutes", 0),
-            "focus_minutes": capacity.get("focus_block_minutes", 0),
+            "focus_seconds": focus_seconds,
+            "focus_minutes": focus_seconds // 60,
             "summary": ai.get("summary") or "",
             "quest_plan_id": quest_plan_id,
         },
@@ -148,6 +162,7 @@ def upsert_quest_plan(cur, user_id, quest_date, ai_run_id, ai, capacity):
 
 
 def replace_quest_items(cur, user_id, quest_plan_id, quests):
+    _ensure_focus_seconds_columns(cur)
     cur.execute(
         """
         UPDATE QUEST_PLANS
@@ -179,6 +194,7 @@ def replace_quest_items(cur, user_id, quest_plan_id, quests):
                 REWARD_MULTIPLIER,
                 HAS_FOCUS_REWARD,
                 FOCUS_TARGET_MINUTES,
+                FOCUS_SECONDS,
                 FOCUS_MINUTES,
                 SUGGESTED_START_AT,
                 SUGGESTED_END_AT,
@@ -206,6 +222,7 @@ def replace_quest_items(cur, user_id, quest_plan_id, quests):
                 :reward_multiplier,
                 :has_focus_reward,
                 :focus_target_minutes,
+                :focus_seconds,
                 :focus_minutes,
                 TO_TIMESTAMP_TZ(:suggested_start_at, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
                 TO_TIMESTAMP_TZ(:suggested_end_at, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
@@ -233,7 +250,8 @@ def replace_quest_items(cur, user_id, quest_plan_id, quests):
                 "reward_multiplier": quest.get("reward_multiplier") or 1,
                 "has_focus_reward": 1 if quest.get("has_focus_reward") else 0,
                 "focus_target_minutes": quest.get("focus_target_minutes") or 0,
-                "focus_minutes": quest.get("focus_minutes") or 0,
+                "focus_seconds": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")),
+                "focus_minutes": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")) // 60,
                 "suggested_start_at": quest.get("suggested_start_at"),
                 "suggested_end_at": quest.get("suggested_end_at"),
             },
@@ -268,6 +286,8 @@ def fetch_today_plan(cur, user_id, quest_date):
 
 
 def create_or_replace_plan(cur, user_id, payload):
+    _ensure_focus_seconds_columns(cur)
+    focus_seconds = _focus_seconds(payload.get("focus_seconds"), payload.get("focus_minutes"))
     existing = _fetch_plan_core(cur, user_id, payload["quest_date"])
     if existing:
         quest_plan_id = existing["quest_plan_id"]
@@ -281,6 +301,7 @@ def create_or_replace_plan(cur, user_id, payload):
                 STATUS = :status,
                 CAPACITY_MINUTES = :capacity_minutes,
                 MEETING_MINUTES = :meeting_minutes,
+                FOCUS_SECONDS = :focus_seconds,
                 FOCUS_MINUTES = :focus_minutes,
                 SUMMARY = :summary,
                 UPDATED_AT = SYSTIMESTAMP,
@@ -295,7 +316,8 @@ def create_or_replace_plan(cur, user_id, payload):
                 "status": payload["status"],
                 "capacity_minutes": payload.get("capacity_minutes", 0),
                 "meeting_minutes": payload.get("meeting_minutes", 0),
-                "focus_minutes": payload.get("focus_minutes", 0),
+                "focus_seconds": focus_seconds,
+                "focus_minutes": focus_seconds // 60,
                 "summary": payload.get("summary") or "",
                 "user_id": user_id,
                 "quest_plan_id": quest_plan_id,
@@ -318,6 +340,7 @@ def create_or_replace_plan(cur, user_id, payload):
                 STATUS,
                 CAPACITY_MINUTES,
                 MEETING_MINUTES,
+                FOCUS_SECONDS,
                 FOCUS_MINUTES,
                 SUMMARY,
                 SOURCE_AI_RUN_ID,
@@ -336,6 +359,7 @@ def create_or_replace_plan(cur, user_id, payload):
                 :status,
                 :capacity_minutes,
                 :meeting_minutes,
+                :focus_seconds,
                 :focus_minutes,
                 :summary,
                 NULL,
@@ -354,7 +378,8 @@ def create_or_replace_plan(cur, user_id, payload):
                 "status": payload["status"],
                 "capacity_minutes": payload.get("capacity_minutes", 0),
                 "meeting_minutes": payload.get("meeting_minutes", 0),
-                "focus_minutes": payload.get("focus_minutes", 0),
+                "focus_seconds": focus_seconds,
+                "focus_minutes": focus_seconds // 60,
                 "summary": payload.get("summary") or "",
                 "quest_plan_id": out_var,
             },
@@ -389,6 +414,7 @@ def create_or_replace_plan(cur, user_id, payload):
                     REWARD_MULTIPLIER = :reward_multiplier,
                     HAS_FOCUS_REWARD = :has_focus_reward,
                     FOCUS_TARGET_MINUTES = :focus_target_minutes,
+                    FOCUS_SECONDS = :focus_seconds,
                     FOCUS_MINUTES = :focus_minutes,
                     SUGGESTED_START_AT = :suggested_start_at,
                     SUGGESTED_END_AT = :suggested_end_at,
@@ -414,7 +440,8 @@ def create_or_replace_plan(cur, user_id, payload):
                     "reward_multiplier": quest.get("reward_multiplier") or 1,
                     "has_focus_reward": 1 if quest.get("has_focus_reward") else 0,
                     "focus_target_minutes": quest.get("focus_target_minutes") or 0,
-                    "focus_minutes": quest.get("focus_minutes") or 0,
+                    "focus_seconds": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")),
+                    "focus_minutes": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")) // 60,
                     "suggested_start_at": quest.get("suggested_start_at"),
                     "suggested_end_at": quest.get("suggested_end_at"),
                     "started_at": quest.get("started_at"),
@@ -444,6 +471,7 @@ def create_or_replace_plan(cur, user_id, payload):
                     REWARD_MULTIPLIER,
                     HAS_FOCUS_REWARD,
                     FOCUS_TARGET_MINUTES,
+                    FOCUS_SECONDS,
                     FOCUS_MINUTES,
                     SUGGESTED_START_AT,
                     SUGGESTED_END_AT,
@@ -471,6 +499,7 @@ def create_or_replace_plan(cur, user_id, payload):
                     :reward_multiplier,
                     :has_focus_reward,
                     :focus_target_minutes,
+                    :focus_seconds,
                     :focus_minutes,
                     :suggested_start_at,
                     :suggested_end_at,
@@ -499,7 +528,8 @@ def create_or_replace_plan(cur, user_id, payload):
                     "reward_multiplier": quest.get("reward_multiplier") or 1,
                     "has_focus_reward": 1 if quest.get("has_focus_reward") else 0,
                     "focus_target_minutes": quest.get("focus_target_minutes") or 0,
-                    "focus_minutes": quest.get("focus_minutes") or 0,
+                    "focus_seconds": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")),
+                    "focus_minutes": _focus_seconds(quest.get("focus_seconds"), quest.get("focus_minutes")) // 60,
                     "suggested_start_at": quest.get("suggested_start_at"),
                     "suggested_end_at": quest.get("suggested_end_at"),
                     "started_at": quest.get("started_at"),
@@ -742,6 +772,7 @@ def _refresh_active_item(cur, quest_plan_id):
 
 
 def _fetch_plan_core(cur, user_id, quest_date):
+    _ensure_focus_seconds_columns(cur)
     cur.execute(
         """
         SELECT
@@ -754,6 +785,7 @@ def _fetch_plan_core(cur, user_id, quest_date):
             STATUS,
             CAPACITY_MINUTES,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             SUMMARY,
             SOURCE_AI_RUN_ID,
@@ -781,16 +813,18 @@ def _fetch_plan_core(cur, user_id, quest_date):
         "status": row[6],
         "capacity_minutes": int(row[7] or 0),
         "meeting_minutes": int(row[8] or 0),
-        "focus_minutes": int(row[9] or 0),
-        "summary": _text(row[10]),
-        "source_ai_run_id": row[11],
-        "created_at": row[12],
-        "updated_at": row[13],
-        "row_version": int(row[14] or 1),
+        "focus_seconds": _focus_seconds(row[9], row[10]),
+        "focus_minutes": int(row[10] or 0),
+        "summary": _text(row[11]),
+        "source_ai_run_id": row[12],
+        "created_at": row[13],
+        "updated_at": row[14],
+        "row_version": int(row[15] or 1),
     }
 
 
 def _fetch_plan_items(cur, quest_plan_id):
+    _ensure_focus_seconds_columns(cur)
     cur.execute(
         """
         SELECT
@@ -808,6 +842,7 @@ def _fetch_plan_items(cur, quest_plan_id):
             REWARD_MULTIPLIER,
             HAS_FOCUS_REWARD,
             FOCUS_TARGET_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             TO_CHAR(SUGGESTED_START_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
             TO_CHAR(SUGGESTED_END_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'),
@@ -844,16 +879,17 @@ def _fetch_plan_items(cur, quest_plan_id):
                 "reward_multiplier": float(row[11] or 1),
                 "has_focus_reward": bool(row[12]),
                 "focus_target_minutes": int(row[13] or 0),
-                "focus_minutes": int(row[14] or 0),
-                "suggested_start_at": row[15],
-                "suggested_end_at": row[16],
-                "started_at": row[17],
-                "completed_at": row[18],
-                "skipped_at": row[19],
-                "skip_reason": row[20] or "",
-                "created_at": row[21],
-                "updated_at": row[22],
-                "row_version": int(row[23] or 1),
+                "focus_seconds": _focus_seconds(row[14], row[15]),
+                "focus_minutes": int(row[15] or 0),
+                "suggested_start_at": row[16],
+                "suggested_end_at": row[17],
+                "started_at": row[18],
+                "completed_at": row[19],
+                "skipped_at": row[20],
+                "skip_reason": row[21] or "",
+                "created_at": row[22],
+                "updated_at": row[23],
+                "row_version": int(row[24] or 1),
             }
         )
     return items
@@ -945,3 +981,22 @@ def _json_loads(value):
     except json.JSONDecodeError:
         return []
     return data if isinstance(data, list) else []
+
+
+def _ensure_focus_seconds_columns(cur):
+    for table_name in ("QUEST_PLANS", "QUEST_ITEMS"):
+        if not _column_exists(cur, table_name, "FOCUS_SECONDS"):
+            cur.execute(f"ALTER TABLE {table_name} ADD FOCUS_SECONDS NUMBER(19)")
+
+
+def _column_exists(cur, table_name, column_name):
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM USER_TAB_COLS
+        WHERE TABLE_NAME = :table_name
+          AND COLUMN_NAME = :column_name
+        """,
+        {"table_name": table_name.upper(), "column_name": column_name.upper()},
+    )
+    return bool(cur.fetchone()[0])

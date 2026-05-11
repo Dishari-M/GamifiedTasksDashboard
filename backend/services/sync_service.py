@@ -20,8 +20,26 @@ CALENDAR_EVENTS_FILE = "calendar_events.json"
 LOCAL_OFFSET = timezone(timedelta(hours=5, minutes=30))
 OUTLOOK_EVENT_SOURCE = "Outlook"
 OUTLOOK_SYNC_SOURCES = ("Outlook", "Outlook Calendar")
-TASK_RELATED_CACHE_NAMESPACES = ("task_list", "dashboard_today", "insights_today")
-CALENDAR_RELATED_CACHE_NAMESPACES = ("dashboard_today", "capacity", "insights_today")
+TASK_RELATED_CACHE_NAMESPACES = (
+    "task_list",
+    "dashboard_today",
+    "insights_today",
+    "quests_today",
+    "quest_progress",
+    "focus_sessions",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
+CALENDAR_RELATED_CACHE_NAMESPACES = (
+    "dashboard_today",
+    "capacity",
+    "insights_today",
+    "quests_today",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
 
 
 def _now_iso():

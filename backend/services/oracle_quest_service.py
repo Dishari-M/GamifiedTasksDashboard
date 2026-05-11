@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import quest_repository, task_repository
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services.phase8_capacity_service import build_capacity
 
 
@@ -19,20 +20,41 @@ PLAN_STATUS_NOT_GENERATED = "NOT_GENERATED"
 PLAN_STATUS_ACTIVE = "ACTIVE"
 ITEM_STATE_ACTIVE = "ACTIVE"
 ITEM_STATE_QUEUED = "QUEUED"
+QUESTS_TODAY_CACHE_NAMESPACE = "quests_today"
+QUEST_PROGRESS_CACHE_NAMESPACE = "quest_progress"
+QUEST_RELATED_CACHE_NAMESPACES = (
+    QUESTS_TODAY_CACHE_NAMESPACE,
+    QUEST_PROGRESS_CACHE_NAMESPACE,
+    "task_list",
+    "dashboard_today",
+    "insights_today",
+    "focus_sessions",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
 logger = logging.getLogger(__name__)
 
 
 def oracle_quests_today_response(date, user_id=1):
     quest_date = _resolve_date(date)
+    resolved_user_id = int(user_id)
+    cache_key = canonical_cache_key({"user_id": resolved_user_id, "date": quest_date})
+    cached = get_cached_response(QUESTS_TODAY_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
     conn = None
     try:
         conn = get_connection()
         cur = conn.cursor()
-        plan = quest_repository.fetch_today_plan(cur, int(user_id), quest_date)
+        plan = quest_repository.fetch_today_plan(cur, resolved_user_id, quest_date)
         if plan:
-            return {"data": _frontend_quest_run(plan), "meta": {"request_id": str(uuid4())}}
-        tasks = _candidate_tasks(cur, int(user_id), quest_date)
-        return {"data": _build_ephemeral_run(tasks, quest_date), "meta": {"request_id": str(uuid4())}}
+            data = _frontend_quest_run(plan)
+        else:
+            tasks = _candidate_tasks(cur, resolved_user_id, quest_date)
+            data = _build_ephemeral_run(tasks, quest_date)
+        set_cached_response(QUESTS_TODAY_CACHE_NAMESPACE, cache_key, data, user_id=resolved_user_id)
+        return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
     except oracledb.DatabaseError as exc:
         raise HTTPException(status_code=503, detail="Quest storage is unavailable.") from exc
     finally:
@@ -42,22 +64,26 @@ def oracle_quests_today_response(date, user_id=1):
 
 def oracle_quest_progress_response(date, user_id=1):
     quest_date = _resolve_date(date)
+    resolved_user_id = int(user_id)
+    cache_key = canonical_cache_key({"user_id": resolved_user_id, "date": quest_date})
+    cached = get_cached_response(QUEST_PROGRESS_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return {"data": cached, "meta": {"request_id": str(uuid4()), "cache": "hit"}}
     conn = None
     try:
         conn = get_connection()
         cur = conn.cursor()
-        completed_dates = quest_repository.list_completed_quest_dates(cur, int(user_id), quest_date)
-        completed_count = quest_repository.count_completed_quests(cur, int(user_id), quest_date)
-        return {
-            "data": {
-                "referenceDate": quest_date,
-                "completedQuestDates": completed_dates,
-                "completedQuestDays": len(completed_dates),
-                "completedQuestCount": completed_count,
-                "currentStreak": _streak_from_dates(completed_dates, quest_date),
-            },
-            "meta": {"request_id": str(uuid4())},
+        completed_dates = quest_repository.list_completed_quest_dates(cur, resolved_user_id, quest_date)
+        completed_count = quest_repository.count_completed_quests(cur, resolved_user_id, quest_date)
+        data = {
+            "referenceDate": quest_date,
+            "completedQuestDates": completed_dates,
+            "completedQuestDays": len(completed_dates),
+            "completedQuestCount": completed_count,
+            "currentStreak": _streak_from_dates(completed_dates, quest_date),
         }
+        set_cached_response(QUEST_PROGRESS_CACHE_NAMESPACE, cache_key, data, user_id=resolved_user_id)
+        return {"data": data, "meta": {"request_id": str(uuid4()), "cache": "miss"}}
     except oracledb.DatabaseError as exc:
         raise HTTPException(status_code=503, detail="Quest storage is unavailable.") from exc
     finally:
@@ -78,6 +104,7 @@ def oracle_generate_quests_response(payload, user_id=1):
         tasks = tasks[: max(1, min(int(payload.max_quests), 10))]
         plan = _create_plan(cur, int(user_id), quest_date, tasks)
         conn.commit()
+        invalidate_user_cache(int(user_id), QUEST_RELATED_CACHE_NAMESPACES)
         return {"data": _frontend_quest_run(plan), "meta": {"request_id": str(uuid4())}}
     except HTTPException:
         if conn:
@@ -119,6 +146,7 @@ def oracle_update_quest_response(quest_item_id, payload, user_id=1):
             quest_repository.complete_item(cur, item["quest_plan_id"], item["quest_item_id"], now)
         plan = quest_repository.fetch_today_plan(cur, int(user_id), item["quest_date"])
         conn.commit()
+        invalidate_user_cache(int(user_id), QUEST_RELATED_CACHE_NAMESPACES)
         return {"data": _frontend_quest_run(plan), "meta": {"request_id": str(uuid4())}}
     except HTTPException:
         if conn:
@@ -228,6 +256,7 @@ def _build_ephemeral_run(tasks, quest_date):
                     "reward_multiplier": 1,
                     "has_focus_reward": False,
                     "focus_target_minutes": _focus_target_minutes(task),
+                    "focus_seconds": 0,
                     "focus_minutes": 0,
                     "started_at": None,
                     "completed_at": None,
@@ -263,6 +292,8 @@ def _frontend_quest_run(plan):
                 "rewardMultiplier": item.get("reward_multiplier") or 1,
                 "hasFocusReward": bool(item.get("has_focus_reward")),
                 "focusTargetMinutes": item.get("focus_target_minutes") or 0,
+                "focusTargetSeconds": int(item.get("focus_target_minutes") or 0) * 60,
+                "focusSeconds": item.get("focus_seconds") or int(item.get("focus_minutes") or 0) * 60,
                 "focusMinutes": item.get("focus_minutes") or 0,
                 "startedAt": item.get("started_at"),
                 "completedAt": item.get("completed_at"),

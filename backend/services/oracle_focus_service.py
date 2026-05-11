@@ -7,16 +7,30 @@ from fastapi import HTTPException
 
 from db import get_connection
 from repositories import focus_repository
-from services.api_cache import invalidate_user_cache
+from services.api_cache import canonical_cache_key, get_cached_response, get_default_cache_ttl_seconds, invalidate_user_cache, set_cached_response
 from services.xp_service import calculate_focus_reward
 
 
 VALID_OUTCOMES = {"Progress made", "Blocked", "Ready for review", "Completed"}
-FOCUS_RELATED_CACHE_NAMESPACES = ("dashboard_today", "insights_today")
+FOCUS_CACHE_NAMESPACE = "focus_sessions"
+FOCUS_RELATED_CACHE_NAMESPACES = (
+    FOCUS_CACHE_NAMESPACE,
+    "dashboard_today",
+    "insights_today",
+    "quests_today",
+    "quest_progress",
+    "standup_note",
+    "daily_overview",
+    "weekly_overview",
+)
 
 
 def list_oracle_focus_sessions(filters=None, user_id=1):
     filters = dict(filters or {})
+    cache_key = canonical_cache_key({"user_id": int(user_id), "filters": filters})
+    cached = get_cached_response(FOCUS_CACHE_NAMESPACE, cache_key, get_default_cache_ttl_seconds())
+    if cached is not None:
+        return cached
     date_from = _normalize_date(filters.get("date_from") or filters.get("date") or filters.get("work_date")) if (
         filters.get("date_from") or filters.get("date") or filters.get("work_date")
     ) else None
@@ -27,7 +41,9 @@ def list_oracle_focus_sessions(filters=None, user_id=1):
     try:
         conn = get_connection()
         cur = conn.cursor()
-        return focus_repository.list_focus_sessions(cur, int(user_id), date_from, date_to)
+        data = focus_repository.list_focus_sessions(cur, int(user_id), date_from, date_to)
+        set_cached_response(FOCUS_CACHE_NAMESPACE, cache_key, data, user_id=int(user_id))
+        return data
     except oracledb.DatabaseError as exc:
         raise HTTPException(status_code=503, detail="Focus session storage is unavailable.") from exc
     finally:
@@ -43,12 +59,12 @@ def create_oracle_focus_session(payload, user_id=1):
         cur = conn.cursor()
         quest_item_id = focus_repository.resolve_quest_item_id(cur, int(user_id), data.get("quest_id"))
         task_reward_context = focus_repository.fetch_task_reward_context(cur, int(user_id), data.get("task_id"))
-        max_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_minutes"] > 0 else 1.0
-        reward = calculate_focus_reward(task_reward_context, data["duration_minutes"], max_multiplier)
+        max_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_seconds"] > 0 else 1.0
+        reward = calculate_focus_reward(task_reward_context, data["duration_seconds"], max_multiplier)
         xp_multiplier = reward["reward_multiplier"]
         xp_awarded = reward["reward_xp"]
         focus_session_id = focus_repository.insert_focus_session(cur, int(user_id), data, quest_item_id, xp_multiplier, xp_awarded)
-        focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_minutes"], xp_multiplier, xp_awarded)
+        focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_seconds"], xp_multiplier, xp_awarded)
         conn.commit()
         invalidate_user_cache(int(user_id), FOCUS_RELATED_CACHE_NAMESPACES)
         return focus_repository.fetch_focus_session(cur, int(user_id), focus_session_id)
@@ -68,7 +84,6 @@ def create_oracle_focus_session(payload, user_id=1):
 def _normalize_payload(payload):
     data = dict(payload or {})
     duration_seconds = _required_int(data.get("duration_seconds"), "duration_seconds")
-    duration_minutes = _required_int(data.get("duration_minutes"), "duration_minutes")
     outcome_type = str(data.get("outcome_type") or "").strip() or "Progress made"
     if outcome_type not in VALID_OUTCOMES:
         raise HTTPException(status_code=422, detail={"code": "VALIDATION_ERROR", "message": "Invalid outcome_type.", "details": {"field": "outcome_type"}})
@@ -84,7 +99,7 @@ def _normalize_payload(payload):
         "started_at": started_at,
         "ended_at": ended_at,
         "duration_seconds": duration_seconds,
-        "duration_minutes": max(1, duration_minutes),
+        "duration_minutes": duration_seconds // 60,
         "outcome_type": outcome_type,
         "outcome_note": str(data.get("outcome_note") or "").strip(),
         "status": "COMPLETED",

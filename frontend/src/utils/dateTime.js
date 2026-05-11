@@ -37,6 +37,12 @@ export const formatMinutes = (minutes) => {
   return `${hours}h ${mins}m`;
 };
 
+export const formatFocusDuration = (seconds) => {
+  const value = Math.max(0, parseNumber(seconds, 0));
+  if (value < 60) return `${value}s`;
+  return formatMinutes(Math.floor(value / 60));
+};
+
 export const formatDateTime = (isoValue) => {
   if (!isoValue) return "Not completed";
   return new Intl.DateTimeFormat("en", {

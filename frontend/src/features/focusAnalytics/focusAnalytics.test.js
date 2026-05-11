@@ -7,7 +7,7 @@ const sessions = [
     task_title: "Build API",
     work_date: "2026-05-05",
     started_at: "2026-05-05T14:00:00.000Z",
-    duration_minutes: 50,
+    duration_seconds: 3000,
   },
   {
     focus_session_id: "s2",
@@ -23,7 +23,7 @@ const sessions = [
     task_title: "Build API",
     work_date: "2026-04-28",
     started_at: "2026-04-28T15:00:00.000Z",
-    duration_minutes: 30,
+    duration_seconds: 1800,
   },
 ];
 
