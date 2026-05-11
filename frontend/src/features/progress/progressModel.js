@@ -48,9 +48,19 @@ export const buildProgressSnapshot = ({
   referenceDate = todayKey(),
 } = {}) => {
   const completedQuestDates = mergeCompletedQuestDates(questProgress?.completedQuestDates || [], questRun);
+  const normalizedReferenceDate = normalizeDateKey(referenceDate) || todayKey();
+  const streakDays = deriveQuestStreak({ completedQuestDates, referenceDate: normalizedReferenceDate });
+  const carryoverStreakDays = streakDays > 0 ? streakDays : deriveQuestStreak({
+    completedQuestDates,
+    referenceDate: addDaysKey(normalizedReferenceDate, -1),
+  });
+  const streakAtRisk = streakDays === 0 && carryoverStreakDays > 0;
   return {
     totalXp: deriveTotalXp(tasks, focusSessions, focusMultiplier),
-    streakDays: deriveQuestStreak({ completedQuestDates, referenceDate }),
+    streakDays,
+    displayStreakDays: streakAtRisk ? carryoverStreakDays : streakDays,
+    carryoverStreakDays,
+    streakAtRisk,
     completedQuestDates,
     completedQuestDays: completedQuestDates.length,
     completedQuestCount: questProgress?.completedQuestCount || 0,

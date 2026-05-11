@@ -60,6 +60,22 @@ test("builds a cohesive sidebar progress snapshot", () => {
 
   expect(snapshot.totalXp).toBe(66);
   expect(snapshot.streakDays).toBe(2);
+  expect(snapshot.displayStreakDays).toBe(2);
+  expect(snapshot.streakAtRisk).toBe(false);
   expect(snapshot.completedQuestDates).toEqual(["2026-05-05", "2026-05-06"]);
   expect(snapshot.completedQuestCount).toBe(4);
+});
+
+test("keeps showing yesterday's streak when today is still at risk", () => {
+  const snapshot = buildProgressSnapshot({
+    tasks,
+    focusSessions,
+    questProgress: { completedQuestDates: ["2026-05-04", "2026-05-05"], completedQuestCount: 2 },
+    referenceDate: "2026-05-06",
+  });
+
+  expect(snapshot.streakDays).toBe(0);
+  expect(snapshot.displayStreakDays).toBe(2);
+  expect(snapshot.carryoverStreakDays).toBe(2);
+  expect(snapshot.streakAtRisk).toBe(true);
 });

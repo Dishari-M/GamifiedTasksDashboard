@@ -50,3 +50,10 @@ test("streak heat becomes hotter at higher streak counts", () => {
   expect(streakHeat(4).tone).toBe("steady");
   expect(streakHeat(12).tone).toBe("ember");
 });
+
+test("streak heat can surface when a streak is about to break", () => {
+  expect(streakHeat(5, { atRisk: true })).toMatchObject({
+    tone: "risk",
+    label: "At risk",
+  });
+});

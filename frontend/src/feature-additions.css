@@ -8478,6 +8478,7 @@ html[data-theme="light"] .standup-note {
 .streak-card-steady { background: linear-gradient(135deg, rgba(39, 126, 82, 0.34), rgba(18, 61, 43, 0.82)); }
 .streak-card-spark { background: linear-gradient(135deg, rgba(181, 118, 24, 0.38), rgba(88, 49, 14, 0.86)); }
 .streak-card-ember { background: linear-gradient(135deg, rgba(210, 91, 34, 0.42), rgba(111, 30, 10, 0.9)); }
+.streak-card-risk { background: linear-gradient(135deg, rgba(183, 58, 58, 0.42), rgba(96, 17, 17, 0.9)); }
 
 .streak-card-blaze {
   background:
@@ -8490,6 +8491,7 @@ html[data-theme="light"] .standup-note {
 .streak-card-steady .streak-heat-label { background: rgba(101, 220, 160, 0.18); color: #dbffe9; }
 .streak-card-spark .streak-heat-label { background: rgba(255, 184, 75, 0.2); color: #fff0d0; }
 .streak-card-ember .streak-heat-label { background: rgba(255, 148, 112, 0.24); color: #fff0e3; }
+.streak-card-risk .streak-heat-label { background: rgba(255, 168, 168, 0.24); color: #ffe0e0; }
 .streak-card-blaze .streak-heat-label { background: rgba(255, 219, 139, 0.24); color: #fff4db; }
 
 html[data-theme="light"] .settings-success {
@@ -8625,7 +8627,10 @@ html[data-theme="light"] .sidebar-logo-mark {
 }
 
 .sidebar {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .sidebar-logo-toggle {

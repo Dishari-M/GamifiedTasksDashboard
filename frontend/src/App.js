@@ -113,6 +113,12 @@ const persistXpForUser = (userId, totalXp) => {
   });
 };
 
+const awardXpToUser = (userId, currentFloor, earnedXp) => {
+  const nextTotal = Math.max(0, Number(currentFloor || 0)) + Math.max(0, Number(earnedXp || 0));
+  persistXpForUser(userId, nextTotal);
+  return nextTotal;
+};
+
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const isDoneStatus = (status) => String(status || "").trim().toLowerCase() === "done";
 
@@ -381,8 +387,18 @@ const AuthPage = ({ onAuthenticated }) => {
   );
 };
 
-const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, streakDays }) => {
-  const streakState = streakHeat(streakDays);
+const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, streakDays, streakSummary = null, isProgressLoading = false }) => {
+  const visibleStreakDays = Math.max(0, Number(streakSummary?.displayStreakDays ?? streakDays ?? 0));
+  const isStreakAtRisk = Boolean(streakSummary?.streakAtRisk);
+  const streakState = isProgressLoading
+    ? { tone: "cool", label: "Syncing", description: "Checking recent quest completions." }
+    : streakHeat(visibleStreakDays, { atRisk: isStreakAtRisk });
+  const streakValueLabel = isProgressLoading ? "..." : `${visibleStreakDays} day${visibleStreakDays === 1 ? "" : "s"}`;
+  const streakStatusLabel = isProgressLoading
+    ? "Loading streak status."
+    : isStreakAtRisk
+      ? `${visibleStreakDays} day streak at risk. Complete a quest today to keep it alive.`
+      : `${visibleStreakDays} day${visibleStreakDays === 1 ? "" : "s"} streak.`;
   return (
   <aside className={`sidebar ${open ? "sidebar-open" : ""} ${collapsed ? "sidebar-collapsed" : ""}`} data-testid="app-sidebar" aria-label={collapsed ? "Collapsed primary navigation" : "Primary navigation"}>
     <button
@@ -414,14 +430,14 @@ const Sidebar = ({ open, collapsed, onClose, onToggleCollapse, levelProgress, st
 
     <div className={`sidebar-card streak-card streak-card-${streakState.tone}`} data-testid="sidebar-streak-card" aria-hidden={collapsed}>
       <div className="mini-title"><Fire size={20} weight="fill" aria-hidden="true" /> Streak</div>
-      <strong data-testid="streak-days-value">{streakDays} day{streakDays === 1 ? "" : "s"}</strong>
+      <strong data-testid="streak-days-value">{streakValueLabel}</strong>
       <span className="streak-heat-label" data-testid="streak-heat-label">{streakState.label}</span>
       <p>{streakState.description}</p>
     </div>
 
-    <div className="sidebar-mini-status" title={`${streakDays} day${streakDays === 1 ? "" : "s"} streak. Level ${levelProgress.level}.`} aria-label={`${streakDays} day${streakDays === 1 ? "" : "s"} streak. Level ${levelProgress.level}.`}>
+    <div className="sidebar-mini-status" title={`${streakStatusLabel} Level ${levelProgress.level}.`} aria-label={`${streakStatusLabel} Level ${levelProgress.level}.`}>
       <Fire size={18} weight="fill" aria-hidden="true" />
-      <span>{streakDays}</span>
+      <span>{isProgressLoading ? "..." : visibleStreakDays}</span>
     </div>
 
     <div className="sidebar-card level-card" data-testid="sidebar-level-card" aria-hidden={collapsed}>
@@ -1226,6 +1242,12 @@ const upsertVisibleTask = (items, rawTask) => {
   return items.map((item) => (item.id === task.id ? task : item));
 };
 
+const sanitizeTaskFormPayload = (form) => {
+  const payload = { ...form };
+  if (!String(payload.xp ?? "").trim()) delete payload.xp;
+  return payload;
+};
+
 const taskBackendKey = (task) => String(task?.taskId || task?.id || "").trim();
 const taskMatchesBackendKey = (task, backendKey) => String(taskBackendKey(task)) === String(backendKey || "").trim();
 
@@ -1750,7 +1772,7 @@ const CalendarPage = ({ overview = defaultOverview, events = schedule, removedEv
   );
 };
 
-const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0 }) => {
+const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFocus, savingFocusState, focusMultiplier, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, streakDays = 0, streakSummary = null, isProgressLoading = false }) => {
   const todaySessions = sessionsForDay(focusSessions);
   const weekStart = startOfWeekKey();
   const weekSessions = focusSessions.filter((session) => {
@@ -1759,6 +1781,8 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
   });
   const focusedToday = focusMinutesForSessions(todaySessions);
   const focusedWeek = focusMinutesForSessions(weekSessions);
+  const visibleStreakDays = Math.max(0, Number(streakSummary?.displayStreakDays ?? streakDays ?? 0));
+  const isStreakAtRisk = Boolean(streakSummary?.streakAtRisk);
   const topTask = topFocusedTask(todaySessions);
   const activeQuest = getQuestById(questRun, activeSession?.quest_id) || getQuestById(questRun, questRun?.activeQuestId);
   const activeQuestTask = getQuestTask(tasks, activeQuest);
@@ -1811,7 +1835,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
               <span><strong>{formatMinutes(focusedToday)}</strong>focus today</span>
               <span><strong>{todaySessions.length}</strong>sessions today</span>
               <span><strong>{formatMinutes(focusedWeek)}</strong>this week</span>
-              <span><strong>{streakDays}</strong>day streak</span>
+              <span data-testid="focus-streak-summary"><strong>{isProgressLoading ? "..." : visibleStreakDays}</strong>{isProgressLoading ? " loading streak" : isStreakAtRisk ? " day streak at risk" : " day streak"}</span>
             </div>
           </article>
           <article className="surface focus-secondary-card focus-history-card" data-testid="focus-rhythm-card">
@@ -2586,6 +2610,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   );
   const levelProgress = levelProgressFromXp(progressSnapshot.totalXp);
   const isDistractionFreeFocus = location.pathname === "/focus" && Boolean(activeSession);
+  const isProgressLoading = taskStatus === "loading";
   const hasActiveEnrichmentJobs = useMemo(
     () => enrichmentJobs.some((job) => activeEnrichmentStatuses.has(String(job.status || "").toUpperCase())),
     [enrichmentJobs],
@@ -2898,10 +2923,11 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleEditTask = async (id, form) => {
     const task = tasks.find((item) => item.id === id);
     if (!task || !form) return;
+    const payload = sanitizeTaskFormPayload(form);
     if (form.source === "Jira" && form.runAiEnrichment) {
       const taskId = task.taskId || task.task_id || task.id;
       const job = await taskEnrichmentApi.start({
-        ...form,
+        ...payload,
         source: "Jira",
         externalId: form.externalId || task.externalId || task.external_id,
         existingTaskId: taskId,
@@ -2918,7 +2944,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       });
       return;
     }
-    const updatedTask = await tasksApi.update(id, { ...form, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
+    const updatedTask = await tasksApi.update(id, { ...payload, row_version: task.row_version, runAiEnrichment: form.runAiEnrichment });
     setTasks((items) => upsertVisibleTask(items, updatedTask));
   };
   const handleRefreshInsights = () => setTasks((items) => items.map((task) => normalizeTask({ ...task, aiInsight: "" })));
@@ -2968,8 +2994,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   };
 
   const handleAddTask = async (form) => {
+    const payload = sanitizeTaskFormPayload(form);
     if (form?.source === "Jira" && form?.runAiEnrichment) {
-      const job = await taskEnrichmentApi.start(form);
+      const job = await taskEnrichmentApi.start(payload);
       submittedEnrichmentJobIdsRef.current.add(enrichmentJobId(job));
       setEnrichmentJobs((jobs) => [job, ...jobs.filter((item) => enrichmentJobId(item) !== enrichmentJobId(job))]);
       showFloatingNotice({
@@ -2978,7 +3005,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       });
       return job;
     }
-    const createdTask = await tasksApi.create(form);
+    const createdTask = await tasksApi.create(payload);
     const normalizedTask = normalizeTaskPayload(createdTask);
     if (!isDoneStatus(normalizedTask.status)) setTasks((items) => [normalizedTask, ...items]);
     return createdTask;
@@ -3241,10 +3268,14 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       } : taskRewardDetailsFromSessions(task, focusSessions, todayKey(), focusXpMultiplier);
       const completedCount = nextRun?.quests?.filter((item) => item.state === "completed").length || 0;
       const totalCount = nextRun?.quests?.length || 0;
+      const earnedXp = Math.max(0, Number(reward.rewardXp || task.xp || 0));
+      if (earnedXp > 0 && currentUser?.user_id) {
+        setPersistedXpFloor((currentFloor) => awardXpToUser(currentUser.user_id, currentFloor, earnedXp));
+      }
       setFloatingNotice({
         title: "Quest complete",
         message: task.title,
-        detail: `+${reward.rewardXp || task.xp} XP${reward.hasFocusReward ? ` | ${formatFocusMultiplier(reward.rewardMultiplier)} focus` : ""} | ${completedCount}/${totalCount} cleared${nextQuestTitle ? ` | Next: ${nextQuestTitle}` : ""}`,
+        detail: `+${earnedXp} XP${reward.hasFocusReward ? ` | ${formatFocusMultiplier(reward.rewardMultiplier)} focus` : ""} | ${completedCount}/${totalCount} cleared${nextQuestTitle ? ` | Next: ${nextQuestTitle}` : ""}`,
         tone: "success",
       });
       setLastSavedFocus((savedFocus) => savedFocus?.quest_id === questId ? null : savedFocus);
@@ -3413,7 +3444,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
 
   return (
     <div className={`app-shell ${isDistractionFreeFocus ? "app-shell-focus-active" : ""} ${sidebarCollapsed ? "app-shell-sidebar-collapsed" : ""}`} data-theme={theme} data-testid="app-shell">
-      {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} collapsed={sidebarCollapsed} onClose={() => setSidebarOpen(false)} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} />}
+      {!isDistractionFreeFocus && <Sidebar open={sidebarOpen} collapsed={sidebarCollapsed} onClose={() => setSidebarOpen(false)} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} levelProgress={levelProgress} streakDays={progressSnapshot.streakDays} streakSummary={progressSnapshot} isProgressLoading={isProgressLoading} />}
       {!isDistractionFreeFocus && <button className={`sidebar-scrim ${sidebarOpen ? "sidebar-scrim-active" : ""}`} aria-label="Close navigation" onClick={() => setSidebarOpen(false)} data-testid="sidebar-scrim-button" aria-hidden={!sidebarOpen} tabIndex={sidebarOpen ? 0 : -1} />}
       <div className={`workspace ${isDistractionFreeFocus ? "workspace-focus-active" : ""} ${sidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`} data-testid="workspace">
         {!isDistractionFreeFocus && <Topbar currentUser={currentUser} isLoggingOut={isLoggingOut} onLogout={onLogout} onMenuClick={() => setSidebarOpen(true)} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} />}
@@ -3424,7 +3455,7 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
           <Route path="/tasks" element={<TasksPage tasks={tasks} enrichmentJobs={enrichmentJobs} selectedEnrichmentJob={selectedEnrichmentJob} isLoading={taskStatus === "loading"} onAddTask={handleAddTask} onSelectCodeBase={handleSelectCodeBase} onOpenEnrichmentDetails={handleOpenEnrichmentDetails} onCloseEnrichmentDetails={handleCloseEnrichmentDetails} onRefreshEnrichmentDetails={handleRefreshSelectedEnrichment} onStatusChange={handleStatusChange} onEdit={handleEditTask} onDelete={handleDeleteTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} />} />
           <Route path="/" element={<Dashboard tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} onStatusChange={handleStatusChange} onEdit={handleEditTask} onToggleToday={handleToggleToday} onUpdateNotes={handleUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} dashboardStats={dashboardStats ? { ...dashboardStats, total_xp: progressSnapshot.totalXp } : { total_xp: progressSnapshot.totalXp }} dashboardStatInsights={dashboardStatInsights} dashboardSchedule={dashboardSchedule} dashboardInsight={dashboardInsight} dashboardStatus={dashboardStatus} isLoading={taskStatus === "loading" || dashboardStatus === "loading"} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/calendar" element={<CalendarPage overview={overview} events={calendarSchedule} removedEvents={removedCalendarEvents} dashboardStats={dashboardStats} dashboardStatInsights={dashboardStatInsights} dashboardStatus={dashboardStatus} onUpdateEvent={handleUpdateCalendarEvent} onRemoveEvent={handleRemoveCalendarEvent} onRestoreEvent={handleRestoreCalendarEvent} />} />
-          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} />} />
+          <Route path="/focus" element={<FocusPage tasks={tasks} questRun={questRun} focusSessions={focusSessions} activeSession={activeSession} lastSavedFocus={lastSavedFocus} savingFocusState={savingFocusState} focusMultiplier={focusXpMultiplier} onStartFocus={handleStartFocus} onPauseFocus={handlePauseFocus} onResumeFocus={handleResumeFocus} onStopFocus={handleStopFocus} streakDays={progressSnapshot.streakDays} streakSummary={progressSnapshot} isProgressLoading={isProgressLoading} />} />
           <Route path="/focus/analytics" element={<FocusAnalyticsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} />} />
           <Route path="/quests" element={<QuestsPage tasks={tasks} questRun={questRun} activeSession={activeSession} isLoading={taskStatus === "loading"} isGenerating={isGeneratingQuests} completingQuestId={completingQuestId} focusMultiplier={focusXpMultiplier} onGenerateQuests={handleGenerateQuests} onClearQuests={handleClearQuests} onStartQuestFocus={handleStartQuestFocus} onCompleteQuest={handleCompleteQuest} onSkipQuest={handleSkipQuest} onActivateQuest={handleActivateQuest} showProgressGuide={!isProgressGuideDismissed} onDismissProgressGuide={dismissProgressGuide} />} />
           <Route path="/insights" element={<InsightsPage tasks={tasks} focusSessions={focusSessions} focusMultiplier={focusXpMultiplier} onRefreshInsights={handleRefreshInsights} />} />

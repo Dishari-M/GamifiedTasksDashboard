@@ -140,8 +140,15 @@ export const levelProgressFromXp = (xpValue) => {
   };
 };
 
-export const streakHeat = (streakDays = 0) => {
+export const streakHeat = (streakDays = 0, { atRisk = false } = {}) => {
   const days = Math.max(0, parseNumber(streakDays, 0));
+  if (atRisk && days > 0) {
+    return {
+      tone: "risk",
+      label: "At risk",
+      description: `Complete one quest today or your ${days}-day streak resets.`,
+    };
+  }
   if (days >= 15) return { tone: "blaze", label: "Blazing", description: "Legend-tier consistency." };
   if (days >= 10) return { tone: "ember", label: "On fire", description: "You are carrying serious heat." };
   if (days >= 6) return { tone: "spark", label: "Heating up", description: "Momentum is compounding." };

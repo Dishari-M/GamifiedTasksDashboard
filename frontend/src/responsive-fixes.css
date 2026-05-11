@@ -31,6 +31,20 @@ body,
   overflow-x: hidden;
 }
 
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  align-items: stretch;
+}
+
+.stat-value {
+  line-height: 0.96;
+  overflow-wrap: anywhere;
+}
+
+.stat-detail {
+  flex-wrap: wrap;
+}
+
 .task-table-wrap {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
@@ -65,12 +79,6 @@ body,
 
   .search-box {
     max-width: 340px;
-  }
-}
-
-@media (max-width: 1500px) {
-  .stats-grid {
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
   }
 }
 
