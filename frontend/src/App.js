@@ -150,6 +150,11 @@ const apiErrorMessage = (error, fallback) => {
   if (typeof detail === "string") return detail;
   return detail?.message || detail?.error || error?.message || fallback;
 };
+const aiErrorMessage = (error, fallback = "AI generation is temporarily unavailable. Try again after refreshing.") => {
+  const status = error?.response?.status;
+  if ([501, 502, 503, 504].includes(status)) return fallback;
+  return apiErrorMessage(error, fallback);
+};
 const authErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 const readProgressGuideDismissed = () => readStoredJson(PROGRESS_GUIDE_STORAGE_KEY, false);
 const settingsErrorMessage = (error, fallback) => apiErrorMessage(error, fallback);
@@ -2005,7 +2010,7 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
         if (cancelled) return;
         setTodayInsight(null);
         setInsightStatus("fallback");
-        setInsightError(error?.response?.data?.detail?.message || error?.message || "AI insights are using local fallback data.");
+        setInsightError(aiErrorMessage(error, "AI insights are temporarily unavailable. Showing the local planning view."));
       });
     return () => {
       cancelled = true;
@@ -2066,7 +2071,7 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
       setInsightStatus("live");
     } catch (error) {
       setInsightStatus("fallback");
-      setInsightError(error?.response?.data?.detail?.message || error?.message || "Unable to generate AI insight.");
+      setInsightError(aiErrorMessage(error));
     } finally {
       setIsGeneratingInsight(false);
     }
@@ -2153,7 +2158,7 @@ const InsightsPage = ({ tasks, focusSessions, focusMultiplier, onRefreshInsights
       <section className="surface standup-card" data-testid="standup-generator-card">
         <div className="section-heading"><h2><FileText size={26} weight="duotone" aria-hidden="true" /> Standup Note Generator</h2><button className="primary-action" onClick={generateStandup} disabled={isGeneratingStandup} data-testid="generate-standup-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {isGeneratingStandup ? "Generating" : "Generate"}</button></div>
         <pre className="standup-note" data-testid="standup-summary-text">{standupNote.fullNote}</pre>
-        <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Local fallback standup note"}</span>
+        <span className="overview-status" data-testid="standup-api-status">{standupStatus === "live" ? "Standup note from backend" : standupStatus === "loading" ? "Loading standup note" : "Draft standup note from local evidence"}</span>
         <div className="standup-snapshot-grid">
           <span><strong>Accomplished </strong>{standupNote.accomplished}</span>
           <span><strong>In Progress </strong>{standupNote.inProgress}</span>
@@ -2357,7 +2362,7 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
           {!dailyTasks.length && <article><strong>No completed tasks</strong><span>{selectedDate}</span><p>Working tasks and focus sessions will still inform the generated overview.</p></article>}
         </div>
         <p className="insight-copy" data-testid="daily-overview-summary">Summary: {dailyData?.summary || (dailyTasks.length || dailyFocus.length ? `Completed ${dailyTaskCount} task(s), focused ${formatMinutes(dailyFocusMinutes)}, and earned ${dailyXp} XP.` : "No completion or focus evidence for this date yet.")}</p>
-        <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Local fallback overview"}</span>
+        <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Draft overview from local evidence"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
         <div className="section-heading">

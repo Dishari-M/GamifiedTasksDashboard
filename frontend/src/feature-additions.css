@@ -8864,6 +8864,53 @@ html[data-theme="light"] .focus-analytics-note p {
   color: #33443d;
 }
 
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid rgba(32, 199, 255, 0.96);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(112, 71, 255, 0.28);
+}
+
+:where(.icon-button, .bell-button, .table-action, .menu-action, .today-toggle, .ghost-button, .primary-action, .tab, .theme-toggle, .profile-button, .floating-notice-close, .overview-step-button) {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.task-actions,
+.editor-actions,
+.overview-controls {
+  gap: 10px;
+}
+
+html[data-theme="light"] :where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline-color: #005fcc;
+  box-shadow: 0 0 0 6px rgba(0, 95, 204, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-loader-orbit,
+  .page-loader-core,
+  .page-loader-steps span::before,
+  .quest-button-loader,
+  .sync-spin {
+    animation: none !important;
+  }
+
+  .sidebar-logo-toggle:hover,
+  .nav-link:hover,
+  .primary-action:hover,
+  .add-task-link:hover,
+  .theme-toggle:hover,
+  .icon-button:hover,
+  .bell-button:hover,
+  .profile-button:hover,
+  .ghost-button:hover,
+  .table-action:hover,
+  .menu-action:hover,
+  .tab:hover {
+    transform: none !important;
+  }
+}
+
 html[data-theme="light"] .focus-analytics-stat strong,
 html[data-theme="light"] .focus-chart-legend strong {
   color: #18231f;
