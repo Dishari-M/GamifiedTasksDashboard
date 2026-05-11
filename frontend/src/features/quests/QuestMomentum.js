@@ -1,4 +1,5 @@
-import { CheckCircle, Clock, Lightning, Play, Timer, Trophy } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
+import { CaretDown, CheckCircle, Clock, Lightning, Play, Timer, Trophy } from "@phosphor-icons/react";
 import { formatFocusDuration, formatMinutes } from "../../utils/dateTime";
 import { focusUnlockThresholdMinutes } from "../progress/progressionMath";
 import { formatFocusMultiplier } from "../rewards/xpRewards";
@@ -12,6 +13,125 @@ const questFocusTargetSeconds = (quest) => Number(quest?.focusTargetSeconds ?? (
 const rewardText = (quest) => quest?.hasFocusReward
   ? `${quest.rewardXp} XP (${formatFocusMultiplier(quest.rewardMultiplier)} focus)`
   : `${quest?.rewardXp || 0} XP`;
+
+const SkipReasonPicker = ({ value, reasons, onChange, disabled }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const pickerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const optionRefs = useRef([]);
+  const listboxId = "quest-skip-reason-listbox";
+  const selectedIndex = Math.max(0, reasons.indexOf(value));
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (pickerRef.current?.contains(event.target)) return;
+      setIsOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      setIsOpen(false);
+      window.requestAnimationFrame(() => triggerRef.current?.focus());
+    };
+    const outsideEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    outsideEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      outsideEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
+  const focusOption = (index) => {
+    window.requestAnimationFrame(() => optionRefs.current[index]?.focus());
+  };
+  const chooseReason = (reason) => {
+    onChange(reason);
+    setIsOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const openAtIndex = (index = selectedIndex) => {
+    setIsOpen(true);
+    focusOption(index);
+  };
+  const handleTriggerKeyDown = (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      openAtIndex(selectedIndex);
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      openAtIndex(selectedIndex);
+    }
+  };
+  const handleOptionKeyDown = (event, index) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption((index + 1) % reasons.length);
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption((index - 1 + reasons.length) % reasons.length);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusOption(reasons.length - 1);
+    }
+  };
+
+  return (
+    <div className="skip-reason-picker" ref={pickerRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="skip-reason-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
+        aria-labelledby="quest-skip-reason-label quest-skip-reason-value"
+        onClick={() => setIsOpen((open) => !open)}
+        onKeyDown={handleTriggerKeyDown}
+        disabled={disabled}
+        data-testid="quest-skip-reason-select"
+      >
+        <span id="quest-skip-reason-value">{value}</span>
+        <CaretDown size={16} weight="bold" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div className="skip-reason-menu" id={listboxId} role="listbox" aria-labelledby="quest-skip-reason-label">
+          {reasons.map((reason, index) => {
+            const isSelected = reason === value;
+            return (
+              <button
+                ref={(node) => { optionRefs.current[index] = node; }}
+                key={reason}
+                type="button"
+                className={`skip-reason-option${isSelected ? " is-selected" : ""}`}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => chooseReason(reason)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
+                data-testid={`quest-skip-reason-option-${slug(reason)}`}
+              >
+                <span>{reason}</span>
+                {isSelected && <CheckCircle size={17} weight="fill" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const CompletionMomentumNotice = ({ completion, nextQuestTitle, summary }) => {
   if (!completion) return null;
@@ -110,10 +230,8 @@ export const NextQuestCard = ({
           {isCompleting ? "Claiming XP..." : "Complete & claim XP"}
         </button>
         <div className="skip-control">
-          <label htmlFor="quest-skip-reason">Skip reason</label>
-          <select id="quest-skip-reason" value={skipReason} onChange={(event) => onSkipReasonChange(event.target.value)} disabled={isCompleting} data-testid="quest-skip-reason-select">
-            {skipReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
-          </select>
+          <span className="skip-control-label" id="quest-skip-reason-label">Skip reason</span>
+          <SkipReasonPicker value={skipReason} reasons={skipReasons} onChange={onSkipReasonChange} disabled={isCompleting} />
           <button className="ghost-button" onClick={() => onSkipQuest(nextQuest.id, skipReason)} disabled={isCompleting} data-testid="quest-skip-button">Skip</button>
         </div>
       </div>

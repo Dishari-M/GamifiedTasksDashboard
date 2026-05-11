@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowClockwise,
@@ -46,6 +46,7 @@ import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
 import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, settingsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
+import FocusDurationRing, { clampFocusDurationMinutes, FOCUS_DURATION_DEFAULT, focusDurationProfile } from "./features/focus/FocusDurationRing";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, focusSecondsForSessions, orderedFocusTasks, sessionMinutes, sessionSeconds, sessionsForDay, topFocusedTask } from "./features/focus/focusSessions";
@@ -240,6 +241,375 @@ const Pill = ({ children, tone = "neutral", testId }) => (
     {children}
   </span>
 );
+
+const normalizeSelectOptions = (options) => options.map((option) => (
+  typeof option === "string" ? { value: option, label: option } : option
+));
+
+const TaskSelect = ({
+  value,
+  options,
+  onChange,
+  testId,
+  ariaLabel,
+  invalid,
+  describedBy,
+  disabled,
+  triggerClassName = "",
+  menuClassName = "",
+}) => {
+  const selectId = useId();
+  const normalizedOptions = useMemo(() => normalizeSelectOptions(options), [options]);
+  const selectedIndex = Math.max(0, normalizedOptions.findIndex((option) => option.value === value));
+  const selectedOption = normalizedOptions[selectedIndex] || normalizedOptions[0] || { value, label: value };
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState({});
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const optionRefs = useRef([]);
+
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === "undefined") return;
+    const rect = trigger.getBoundingClientRect();
+    const desiredHeight = Math.min(280, Math.max(48, normalizedOptions.length * 42 + 12));
+    const belowSpace = window.innerHeight - rect.bottom;
+    const aboveSpace = rect.top;
+    const openAbove = belowSpace < desiredHeight + 12 && aboveSpace > belowSpace;
+    const availableSpace = Math.max(96, (openAbove ? aboveSpace : belowSpace) - 12);
+    const maxHeight = Math.min(desiredHeight, availableSpace);
+    const width = Math.max(rect.width, 160);
+    const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+    const top = openAbove
+      ? Math.max(8, rect.top - maxHeight - 8)
+      : Math.min(rect.bottom + 8, window.innerHeight - maxHeight - 8);
+    setMenuStyle({
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      maxHeight: `${maxHeight}px`,
+    });
+  };
+
+  const focusOption = (index) => {
+    window.requestAnimationFrame(() => optionRefs.current[index]?.focus());
+  };
+  const openMenu = (focusIndex) => {
+    updateMenuPosition();
+    setIsOpen(true);
+    if (Number.isInteger(focusIndex)) focusOption(focusIndex);
+  };
+  const closeMenu = (returnFocus = false) => {
+    setIsOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const chooseOption = (option) => {
+    onChange(option.value);
+    closeMenu(true);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      closeMenu();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closeMenu(true);
+    };
+    const outsideEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    updateMenuPosition();
+    outsideEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      outsideEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, normalizedOptions.length]);
+
+  useEffect(() => {
+    if (disabled) closeMenu();
+  }, [disabled]);
+
+  const handleTriggerKeyDown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      openMenu(selectedIndex);
+    }
+  };
+  const handleOptionKeyDown = (event, index) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption((index + 1) % normalizedOptions.length);
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption((index - 1 + normalizedOptions.length) % normalizedOptions.length);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusOption(normalizedOptions.length - 1);
+    }
+  };
+  const handleBlur = (event) => {
+    if (!event.relatedTarget || rootRef.current?.contains(event.relatedTarget)) return;
+    closeMenu();
+  };
+
+  return (
+    <span className="task-custom-select" ref={rootRef} onBlur={handleBlur}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`task-custom-select-trigger ${triggerClassName}`.trim()}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? selectId : undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        onClick={() => (isOpen ? closeMenu() : openMenu())}
+        onKeyDown={handleTriggerKeyDown}
+        disabled={disabled}
+        data-testid={testId}
+      >
+        <span>{selectedOption.label}</span>
+        <CaretDown size={16} weight="bold" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <span
+          className={`task-custom-select-menu ${menuClassName}`.trim()}
+          id={selectId}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={menuStyle}
+        >
+          {normalizedOptions.map((option, index) => {
+            const isSelected = option.value === selectedOption.value;
+            return (
+              <button
+                ref={(node) => { optionRefs.current[index] = node; }}
+                key={option.value}
+                type="button"
+                className={`task-custom-select-option${isSelected ? " is-selected" : ""}`}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => chooseOption(option)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
+                data-testid={testId ? `${testId}-option-${slug(option.value)}` : undefined}
+              >
+                <span>{option.label}</span>
+                {isSelected && <CheckCircle size={17} weight="fill" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </span>
+      )}
+    </span>
+  );
+};
+
+const datePickerDateFromKey = (dateKey) => {
+  if (!dateKey) return null;
+  const date = new Date(`${dateKey}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const datePickerKeyFromDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const shiftMonth = (date, amount) => new Date(date.getFullYear(), date.getMonth() + amount, 1);
+const sameCalendarMonth = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const datePickerLabel = (value, placeholder = "Select date") => {
+  const date = datePickerDateFromKey(value);
+  if (!date) return placeholder;
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
+};
+
+const DatePicker = ({
+  value,
+  onChange,
+  min,
+  max,
+  placeholder = "Select date",
+  ariaLabel = "Choose date",
+  testId,
+  allowClear = false,
+  triggerClassName = "",
+  triggerLabel,
+  showToday = true,
+  align = "start",
+}) => {
+  const pickerId = useId();
+  const selectedDate = datePickerDateFromKey(value);
+  const maxDate = datePickerDateFromKey(max);
+  const minDate = datePickerDateFromKey(min);
+  const today = datePickerDateFromKey(todayKey());
+  const initialMonth = selectedDate || maxDate || today || new Date();
+  const [isOpen, setIsOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1));
+  const [menuStyle, setMenuStyle] = useState({});
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    const nextMonth = selectedDate || maxDate || today || new Date();
+    setVisibleMonth(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1));
+  }, [value, max]);
+
+  const isDisabledDate = (dateKey) => Boolean((min && dateKey < min) || (max && dateKey > max));
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === "undefined") return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(318, Math.max(286, rect.width));
+    const desiredHeight = 360;
+    const belowSpace = window.innerHeight - rect.bottom;
+    const aboveSpace = rect.top;
+    const openAbove = belowSpace < desiredHeight + 12 && aboveSpace > belowSpace;
+    const maxHeight = Math.min(desiredHeight, Math.max(260, (openAbove ? aboveSpace : belowSpace) - 12));
+    const baseLeft = align === "end" ? rect.right - width : rect.left;
+    const left = Math.min(Math.max(8, baseLeft), Math.max(8, window.innerWidth - width - 8));
+    const top = openAbove
+      ? Math.max(8, rect.top - maxHeight - 8)
+      : Math.min(rect.bottom + 8, window.innerHeight - maxHeight - 8);
+    setMenuStyle({
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      maxHeight: `${maxHeight}px`,
+    });
+  };
+  const closePicker = (returnFocus = false) => {
+    setIsOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const openPicker = () => {
+    updateMenuPosition();
+    setIsOpen(true);
+  };
+  const chooseDate = (dateKey) => {
+    if (isDisabledDate(dateKey)) return;
+    onChange(dateKey);
+    closePicker(true);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      closePicker();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closePicker(true);
+    };
+    const outsideEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    updateMenuPosition();
+    outsideEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      outsideEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, visibleMonth, min, max]);
+
+  const monthLabel = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(visibleMonth);
+  const firstDay = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(1 - firstDay.getDay());
+  const dayCells = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    const dateKey = datePickerKeyFromDate(date);
+    return {
+      date,
+      dateKey,
+      isCurrentMonth: sameCalendarMonth(date, visibleMonth),
+      isSelected: value === dateKey,
+      isToday: today && dateKey === datePickerKeyFromDate(today),
+      isDisabled: isDisabledDate(dateKey),
+    };
+  });
+  const triggerText = triggerLabel || datePickerLabel(value, placeholder);
+  const todayDateKey = today ? datePickerKeyFromDate(today) : "";
+  const canChooseToday = Boolean(todayDateKey && !isDisabledDate(todayDateKey));
+
+  return (
+    <span className="date-picker" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`date-picker-trigger ${triggerClassName}`.trim()}
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? pickerId : undefined}
+        onClick={() => (isOpen ? closePicker() : openPicker())}
+        data-testid={testId}
+      >
+        <CalendarBlank size={16} weight="duotone" aria-hidden="true" />
+        <span>{triggerText}</span>
+        <CaretDown size={14} weight="bold" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <span className="date-picker-popover" id={pickerId} role="dialog" aria-label={ariaLabel} style={menuStyle}>
+          <span className="date-picker-header">
+            <button type="button" className="date-picker-nav" onClick={() => setVisibleMonth((current) => shiftMonth(current, -1))} aria-label="Previous month">
+              <CaretLeft size={18} weight="bold" aria-hidden="true" />
+            </button>
+            <strong>{monthLabel}</strong>
+            <button type="button" className="date-picker-nav" onClick={() => setVisibleMonth((current) => shiftMonth(current, 1))} aria-label="Next month">
+              <CaretRight size={18} weight="bold" aria-hidden="true" />
+            </button>
+          </span>
+          <span className="date-picker-weekdays" aria-hidden="true">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}
+          </span>
+          <span className="date-picker-grid" role="grid" aria-label={monthLabel}>
+            {dayCells.map((day) => (
+              <button
+                key={day.dateKey}
+                type="button"
+                className={`date-picker-day${day.isCurrentMonth ? "" : " is-outside"}${day.isSelected ? " is-selected" : ""}${day.isToday ? " is-today" : ""}`}
+                onClick={() => chooseDate(day.dateKey)}
+                disabled={day.isDisabled}
+                role="gridcell"
+                aria-selected={day.isSelected}
+                aria-label={new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(day.date)}
+              >
+                {day.date.getDate()}
+              </button>
+            ))}
+          </span>
+          <span className={`date-picker-footer${allowClear ? "" : " date-picker-footer-single"}`}>
+            {allowClear && <button type="button" onClick={() => { onChange(""); closePicker(true); }}>Clear</button>}
+            {showToday && <button type="button" onClick={() => chooseDate(todayDateKey)} disabled={!canChooseToday}>Today</button>}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+};
 
 const IconBadge = ({ icon: Icon, tone = "violet", testId }) => (
   <span className={`icon-badge icon-badge-${tone}`} data-testid={testId}>
@@ -466,14 +836,62 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
   const location = useLocation();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  const profileClusterRef = useRef(null);
+  const profileButtonRef = useRef(null);
+  const logoutButtonRef = useRef(null);
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentDate(new Date()), 60000);
     return () => window.clearInterval(intervalId);
   }, []);
+  useEffect(() => {
+    setIsProfileMenuOpen(false);
+  }, [location.pathname, location.search, location.hash]);
+  useEffect(() => {
+    if (!isProfileMenuOpen) return undefined;
+
+    const closeProfileMenu = (returnFocus = false) => {
+      setIsProfileMenuOpen(false);
+      if (returnFocus) {
+        window.requestAnimationFrame(() => profileButtonRef.current?.focus());
+      }
+    };
+    const handlePointerDown = (event) => {
+      if (profileClusterRef.current?.contains(event.target)) return;
+      closeProfileMenu();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      closeProfileMenu(true);
+    };
+
+    const outsideInteractionEvents = window.PointerEvent ? ["pointerdown"] : ["mousedown", "touchstart"];
+    outsideInteractionEvents.forEach((eventName) => document.addEventListener(eventName, handlePointerDown, true));
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      outsideInteractionEvents.forEach((eventName) => document.removeEventListener(eventName, handlePointerDown, true));
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
   const localGreeting = greetingForDate(currentDate);
   const title = location.pathname === "/" ? `${localGreeting}, ${profileFirstName(currentUser)}` : location.pathname === "/focus/analytics" ? "Focus Analytics" : navItems.find((item) => item.path === location.pathname)?.label || "Gamified Tasks Dashboard";
   const subtitle = location.pathname === "/focus/analytics" ? "Review focus trends, XP, streaks, and consistency." : location.pathname === "/focus" ? "Track deep work against a task." : "Plan the work, capture the learning, and keep momentum visible.";
   const isLight = theme === "light";
+  const profileMenuId = "profile-menu";
+  const focusLogoutButton = () => window.requestAnimationFrame(() => logoutButtonRef.current?.focus());
+  const handleProfileButtonKeyDown = (event) => {
+    if (event.key !== "ArrowDown") return;
+    event.preventDefault();
+    setIsProfileMenuOpen(true);
+    focusLogoutButton();
+  };
+  const handleProfileMenuBlur = (event) => {
+    if (!event.relatedTarget || event.currentTarget.contains(event.relatedTarget)) return;
+    setIsProfileMenuOpen(false);
+  };
+  const handleLogoutClick = () => {
+    setIsProfileMenuOpen(false);
+    onLogout();
+  };
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -487,13 +905,17 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
         <Moon className="theme-toggle-icon theme-toggle-icon-moon" size={18} weight={isLight ? "duotone" : "fill"} aria-hidden="true" />
         <SunDim className="theme-toggle-icon theme-toggle-icon-sun" size={18} weight={isLight ? "fill" : "duotone"} aria-hidden="true" />
       </button>
-      <div className="profile-cluster">
+      <div className="profile-cluster" ref={profileClusterRef} onBlur={handleProfileMenuBlur}>
         <button
+          ref={profileButtonRef}
+          type="button"
           className="profile-button"
           aria-label={`Profile for ${profileFullName(currentUser)}`}
           aria-haspopup="menu"
           aria-expanded={isProfileMenuOpen}
+          aria-controls={isProfileMenuOpen ? profileMenuId : undefined}
           onClick={() => setIsProfileMenuOpen((value) => !value)}
+          onKeyDown={handleProfileButtonKeyDown}
           data-testid="profile-menu-button"
         >
           <span className="avatar" data-testid="profile-avatar">{profileInitials(currentUser)}</span>
@@ -501,11 +923,12 @@ const Topbar = ({ currentUser, isLoggingOut, onLogout, onMenuClick, theme, onThe
           <CaretDown size={16} weight="bold" aria-hidden="true" />
         </button>
         {isProfileMenuOpen && (
-          <div className="profile-menu" role="menu" data-testid="profile-dropdown-menu">
+          <div className="profile-menu" id={profileMenuId} role="menu" data-testid="profile-dropdown-menu">
             <button
+              ref={logoutButtonRef}
               type="button"
               role="menuitem"
-              onClick={onLogout}
+              onClick={handleLogoutClick}
               disabled={isLoggingOut}
               data-testid="logout-button"
             >
@@ -598,7 +1021,14 @@ const SchedulePanel = ({ events = schedule, removedEvents = [], onUpdateEvent, o
         <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> {scheduleHeadingForDate(selectedDate)}</h2>
         {onFetchDate && (
           <div className="schedule-date-controls">
-            <input type="date" value={selectedDate} onChange={(event) => onDateChange?.(event.target.value)} aria-label="Calendar date" data-testid="schedule-date-input" />
+            <DatePicker
+              value={selectedDate}
+              onChange={(nextDate) => onDateChange?.(nextDate)}
+              ariaLabel="Calendar date"
+              testId="schedule-date-input"
+              triggerClassName="schedule-date-trigger"
+              align="end"
+            />
             <button className="ghost-button" type="button" onClick={onFetchDate} disabled={isFetchingDate} data-testid="fetch-schedule-date-button">
               {isFetchingDate ? <ArrowClockwise className="sync-spin" size={17} weight="bold" aria-hidden="true" /> : <CloudArrowDown size={17} weight="duotone" aria-hidden="true" />}
               {isFetchingDate ? "Fetching..." : "Fetch Calendar"}
@@ -710,9 +1140,11 @@ const ShortFocusSessionDialog = ({ open, onCancel, onConfirm }) => {
   );
 };
 
-const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
+const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questRun, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
   const [selectedTaskId, setSelectedTaskId] = useState(() => activeSession?.task_id || taskOptions[0]?.id || "");
+  const [selectedDurationMinutes, setSelectedDurationMinutes] = useState(FOCUS_DURATION_DEFAULT);
+  const [hasCustomDuration, setHasCustomDuration] = useState(false);
   const [outcomeType, setOutcomeType] = useState("Progress made");
   const [outcomeNote, setOutcomeNote] = useState("");
   const [isShortFocusDialogOpen, setIsShortFocusDialogOpen] = useState(false);
@@ -735,22 +1167,47 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
 
   const elapsedSeconds = activeFocusSeconds(activeSession);
   const todaySessions = sessionsForDay(focusSessions);
-  const focusedTodaySeconds = focusSecondsForSessions(todaySessions);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const activeTask = activeSession ? tasks.find((task) => task.id === activeSession.task_id) || selectedTask : null;
   const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
   const selectedTaskFocusedTodaySeconds = focusSecondsForSessions(selectedTaskSessions);
-  const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id ? questContext.quest : null;
-  const selectedQuestFocusSeconds = selectedQuest ? selectedQuest.focusSeconds : selectedTaskFocusedTodaySeconds;
+  const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id
+    ? questContext.quest
+    : selectedTask ? getOpenQuestForTask(questRun, taskBackendKey(selectedTask)) : null;
+  const selectedQuestFocusSeconds = selectedQuest
+    ? Number(selectedQuest.focusSeconds ?? (selectedQuest.focusMinutes || 0) * 60)
+    : selectedTaskFocusedTodaySeconds;
   const selectedQuestTargetMinutes = selectedQuest?.focusTargetMinutes || selectedTask?.time || 0;
-  const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
-  const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
+  const suggestedDurationMinutes = clampFocusDurationMinutes(selectedQuest?.focusTargetMinutes || FOCUS_DURATION_DEFAULT);
+  const activeTargetMinutes = clampFocusDurationMinutes(activeSession?.targetDurationMinutes || Math.ceil((activeSession?.targetDurationSeconds || 0) / 60) || FOCUS_DURATION_DEFAULT);
+  const activeTargetSeconds = Math.max(1, Number(activeSession?.targetDurationSeconds || activeTargetMinutes * 60));
+  const activeDurationProfile = focusDurationProfile(activeTargetMinutes);
+  const progress = activeSession ? Math.min(360, (elapsedSeconds / activeTargetSeconds) * 360) : 0;
+  const isOverTarget = Boolean(activeSession && elapsedSeconds >= activeTargetSeconds);
+  const statusLabel = activeSession?.targetReachedAt && activeSession?.isRunning ? "Overtime" : activeSession?.targetReachedAt ? "Target reached" : activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
+  const activeStatusLabel = activeSession ? `${statusLabel} - ${formatMinutes(activeTargetMinutes)} target` : statusLabel;
   const plannedMinutes = selectedTask ? formatMinutes(selectedTask.time) : "No task";
   const hasTasks = taskOptions.length > 0;
 
+  useEffect(() => {
+    if (activeSession || hasCustomDuration) return;
+    setSelectedDurationMinutes(suggestedDurationMinutes);
+  }, [activeSession, hasCustomDuration, suggestedDurationMinutes]);
+
+  useEffect(() => {
+    if (!activeSession?.isRunning || activeSession.targetReachedAt || !activeTargetSeconds) return;
+    if (elapsedSeconds < activeTargetSeconds) return;
+    onPauseFocus({ targetReachedAt: nowIso() });
+  }, [activeSession?.isRunning, activeSession?.targetReachedAt, activeTargetSeconds, elapsedSeconds, onPauseFocus]);
+
+  const updateSelectedDuration = (minutes) => {
+    setHasCustomDuration(true);
+    setSelectedDurationMinutes(clampFocusDurationMinutes(minutes));
+  };
+
   const startFocus = () => {
     if (!selectedTask) return;
-    onStartFocus(selectedTask);
+    onStartFocus(selectedTask, selectedQuest?.id, { targetDurationMinutes: selectedDurationMinutes });
   };
 
   const saveFocusSession = () => {
@@ -771,13 +1228,35 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   if (activeSession) {
     const activeTaskTitle = activeSession.task_title || activeTask?.title || "Current focus task";
     const activeTaskContext = activeTask?.source ? `${activeTask.source}${activeTask.priority ? ` - ${activeTask.priority}` : ""}` : "Focus session";
+    const isPaused = !activeSession.isRunning;
 
     return (
       <>
         <section className="surface focus-widget focus-widget-active" data-testid="focus-widget" aria-label="Active focus session">
           <div className="focus-hero-grid focus-hero-grid-active">
-            <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-              <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+            <div
+              className={`timer-ring focus-session-ring focus-session-ring-${activeDurationProfile.tone}${isOverTarget ? " focus-session-ring-overtime" : ""}${isPaused ? " focus-session-ring-paused" : ""}`}
+              style={{
+                "--timer-progress": `${progress}deg`,
+                "--focus-ring-start": activeDurationProfile.start,
+                "--focus-ring-end": activeDurationProfile.end,
+                "--focus-ring-glow": activeDurationProfile.glow,
+              }}
+              data-testid="focus-timer-ring"
+              aria-label="Focus session progress"
+            >
+              <div className="focus-timer-content"><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{activeStatusLabel}</span></div>
+              {isPaused && (
+                <button
+                  className="focus-ring-resume-button"
+                  type="button"
+                  onClick={onResumeFocus}
+                  aria-label="Resume focus session"
+                  data-testid="focus-ring-resume-button"
+                >
+                  <Play size={34} weight="fill" aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
           <article className="focus-active-task-card" data-testid="focus-active-task">
@@ -809,17 +1288,31 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
       </div>
       <div className="focus-launcher-layout" data-testid="focus-session-layout">
         <div className="focus-hero-grid focus-launcher-hero">
-          <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-            <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
-          </div>
+          <FocusDurationRing
+            value={selectedDurationMinutes}
+            onChange={updateSelectedDuration}
+            disabled={!selectedTask}
+            compact={compact}
+            data-testid="focus-duration-ring"
+          />
         </div>
         <div className="focus-launcher-panel">
           <label className="focus-task-picker">
             Focus task
-            <select value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)} disabled={Boolean(activeSession) || !hasTasks} data-testid="focus-task-select">
-              {taskOptions.map((task) => <option key={task.id} value={task.id}>{task.workingToday ? "Today - " : ""}{truncateText(task.title, 24)}</option>)}
-              {!taskOptions.length && <option value="">No open tasks</option>}
-            </select>
+            <TaskSelect
+              value={selectedTaskId}
+              options={taskOptions.length
+                ? taskOptions.map((task) => ({
+                  value: task.id,
+                  label: `${task.workingToday ? "Today - " : ""}${truncateText(task.title, 24)}`,
+                }))
+                : [{ value: "", label: "No open tasks" }]}
+              onChange={setSelectedTaskId}
+              disabled={Boolean(activeSession) || !hasTasks}
+              testId="focus-task-select"
+              ariaLabel="Focus task"
+              triggerClassName="focus-task-select-trigger"
+            />
           </label>
           {!compact && selectedTask && (
             <article className="focus-selected-task focus-launcher-selected" data-testid="focus-selected-task">
@@ -989,16 +1482,16 @@ const TaskTable = ({ tasks, onStatusChange, onEdit, onDeleteRequest, onToggleTod
                 <td data-testid={`task-xp-${slug(task.id)}`}>{task.xp} XP</td>
                 <td data-testid={`task-completed-${slug(task.id)}`}>{isEnrichmentJob ? task.enrichmentStatusLabel : formatDateTime(task.completedAt)}</td>
                 <td>
-                  <select
-                    className={`status-select status-select-${slug(task.status)}`}
+                  <TaskSelect
                     value={task.status}
-                    onChange={(event) => onStatusChange(task.id, event.target.value)}
-                    data-testid={`task-status-${slug(task.id)}`}
-                    aria-label={`Status for ${task.title}`}
+                    options={tableStatuses}
+                    onChange={(status) => onStatusChange(task.id, status)}
+                    testId={`task-status-${slug(task.id)}`}
+                    ariaLabel={`Status for ${task.title}`}
                     disabled={isEnrichmentJob}
-                  >
-                    {tableStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
+                    triggerClassName={`status-select status-select-${slug(task.status)}`}
+                    menuClassName="task-status-select-menu"
+                  />
                 </td>
                 <td className="notes-cell">
                   <textarea
@@ -1180,19 +1673,19 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
   return (
     <form className="task-editor-form" onSubmit={submit} noValidate data-testid={`${mode}-task-form`}>
       <label>
-        Title
-        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
+        <span className="required-label">Title <span className="required-star" aria-hidden="true">*</span></span>
+        <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Investigate CI failure" required aria-required="true" aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? `${mode}-task-title-error` : undefined} data-testid={`${mode}-task-title-input`} />
         {fieldErrors.title && <span className="field-error" id={`${mode}-task-title-error`}>{fieldErrors.title}</span>}
       </label>
       <label>Description<textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What needs to happen?" data-testid={`${mode}-task-description-input`} /></label>
       <label>
         Type
-        <select value={form.type} onChange={(event) => update("type", event.target.value)} aria-invalid={Boolean(fieldErrors.type)} aria-describedby={fieldErrors.type ? `${mode}-task-type-error` : undefined}>{taskTypes.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.type} options={taskTypes} onChange={(nextValue) => update("type", nextValue)} ariaLabel={`${mode} task type`} invalid={Boolean(fieldErrors.type)} describedBy={fieldErrors.type ? `${mode}-task-type-error` : undefined} testId={`${mode}-task-type-select`} />
         {fieldErrors.type && <span className="field-error" id={`${mode}-task-type-error`}>{fieldErrors.type}</span>}
       </label>
       <label>
         Source
-        <select value={form.source} onChange={(event) => update("source", event.target.value)} aria-invalid={Boolean(fieldErrors.source)} aria-describedby={fieldErrors.source ? `${mode}-task-source-error` : undefined}>{sources.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.source} options={sources} onChange={(nextValue) => update("source", nextValue)} ariaLabel={`${mode} task source`} invalid={Boolean(fieldErrors.source)} describedBy={fieldErrors.source ? `${mode}-task-source-error` : undefined} testId={`${mode}-task-source-select`} />
         {fieldErrors.source && <span className="field-error" id={`${mode}-task-source-error`}>{fieldErrors.source}</span>}
       </label>
       <label>
@@ -1230,18 +1723,18 @@ const TaskEditor = ({ mode = "create", task, onSubmit, onCancel, onSelectCodeBas
       </label>
       <label>
         Priority
-        <select value={form.priority} onChange={(event) => update("priority", event.target.value)} aria-invalid={Boolean(fieldErrors.priority)} aria-describedby={fieldErrors.priority ? `${mode}-task-priority-error` : undefined}>{priorities.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.priority} options={priorities} onChange={(nextValue) => update("priority", nextValue)} ariaLabel={`${mode} task priority`} invalid={Boolean(fieldErrors.priority)} describedBy={fieldErrors.priority ? `${mode}-task-priority-error` : undefined} testId={`${mode}-task-priority-select`} />
         {fieldErrors.priority && <span className="field-error" id={`${mode}-task-priority-error`}>{fieldErrors.priority}</span>}
       </label>
       <label>
         Status
-        <select value={form.status} onChange={(event) => update("status", event.target.value)} aria-invalid={Boolean(fieldErrors.status)} aria-describedby={fieldErrors.status ? `${mode}-task-status-error` : undefined}>{statuses.map((item) => <option key={item}>{item}</option>)}</select>
+        <TaskSelect value={form.status} options={statuses} onChange={(nextValue) => update("status", nextValue)} ariaLabel={`${mode} task status`} invalid={Boolean(fieldErrors.status)} describedBy={fieldErrors.status ? `${mode}-task-status-error` : undefined} testId={`${mode}-task-status-select`} />
         {fieldErrors.status && <span className="field-error" id={`${mode}-task-status-error`}>{fieldErrors.status}</span>}
       </label>
-      <label>Due date<input type="date" value={form.dueDate} onChange={(event) => update("dueDate", event.target.value)} /></label>
-      <label>Start date<input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label>
+      <label>Due date<DatePicker value={form.dueDate} onChange={(nextDate) => update("dueDate", nextDate)} placeholder="No due date" ariaLabel={`${mode} task due date`} testId={`${mode}-task-due-date-input`} allowClear /></label>
+      <label>Start date<DatePicker value={form.startDate} onChange={(nextDate) => update("startDate", nextDate)} placeholder="No start date" ariaLabel={`${mode} task start date`} testId={`${mode}-task-start-date-input`} allowClear /></label>
       {mode === "edit" && (
-        <label>RCA T-shirt size<select value={form.rcaTshirtSize} onChange={(event) => update("rcaTshirtSize", event.target.value)} data-testid={`${mode}-task-rca-size-select`}>{rcaTshirtSizes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+        <label>RCA T-shirt size<TaskSelect value={form.rcaTshirtSize} options={rcaTshirtSizes} onChange={(nextValue) => update("rcaTshirtSize", nextValue)} ariaLabel={`${mode} task RCA T-shirt size`} testId={`${mode}-task-rca-size-select`} /></label>
       )}
       <label>Labels<input value={form.labels} onChange={(event) => update("labels", event.target.value)} placeholder="api, backend" /></label>
       <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Learnings, what went right, what went wrong, blockers..." data-testid={`${mode}-task-notes-input`} /></label>
@@ -1708,7 +2201,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Quests</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Refresh Quests" : "Review Quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Your Quests are based on Working Today. Refresh them after you add or remove tasks.</p>}<div className="mission-list">{topMissions.length ? topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />) : <p className="empty-state" data-testid="dashboard-quests-empty-state">No tasks are marked as Working Today yet. Add a task to Working Today from My Tasks to see your Quests here.</p>}</div></section>
         <SchedulePanel events={dashboardSchedule} />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{dashboardTaskFilters.map((tab) => <button key={tab} type="button" className={activeTaskFilter === tab ? "tab active" : "tab"} role="tab" aria-selected={activeTaskFilter === tab} onClick={() => setActiveTaskFilter(tab)} data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} editable={false} /></section>
-        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
+        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questRun={questRun} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
     </main>
@@ -1823,32 +2316,19 @@ const TasksPage = ({ tasks, enrichmentJobs = [], selectedEnrichmentJob, onAddTas
             </label>
             <label>
               Status
-              <select value={taskFilters.status} onChange={(event) => updateFilter("status", event.target.value)} data-testid="task-filter-status">
-                <option>All</option>
-                {tableStatuses.map((status) => <option key={status}>{status}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.status} options={["All", ...tableStatuses]} onChange={(nextValue) => updateFilter("status", nextValue)} ariaLabel="Filter tasks by status" testId="task-filter-status" />
             </label>
             <label>
               Source
-              <select value={taskFilters.source} onChange={(event) => updateFilter("source", event.target.value)} data-testid="task-filter-source">
-                <option>All</option>
-                {sources.map((source) => <option key={source}>{source}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.source} options={["All", ...sources]} onChange={(nextValue) => updateFilter("source", nextValue)} ariaLabel="Filter tasks by source" testId="task-filter-source" />
             </label>
             <label>
               Priority
-              <select value={taskFilters.priority} onChange={(event) => updateFilter("priority", event.target.value)} data-testid="task-filter-priority">
-                <option>All</option>
-                {priorities.map((priority) => <option key={priority}>{priority}</option>)}
-              </select>
+              <TaskSelect value={taskFilters.priority} options={["All", ...priorities]} onChange={(nextValue) => updateFilter("priority", nextValue)} ariaLabel="Filter tasks by priority" testId="task-filter-priority" />
             </label>
             <label>
               Today
-              <select value={taskFilters.today} onChange={(event) => updateFilter("today", event.target.value)} data-testid="task-filter-today">
-                <option>All</option>
-                <option>Working</option>
-                <option>Not Working</option>
-              </select>
+              <TaskSelect value={taskFilters.today} options={["All", "Working", "Not Working"]} onChange={(nextValue) => updateFilter("today", nextValue)} ariaLabel="Filter tasks by today status" testId="task-filter-today" />
             </label>
             <div className="task-filter-actions">
               <span data-testid="task-filter-result-count">{filteredTasks.length} of {unifiedTasks.length} tasks</span>
@@ -1921,7 +2401,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
 
   return (
     <main className={`focus-page ${activeSession ? "focus-page-active" : ""}`} data-testid="focus-page">
-      <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
+      <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questRun={questRun} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
       {!activeSession && (
         <section className="focus-secondary-grid" data-testid="focus-support-grid">
           <article className="surface focus-secondary-card focus-today-card" data-testid="focus-today-card">
@@ -2285,10 +2765,36 @@ const reflectionDraftFrom = (source = {}, fallback = {}) => ({
   wentWell: listToDraftText(source.went_well ?? fallback.wentWell),
   wentWrong: listToDraftText(source.went_wrong ?? fallback.wentWrong),
 });
+const localDateFromKey = (dateKey) => new Date(`${dateKey}T00:00:00`);
+const isoWeekNumber = (dateKey) => {
+  const date = localDateFromKey(dateKey);
+  date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+  const yearStart = new Date(date.getFullYear(), 0, 1);
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+};
+const formatWeekRange = (weekStart, weekEnd) => {
+  const start = localDateFromKey(weekStart);
+  const end = localDateFromKey(weekEnd);
+  const startMonth = new Intl.DateTimeFormat("en", { month: "short" }).format(start);
+  const endMonth = new Intl.DateTimeFormat("en", { month: "short" }).format(end);
+  const endYear = new Intl.DateTimeFormat("en", { year: "numeric" }).format(end);
+  if (start.getFullYear() !== end.getFullYear()) {
+    const startYear = new Intl.DateTimeFormat("en", { year: "numeric" }).format(start);
+    return `${startMonth} ${start.getDate()}, ${startYear} - ${endMonth} ${end.getDate()}, ${endYear}`;
+  }
+  if (start.getMonth() === end.getMonth()) {
+    return `${startMonth} ${start.getDate()} - ${end.getDate()}, ${endYear}`;
+  }
+  return `${startMonth} ${start.getDate()} - ${endMonth} ${end.getDate()}, ${endYear}`;
+};
+const formatCompactDate = (dateKey) => new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(localDateFromKey(dateKey));
+const formatWeekday = (dateKey, format = "short") => new Intl.DateTimeFormat("en", { weekday: format }).format(localDateFromKey(dateKey));
 
 const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverviewChange }) => {
-  const [selectedDate, setSelectedDate] = useState(todayKey());
-  const [selectedWeek, setSelectedWeek] = useState(startOfWeekKey());
+  const today = todayKey();
+  const currentWeekStart = startOfWeekKey();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedWeek, setSelectedWeek] = useState(currentWeekStart);
   const [dailyData, setDailyData] = useState(null);
   const [weeklyData, setWeeklyData] = useState(null);
   const [dailyReflectionDraft, setDailyReflectionDraft] = useState(() => reflectionDraftFrom({}, overview));
@@ -2314,6 +2820,65 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   const focusRewardsByTask = focusRewardsByTaskId(focusSessions);
   const fallbackDailyXp = earnedXpForTasks(fallbackCompletedDay, focusSessions, selectedDate, focusMultiplier);
   const fallbackWeeklyXp = earnedXpForTasks(fallbackCompletedWeek, focusSessions, null, focusMultiplier);
+  const dailyWeekStart = startOfWeekKey(localDateFromKey(selectedDate));
+  const dailyWeekEnd = addDaysKey(dailyWeekStart, 6);
+  const dailyWeekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysKey(dailyWeekStart, index)), [dailyWeekStart]);
+  const dailyWeekNumber = isoWeekNumber(dailyWeekStart);
+  const dailyWeekRange = formatWeekRange(dailyWeekStart, dailyWeekEnd);
+  const isDailyCurrentWeek = dailyWeekStart === currentWeekStart;
+  const dailyDaySummaries = useMemo(() => dailyWeekDays.map((dateKey) => {
+    return {
+      dateKey,
+      isFuture: dateKey > today,
+      isSelected: selectedDate === dateKey,
+      isToday: dateKey === today,
+    };
+  }), [dailyWeekDays, selectedDate, today]);
+  const isWeeklyAtFutureLimit = selectedWeek >= currentWeekStart;
+  const activeWeekNumber = isoWeekNumber(selectedWeek);
+  const activeWeekRange = formatWeekRange(selectedWeek, fallbackWeekEnd);
+  const isCurrentWeek = selectedWeek === currentWeekStart;
+  const isTodayInActiveWeek = today >= selectedWeek && today <= fallbackWeekEnd;
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysKey(selectedWeek, index)), [selectedWeek]);
+  const weeklyDaySummaries = useMemo(() => weekDays.map((dateKey) => {
+    const completed = tasks.filter((task) => task.status === "Done" && isSameDay(task.completedAt, dateKey)).length;
+    const focusMinutes = focusMinutesForSessions(sessionsForDay(focusSessions, dateKey));
+    return {
+      dateKey,
+      completed,
+      focusMinutes,
+      isFuture: dateKey > today,
+      isSelected: false,
+      isToday: dateKey === today,
+    };
+  }), [focusSessions, tasks, today, weekDays]);
+
+  const clampDailyDate = (dateKey) => {
+    if (!dateKey) return today;
+    return dateKey > today ? today : dateKey;
+  };
+
+  const clampWeeklyStart = (weekStart) => {
+    if (!weekStart) return currentWeekStart;
+    return weekStart > currentWeekStart ? currentWeekStart : weekStart;
+  };
+
+  const handleDailyDateChange = (dateKey) => {
+    setSelectedDate(clampDailyDate(dateKey));
+  };
+
+  const handleWeeklyDateChange = (dateKey) => {
+    if (!dateKey) {
+      setSelectedWeek(currentWeekStart);
+      return;
+    }
+    setSelectedWeek(clampWeeklyStart(startOfWeekKey(new Date(`${dateKey}T00:00:00`))));
+  };
+
+  const handleDailyDaySelect = (dateKey) => {
+    if (dateKey > today) return;
+    setSelectedDate(dateKey);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2370,6 +2935,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   }, [selectedWeek]);
 
   const generateDaily = async () => {
+    if (selectedDate > today) {
+      setSelectedDate(today);
+      return;
+    }
     const requestId = dailyRequestIdRef.current + 1;
     dailyRequestIdRef.current = requestId;
     setGenerating("daily");
@@ -2406,6 +2975,10 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   };
 
   const generateWeekly = async () => {
+    if (selectedWeek > currentWeekStart) {
+      setSelectedWeek(currentWeekStart);
+      return;
+    }
     const requestId = weeklyRequestIdRef.current + 1;
     weeklyRequestIdRef.current = requestId;
     setGenerating("weekly");
@@ -2418,8 +2991,8 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
     }
   };
 
-  const shiftDailyDate = (days) => setSelectedDate((current) => addDaysKey(current, days));
-  const shiftWeeklyDate = (days) => setSelectedWeek((current) => addDaysKey(current, days * 7));
+  const shiftDailyWeek = (weeks) => setSelectedDate((current) => clampDailyDate(addDaysKey(current, weeks * 7)));
+  const shiftWeeklyDate = (days) => setSelectedWeek((current) => clampWeeklyStart(addDaysKey(current, days * 7)));
   const dailyTasks = dailyData?.accomplished_tasks || fallbackCompletedDay;
   const dailyFocus = dailyData?.focus_sessions || fallbackDailyFocus;
   const dailyThemes = toList(dailyData?.themes);
@@ -2438,13 +3011,54 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
   return (
     <main className="page-stack" data-testid="overview-page">
       <section className="surface" data-testid="daily-overview-card">
-        <div className="section-heading">
-          <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
-          <div className="overview-controls">
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(-1)} aria-label="Previous day" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
-            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} data-testid="daily-overview-date-input" aria-label="Daily overview date" />
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftDailyDate(1)} aria-label="Next day" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
-            <button className="primary-action" onClick={generateDaily} disabled={generating === "daily"} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+        <div className="section-heading weekly-overview-heading">
+          <div>
+            <h2><CalendarBlank size={26} weight="duotone" aria-hidden="true" /> Daily Overview</h2>
+            <p>{selectedDate === today ? "Today in focus" : `Reviewing ${formatCompactDate(selectedDate)}`}</p>
+          </div>
+          <button className="primary-action" onClick={generateDaily} disabled={generating === "daily" || selectedDate > today} data-testid="generate-daily-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "daily" ? "Generating" : "Generate"}</button>
+        </div>
+        <div className={`week-navigator day-navigator ${isDailyCurrentWeek ? "week-navigator-current" : ""}`} data-testid="daily-overview-day-nav" aria-label="Daily overview date navigation">
+          <div className="week-navigator-panel">
+            <div className="week-navigator-header">
+              <div className="week-title-block">
+                <span className="week-eyebrow">Week {dailyWeekNumber}</span>
+                <strong>{dailyWeekRange}</strong>
+              </div>
+              <div className="week-tools">
+                <DatePicker
+                  value={selectedDate}
+                  onChange={handleDailyDateChange}
+                  max={today}
+                  ariaLabel="Choose daily overview date"
+                  testId="daily-overview-date-input"
+                  triggerClassName="week-jump-control"
+                  triggerLabel="Pick"
+                  align="end"
+                  allowClear={false}
+                />
+                <span className="week-context-pill">{selectedDate === today ? "Today" : "Past"}</span>
+              </div>
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftDailyWeek(-1)} aria-label="Previous week" data-testid="daily-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <div className="week-day-strip" key={dailyWeekStart} role="group" aria-label={`Days in week ${dailyWeekNumber}`}>
+              {dailyDaySummaries.map((day) => (
+                <button
+                  key={day.dateKey}
+                  type="button"
+                  className={`week-day week-day-button ${day.isSelected ? "week-day-selected" : ""} ${day.isToday ? "week-day-today" : ""} ${day.isFuture ? "week-day-future" : ""}`}
+                  onClick={() => handleDailyDaySelect(day.dateKey)}
+                  disabled={day.isFuture}
+                  aria-pressed={day.isSelected}
+                  aria-label={`${formatWeekday(day.dateKey, "long")}, ${formatCompactDate(day.dateKey)}${day.isToday ? ", today" : ""}`}
+                  data-testid={`daily-day-${day.dateKey}`}
+                >
+                  <span className="week-day-name">{formatWeekday(day.dateKey).slice(0, 1)}</span>
+                  <strong>{localDateFromKey(day.dateKey).getDate()}</strong>
+                </button>
+              ))}
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftDailyWeek(1)} disabled={dailyWeekStart >= currentWeekStart} aria-label="Next week" data-testid="daily-overview-next-button"><CaretRight size={20} weight="bold" /></button>
           </div>
         </div>
         <div className="overview-stats">
@@ -2477,13 +3091,51 @@ const OverviewPage = ({ tasks, overview, focusSessions, focusMultiplier, onOverv
         <span className="overview-status" data-testid="overview-api-status">{overviewStatus === "live" ? "AI overview from backend" : overviewStatus === "loading" ? "Loading overview" : "Draft overview from local evidence"}</span>
       </section>
       <section className="surface" data-testid="weekly-overview-card">
-        <div className="section-heading">
-          <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
-          <div className="overview-controls">
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
-            <input type="date" value={selectedWeek} onChange={(event) => setSelectedWeek(startOfWeekKey(new Date(`${event.target.value}T00:00:00`)))} data-testid="weekly-overview-week-input" aria-label="Weekly overview week" />
-            <button className="icon-button overview-step-button" type="button" onClick={() => shiftWeeklyDate(1)} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
-            <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly"} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+        <div className="section-heading weekly-overview-heading">
+          <div>
+            <h2><SquaresFour size={26} weight="duotone" aria-hidden="true" /> Weekly Overview</h2>
+            <p>{isCurrentWeek ? "Current week in progress" : "Reviewing a previous sprint week"}</p>
+          </div>
+          <button className="primary-action" onClick={generateWeekly} disabled={generating === "weekly" || selectedWeek > currentWeekStart} data-testid="generate-weekly-overview-button"><Sparkle size={19} weight="duotone" aria-hidden="true" /> {generating === "weekly" ? "Generating" : "Generate"}</button>
+        </div>
+        <div className={`week-navigator ${isCurrentWeek ? "week-navigator-current" : ""}`} data-testid="weekly-overview-week-nav" aria-label="Weekly overview navigation">
+          <div className="week-navigator-panel">
+            <div className="week-navigator-header">
+              <div className="week-title-block">
+                <span className="week-eyebrow">Week {activeWeekNumber}</span>
+                <strong>{activeWeekRange}</strong>
+              </div>
+              <div className="week-tools">
+                <DatePicker
+                  value={selectedWeek}
+                  onChange={handleWeeklyDateChange}
+                  max={today}
+                  ariaLabel="Choose weekly overview week"
+                  testId="weekly-overview-week-input"
+                  triggerClassName="week-jump-control"
+                  triggerLabel="Pick"
+                  align="end"
+                  allowClear={false}
+                />
+                <span className="week-context-pill">{isCurrentWeek ? "Active" : "Past"}</span>
+              </div>
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftWeeklyDate(-1)} aria-label="Previous week" data-testid="weekly-overview-prev-button"><CaretLeft size={20} weight="bold" /></button>
+            <div className="week-day-strip" key={selectedWeek} role="group" aria-label={`Days in week ${activeWeekNumber}`}>
+              {weeklyDaySummaries.map((day) => (
+                <div
+                  key={day.dateKey}
+                  className={`week-day week-day-static ${day.isToday ? "week-day-today" : ""} ${day.isFuture ? "week-day-future" : ""}`}
+                  aria-label={`${formatWeekday(day.dateKey, "long")}, ${formatCompactDate(day.dateKey)}${day.isToday ? ", today" : ""}. ${day.completed} completed task${day.completed === 1 ? "" : "s"}, ${formatMinutes(day.focusMinutes)} focus.`}
+                  data-week-day={day.dateKey}
+                  data-testid={`weekly-day-${day.dateKey}`}
+                >
+                  <span className="week-day-name">{formatWeekday(day.dateKey).slice(0, 1)}</span>
+                  <strong>{localDateFromKey(day.dateKey).getDate()}</strong>
+                </div>
+              ))}
+            </div>
+            <button className="icon-button overview-step-button week-nav-arrow" type="button" onClick={() => shiftWeeklyDate(1)} disabled={isWeeklyAtFutureLimit} aria-label="Next week" data-testid="weekly-overview-next-button"><CaretRight size={20} weight="bold" /></button>
           </div>
         </div>
         <div className="weekly-grid">
@@ -3326,9 +3978,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleClearQuests = () => {
     setQuestRun(null);
   };
-  const handleStartFocus = (task, questId) => {
+  const handleStartFocus = (task, questId, options = {}) => {
     const startedAt = nowIso();
     const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, taskBackendKey(task));
+    const targetDurationMinutes = clampFocusDurationMinutes(options?.targetDurationMinutes || linkedQuest?.focusTargetMinutes || FOCUS_DURATION_DEFAULT);
     setLastSavedFocus(null);
     setSavingFocusState(null);
     const nextSession = {
@@ -3341,6 +3994,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       started_at: startedAt,
       lastStartedAt: startedAt,
       accumulatedSeconds: 0,
+      targetDurationMinutes,
+      targetDurationSeconds: targetDurationMinutes * 60,
+      targetReachedAt: null,
       isRunning: true,
       created_at: startedAt,
     };
@@ -3356,8 +4012,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         });
     }
   };
-  const handleStartQuestFocus = (task, questId) => {
-    handleStartFocus(task, questId);
+  const handleStartQuestFocus = (task, questId, options) => {
+    handleStartFocus(task, questId, options);
   };
   const handleCompleteQuest = async (questId) => {
     const quest = questRun?.quests?.find((item) => item.id === questId);
@@ -3430,9 +4086,15 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTaskLoadError(apiErrorMessage(error, "Unable to activate quest."));
     }
   };
-  const handlePauseFocus = () => setActiveSession((session) => {
+  const handlePauseFocus = (metadata = {}) => setActiveSession((session) => {
     if (!session || !session.isRunning) return session;
-    return { ...session, accumulatedSeconds: activeFocusSeconds(session), isRunning: false, lastStartedAt: null };
+    return {
+      ...session,
+      accumulatedSeconds: activeFocusSeconds(session),
+      isRunning: false,
+      lastStartedAt: null,
+      ...(metadata?.targetReachedAt ? { targetReachedAt: metadata.targetReachedAt } : {}),
+    };
   });
   const handleResumeFocus = () => setActiveSession((session) => {
     if (!session || session.isRunning) return session;
