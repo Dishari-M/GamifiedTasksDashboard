@@ -26,6 +26,7 @@ backend/.tmp/
 .devquest/
 backend/.codex-rca-runtime/
 backend/.enrichment-logs/
+backend/.sync-logs/
 
 # Next.js
 /.next/

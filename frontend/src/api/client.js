@@ -214,10 +214,10 @@ export const syncApi = {
 export const jiraApi = {
   oneLineDescription: (jiraKey) => localCodexApi.post("/api/jira/one-line-description", { jira_key: jiraKey }).then(unwrap),
   taskFields: (jiraKey) => localCodexApi.post("/api/jira/task-fields", { jira_key: jiraKey }).then(unwrap),
-  rca: (jiraKey, additionalContext = "", priority = "", codeBasePath = "") => localCodexApi.post("/api/jira/rca", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath }).then(unwrap),
-  startRcaJob: (jiraKey, additionalContext = "", priority = "", codeBasePath = "") => localCodexApi.post("/api/jira/rca/jobs", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath }).then(unwrap),
+  rca: (jiraKey, additionalContext = "", priority = "", codeBasePath = "", memoryBankPath = "", skillPath = "") => localCodexApi.post("/api/jira/rca", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath, memory_bank_path: memoryBankPath, skill_path: skillPath }).then(unwrap),
+  startRcaJob: (jiraKey, additionalContext = "", priority = "", codeBasePath = "", memoryBankPath = "", skillPath = "") => localCodexApi.post("/api/jira/rca/jobs", { jira_key: jiraKey, additional_context: additionalContext, priority, code_base_path: codeBasePath, memory_bank_path: memoryBankPath, skill_path: skillPath }).then(unwrap),
   getRcaJob: (jobId) => localCodexApi.get(`/api/jira/rca/jobs/${jobId}`).then(unwrap),
   cancelRcaJob: (jobId) => localCodexApi.post(`/api/jira/rca/jobs/${jobId}/cancel`).then(unwrap),
-  selectRcaWorkspace: (initialPath = "") => localCodexApi.post("/api/jira/rca/workspace/select", { initial_path: initialPath }).then(unwrap),
+  selectRcaWorkspace: (initialPath = "", title = "") => localCodexApi.post("/api/jira/rca/workspace/select", { initial_path: initialPath, title }).then(unwrap),
   startSsoLogin: (jiraKey) => localCodexApi.post("/api/jira/sso-login", { jira_key: jiraKey }).then(unwrap),
 };

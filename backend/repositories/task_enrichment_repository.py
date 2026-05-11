@@ -121,7 +121,7 @@ def mark_succeeded(cur, user_id, job_id, task_id, result):
             UPDATED_AT = SYSTIMESTAMP
         WHERE ENRICHMENT_JOB_ID = :job_id
           AND USER_ID = :user_id
-          AND STATUS IN ('QUEUED', 'RUNNING')
+          AND STATUS IN ('QUEUED', 'RUNNING', 'FAILED')
         """,
         {
             "job_id": job_id,
@@ -144,6 +144,7 @@ def mark_failed(cur, user_id, job_id, status, error_code, error_message):
             UPDATED_AT = SYSTIMESTAMP
         WHERE ENRICHMENT_JOB_ID = :job_id
           AND USER_ID = :user_id
+          AND STATUS != 'SUCCEEDED'
         """,
         {
             "job_id": job_id,

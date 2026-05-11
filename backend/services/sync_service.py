@@ -11,6 +11,7 @@ from db import get_connection
 from repositories import task_repository
 from services.api_cache import invalidate_user_cache
 from services.filesystem_store import read_records, with_store_lock, write_records
+from services import sync_log_store
 from services.user_context import parse_oracle_user_id
 
 
@@ -247,13 +248,19 @@ async def run_sync(codex_config, user_id, sources=None):
         "sources": _running_sources(selected_sources),
         "calendar_events": [],
     }
+    sync_run_id = _create_running_sync_run(run)
+    log = _sync_logger(sync_run_id)
+    log(f"Sync requested by user_id={user_id}.")
+    log(f"Selected sources: {', '.join(sorted(selected_sources))}.")
+    log(f"Started at {started_at}.")
 
     jobs = {}
     if "Jira" in selected_sources:
-        jobs["Jira"] = _sync_jira(codex_config, user_id)
+        jobs["Jira"] = _sync_jira(codex_config, user_id, log=log)
     if "Outlook Calendar" in selected_sources:
-        jobs["Outlook Calendar"] = _sync_outlook(codex_config, user_id)
+        jobs["Outlook Calendar"] = _sync_outlook(codex_config, user_id, log=log)
 
+    log(f"Started {len(jobs)} source job(s).")
     results = await asyncio.gather(*jobs.values()) if jobs else []
     result_by_source = dict(zip(jobs.keys(), results))
     completed_at = _now_iso()
@@ -264,40 +271,47 @@ async def run_sync(codex_config, user_id, sources=None):
     run["calendar_events"] = outlook_result.get("events", [])
     run["status"] = "SUCCEEDED" if all(item["status"] in {"SUCCEEDED", "SKIPPED", "IDLE"} for item in run["sources"]) else "PARTIAL"
     run["completed_at"] = completed_at
+    _write_sync_admin_logs(sync_run_id, _sync_admin_summary(run))
 
-    def action():
-        runs = read_records(SYNC_RUNS_FILE)
-        run["sync_run_id"] = _next_id(runs, "sync_run_id")
-        runs.append(run)
-        write_records(SYNC_RUNS_FILE, runs)
-        return _sync_run_response(run)
-
-    return with_store_lock(action)
+    return _finish_sync_run(run)
 
 
-async def _sync_jira(codex_config, user_id):
+async def _sync_jira(codex_config, user_id, log=None):
     email = ""
     try:
+        _emit_sync_log(log, "Jira sync started.")
         profile = with_store_lock(lambda: _user_profile(user_id))
         email = str(profile.get("email") or "").strip()
         if not email:
+            _emit_sync_log(log, "Jira sync stopped because the user profile has no email.", "WARN")
             return _source_status("Jira", "FAILED", "Jira sync requires the logged-in user's email address.")
+        _emit_sync_log(log, f"Jira profile resolved for {email}.")
+        _emit_sync_log(log, "Submitting Jira search prompt to Codex.")
         output = await codex_config.run_codex_async(_jira_sync_prompt(codex_config, email))
+        _emit_sync_log(log, f"Jira Codex response received ({len(str(output or ''))} characters).")
         if codex_config.looks_like_mcp_auth_cancelled(output):
+            _emit_sync_log(log, "Jira MCP authentication is required before sync can continue.", "WARN")
             return _source_status("Jira", "FAILED", "Jira MCP authentication is required.", "Complete Jira SSO, then sync again.")
+        _emit_sync_log(log, "Extracting Jira JSON payload.")
         payload = codex_config.extract_json_object(output)
+        raw_issues = payload.get("issues") or payload.get("jiras") or payload.get("tasks") or []
+        raw_count = len(raw_issues) if isinstance(raw_issues, list) else 1 if raw_issues else 0
         issues = _normalize_jira_issues(payload, codex_config, email)
+        _emit_sync_log(log, f"Normalized {len(issues)} open Jira issue(s) from {raw_count} raw item(s).")
         if not issues:
+            _emit_sync_log(log, "No open Jira issues to upsert.")
             return {
                 **_source_status("Jira", "SUCCEEDED", "No open Jira issues assigned to this user."),
                 "tasks": [],
                 "created": 0,
                 "updated": 0,
             }
+        _emit_sync_log(log, "Upserting Jira work items into Oracle.")
         sync_result = _upsert_jira_work_items(user_id, issues)
         count = len(sync_result["tasks"])
         created = sync_result["created"]
         updated = sync_result["updated"]
+        _emit_sync_log(log, f"Jira upsert finished: {count} task(s), {created} created, {updated} updated.")
         return {
             **_source_status("Jira", "SUCCEEDED", f"Synced {count} open Jira issue{'s' if count != 1 else ''}: {created} added, {updated} updated."),
             **sync_result,
@@ -308,6 +322,7 @@ async def _sync_jira(codex_config, user_id):
             message = detail.get("message") or str(detail)
         else:
             message = str(detail or exc)
+        _emit_sync_log(log, f"Jira sync failed: {message}", "ERROR")
         return _source_status("Jira", "FAILED", f"Jira sync failed{f' for {email}' if email else ''}.", message)
 
 
@@ -499,10 +514,9 @@ def _upsert_jira_work_items(user_id, issues):
                 jira_key,
             )
             if existing is None:
-                task = _jira_task_payload(issue, today)
+                task = _jira_task_payload(issue)
                 ai = _jira_ai_payload(issue)
                 task_id = task_repository.insert_task(cur, oracle_user_id, task, ai)
-                task_repository.insert_work_date(cur, oracle_user_id, task_id, today, task["estimated_minutes"])
                 task_repository.insert_task_event(
                     cur,
                     oracle_user_id,
@@ -516,7 +530,6 @@ def _upsert_jira_work_items(user_id, issues):
                 task_id = existing["task_id"]
                 fields = _jira_update_fields(issue)
                 task_repository.update_task_fields(cur, oracle_user_id, task_id, fields)
-                task_repository.insert_work_date(cur, oracle_user_id, task_id, today, 60)
                 task_repository.insert_task_event(
                     cur,
                     oracle_user_id,
@@ -548,7 +561,7 @@ def _upsert_jira_work_items(user_id, issues):
             conn.close()
 
 
-def _jira_task_payload(issue, today):
+def _jira_task_payload(issue):
     return {
         "external_source": "Jira",
         "external_id": issue["jira_key"],
@@ -565,8 +578,8 @@ def _jira_task_payload(issue, today):
         "xp_value": 60,
         "notes": f"Jira status at sync: {issue.get('status') or 'Open'}",
         "labels": issue.get("labels") or [],
-        "worked_dates": [today],
-        "working_today": True,
+        "worked_dates": [],
+        "working_today": False,
         "run_ai_enrichment": False,
     }
 
@@ -617,24 +630,35 @@ def _priority_score(priority):
     return round(min(0.99, (_impact_for_priority(priority) * 0.9 + 0.1) / 10), 2)
 
 
-async def _sync_outlook(codex_config, user_id, work_date=None):
+async def _sync_outlook(codex_config, user_id, work_date=None, log=None):
     try:
+        _emit_sync_log(log, "Outlook Calendar sync started.")
         profile = with_store_lock(lambda: _user_profile(user_id))
         email = str(profile.get("email") or "").strip()
         target_date = _normalize_date(work_date or _today_key())
         start = f"{target_date}T00:00:00+05:30"
         end = f"{target_date}T23:59:59+05:30"
+        _emit_sync_log(log, f"Outlook Calendar window resolved: {start} to {end}.")
         prompt = _outlook_prompt(email, target_date, start, end)
+        _emit_sync_log(log, "Submitting Outlook Calendar prompt to Codex.")
         output = await codex_config.run_codex_async(prompt)
+        _emit_sync_log(log, f"Outlook Codex response received ({len(str(output or ''))} characters).")
+        _emit_sync_log(log, "Extracting Outlook Calendar JSON payload.")
         payload = codex_config.extract_json_object(output)
-        events = _normalize_outlook_events(payload.get("events") or [], user_id, target_date)
+        raw_events = payload.get("events") or []
+        raw_count = len(raw_events) if isinstance(raw_events, list) else 0
+        events = _normalize_outlook_events(raw_events, user_id, target_date)
+        _emit_sync_log(log, f"Normalized {len(events)} Outlook event(s) from {raw_count} raw item(s).")
+        _emit_sync_log(log, "Saving Outlook Calendar events into Oracle.")
         _replace_calendar_events(user_id, target_date, events)
         count = len(events)
+        _emit_sync_log(log, f"Outlook Calendar save finished: {count} event(s).")
         return {
             **_source_status("Outlook Calendar", "SUCCEEDED", f"Fetched {count} event{'s' if count != 1 else ''} for {target_date}."),
             "events": events,
         }
     except Exception as exc:
+        _emit_sync_log(log, f"Outlook Calendar sync failed: {_exception_message(exc)}", "ERROR")
         return {
             **_source_status("Outlook Calendar", "FAILED", "Outlook Calendar sync failed.", _exception_message(exc)),
             "events": [],
@@ -1181,6 +1205,90 @@ def _exception_message(exc):
     if detail:
         return str(detail)
     return str(exc) or exc.__class__.__name__
+
+
+def _create_running_sync_run(run):
+    def action():
+        runs = read_records(SYNC_RUNS_FILE)
+        run["sync_run_id"] = _next_id(runs, "sync_run_id")
+        runs.append(dict(run))
+        write_records(SYNC_RUNS_FILE, runs)
+        return run["sync_run_id"]
+
+    return with_store_lock(action)
+
+
+def _finish_sync_run(run):
+    def action():
+        runs = read_records(SYNC_RUNS_FILE)
+        updated = False
+        for index, existing in enumerate(runs):
+            if existing.get("sync_run_id") == run["sync_run_id"] and existing.get("user_id") == run["user_id"]:
+                runs[index] = dict(run)
+                updated = True
+                break
+        if not updated:
+            runs.append(dict(run))
+        write_records(SYNC_RUNS_FILE, runs)
+        return _sync_run_response(run)
+
+    return with_store_lock(action)
+
+
+def _sync_logger(sync_run_id):
+    def log(message, level="INFO"):
+        _write_sync_admin_log(sync_run_id, message, level)
+
+    return log
+
+
+def _emit_sync_log(log, message, level="INFO"):
+    if not log:
+        return
+    try:
+        log(message, level)
+    except Exception:
+        return
+
+
+def _sync_admin_summary(run):
+    lines = [
+        f"Completed at {run.get('completed_at')}.",
+        f"Final status: {run.get('status')}.",
+    ]
+    for source in run.get("sources") or []:
+        source_name = source.get("source") or "Unknown source"
+        status = source.get("status") or "UNKNOWN"
+        message = source.get("message") or ""
+        error = source.get("error") or ""
+        lines.append(f"{source_name}: {status}. {message}".strip())
+        if error:
+            lines.append(f"{source_name} error: {error}")
+        if source_name == "Jira":
+            lines.append(
+                "Jira counts: "
+                f"tasks={len(source.get('tasks') or [])}, "
+                f"created={source.get('created', 0)}, "
+                f"updated={source.get('updated', 0)}."
+            )
+        if source_name == "Outlook Calendar":
+            lines.append(f"Outlook events fetched: {len(source.get('events') or [])}.")
+    lines.append(f"Calendar events returned in sync response: {len(run.get('calendar_events') or [])}.")
+    return lines
+
+
+def _write_sync_admin_log(sync_run_id, message, level="INFO"):
+    try:
+        sync_log_store.append_log(sync_run_id, message, level)
+    except Exception:
+        return
+
+
+def _write_sync_admin_logs(sync_run_id, lines):
+    try:
+        sync_log_store.append_logs(sync_run_id, lines)
+    except Exception:
+        return
 
 
 def _selected_sync_sources(sources):
