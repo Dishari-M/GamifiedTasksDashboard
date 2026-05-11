@@ -59,12 +59,12 @@ def create_oracle_focus_session(payload, user_id=1):
         cur = conn.cursor()
         quest_item_id = focus_repository.resolve_quest_item_id(cur, int(user_id), data.get("quest_id"))
         task_reward_context = focus_repository.fetch_task_reward_context(cur, int(user_id), data.get("task_id"))
-        max_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_minutes"] > 0 else 1.0
-        reward = calculate_focus_reward(task_reward_context, data["duration_minutes"], max_multiplier)
+        max_multiplier = focus_repository.fetch_focus_multiplier(cur, int(user_id)) if data["duration_seconds"] > 0 else 1.0
+        reward = calculate_focus_reward(task_reward_context, data["duration_seconds"], max_multiplier)
         xp_multiplier = reward["reward_multiplier"]
         xp_awarded = reward["reward_xp"]
         focus_session_id = focus_repository.insert_focus_session(cur, int(user_id), data, quest_item_id, xp_multiplier, xp_awarded)
-        focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_minutes"], xp_multiplier, xp_awarded)
+        focus_repository.sync_quest_focus(cur, quest_item_id, data["duration_seconds"], xp_multiplier, xp_awarded)
         conn.commit()
         invalidate_user_cache(int(user_id), FOCUS_RELATED_CACHE_NAMESPACES)
         return focus_repository.fetch_focus_session(cur, int(user_id), focus_session_id)
@@ -84,7 +84,6 @@ def create_oracle_focus_session(payload, user_id=1):
 def _normalize_payload(payload):
     data = dict(payload or {})
     duration_seconds = _required_int(data.get("duration_seconds"), "duration_seconds")
-    duration_minutes = _required_int(data.get("duration_minutes"), "duration_minutes")
     outcome_type = str(data.get("outcome_type") or "").strip() or "Progress made"
     if outcome_type not in VALID_OUTCOMES:
         raise HTTPException(status_code=422, detail={"code": "VALIDATION_ERROR", "message": "Invalid outcome_type.", "details": {"field": "outcome_type"}})
@@ -100,7 +99,7 @@ def _normalize_payload(payload):
         "started_at": started_at,
         "ended_at": ended_at,
         "duration_seconds": duration_seconds,
-        "duration_minutes": max(1, duration_minutes),
+        "duration_minutes": duration_seconds // 60,
         "outcome_type": outcome_type,
         "outcome_note": str(data.get("outcome_note") or "").strip(),
         "status": "COMPLETED",

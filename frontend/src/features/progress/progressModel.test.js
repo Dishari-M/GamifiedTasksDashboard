@@ -5,7 +5,7 @@ const focusSessions = [
     focus_session_id: "focus-1",
     task_id: "T-1",
     work_date: "2026-05-06",
-    duration_minutes: 25,
+    duration_seconds: 1500,
   },
 ];
 
@@ -19,7 +19,7 @@ test("derives total xp from completed tasks plus focus reward rules", () => {
 });
 
 test("uses the configured focus multiplier cap for total xp", () => {
-  const deepFocusSessions = [{ ...focusSessions[0], duration_minutes: 50 }];
+  const deepFocusSessions = [{ ...focusSessions[0], duration_seconds: 3000 }];
   expect(deriveTotalXp([{ ...tasks[0], xp: 80, estimatedMinutes: 60 }], deepFocusSessions, 2)).toBe(160);
 });
 
@@ -60,6 +60,22 @@ test("builds a cohesive sidebar progress snapshot", () => {
 
   expect(snapshot.totalXp).toBe(66);
   expect(snapshot.streakDays).toBe(2);
+  expect(snapshot.displayStreakDays).toBe(2);
+  expect(snapshot.streakAtRisk).toBe(false);
   expect(snapshot.completedQuestDates).toEqual(["2026-05-05", "2026-05-06"]);
   expect(snapshot.completedQuestCount).toBe(4);
+});
+
+test("keeps showing yesterday's streak when today is still at risk", () => {
+  const snapshot = buildProgressSnapshot({
+    tasks,
+    focusSessions,
+    questProgress: { completedQuestDates: ["2026-05-04", "2026-05-05"], completedQuestCount: 2 },
+    referenceDate: "2026-05-06",
+  });
+
+  expect(snapshot.streakDays).toBe(0);
+  expect(snapshot.displayStreakDays).toBe(2);
+  expect(snapshot.carryoverStreakDays).toBe(2);
+  expect(snapshot.streakAtRisk).toBe(true);
 });

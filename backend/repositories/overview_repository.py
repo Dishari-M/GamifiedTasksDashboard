@@ -5,6 +5,7 @@ _EXISTING_TABLE_CACHE = set()
 
 
 def fetch_daily_overview_row(cur, user_id, overview_date):
+    _ensure_focus_seconds_columns(cur, "DAILY_OVERVIEWS")
     cur.execute(
         """
         SELECT
@@ -13,6 +14,7 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
             TASKS_COMPLETED,
             XP_EARNED,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             NEW_LEARNINGS,
             WENT_WELL,
@@ -34,16 +36,18 @@ def fetch_daily_overview_row(cur, user_id, overview_date):
         "tasks_completed": row[2] or 0,
         "xp_earned": row[3] or 0,
         "meeting_minutes": row[4] or 0,
-        "focus_minutes": row[5] or 0,
-        "new_learnings": _json_list(row[6]),
-        "went_well": _json_list(row[7]),
-        "went_wrong": _json_list(row[8]),
-        "summary": _text(row[9]),
-        "updated_at": row[10],
+        "focus_seconds": row[5] if row[5] is not None else (row[6] or 0) * 60,
+        "focus_minutes": row[6] or 0,
+        "new_learnings": _json_list(row[7]),
+        "went_well": _json_list(row[8]),
+        "went_wrong": _json_list(row[9]),
+        "summary": _text(row[10]),
+        "updated_at": row[11],
     }
 
 
 def fetch_weekly_overview_row(cur, user_id, week_start):
+    _ensure_focus_seconds_columns(cur, "WEEKLY_OVERVIEWS")
     cur.execute(
         """
         SELECT
@@ -54,6 +58,7 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
             TASKS_COMPLETED,
             XP_EARNED,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             TOP_ACCOMPLISHMENTS,
             NEW_LEARNINGS,
@@ -79,14 +84,15 @@ def fetch_weekly_overview_row(cur, user_id, week_start):
         "tasks_completed": row[4] or 0,
         "xp_earned": row[5] or 0,
         "meeting_minutes": row[6] or 0,
-        "focus_minutes": row[7] or 0,
-        "top_accomplishments": _json_list(row[8]),
-        "new_learnings": _json_list(row[9]),
-        "themes": _json_list(row[10]),
-        "went_well": _json_list(row[11]),
-        "went_wrong": _json_list(row[12]),
-        "summary": _text(row[13]),
-        "updated_at": row[14],
+        "focus_seconds": row[7] if row[7] is not None else (row[8] or 0) * 60,
+        "focus_minutes": row[8] or 0,
+        "top_accomplishments": _json_list(row[9]),
+        "new_learnings": _json_list(row[10]),
+        "themes": _json_list(row[11]),
+        "went_well": _json_list(row[12]),
+        "went_wrong": _json_list(row[13]),
+        "summary": _text(row[14]),
+        "updated_at": row[15],
     }
 
 
@@ -205,11 +211,11 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             f.SESSION_DATE,
             TO_CHAR(f.STARTED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS STARTED_AT,
             TO_CHAR(f.ENDED_AT, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM') AS ENDED_AT,
-            f.PLANNED_MINUTES,
-            f.ACTUAL_MINUTES,
+            f.DURATION_SECONDS,
+            f.DURATION_MINUTES,
             f.STATUS,
             f.XP_AWARDED,
-            f.NOTES
+            f.OUTCOME_NOTE
         FROM FOCUS_SESSIONS f
         LEFT JOIN WORK_ITEMS w
           ON TO_CHAR(w.TASK_ID) = TO_CHAR(f.TASK_ID)
@@ -229,8 +235,8 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
             "session_date": row[3].isoformat()[:10] if row[3] else None,
             "started_at": row[4],
             "ended_at": row[5],
-            "planned_minutes": row[6] or 0,
-            "actual_minutes": row[7] or 0,
+            "duration_seconds": row[6] or 0,
+            "duration_minutes": row[7] or 0,
             "status": row[8],
             "xp_awarded": row[9] or 0,
             "notes": _text(row[10]),
@@ -242,6 +248,7 @@ def fetch_focus_sessions(cur, user_id, start_date, end_date):
 def fetch_daily_overviews(cur, user_id, start_date, end_date):
     if not table_exists(cur, "DAILY_OVERVIEWS"):
         return []
+    _ensure_focus_seconds_columns(cur, "DAILY_OVERVIEWS")
     cur.execute(
         """
         SELECT
@@ -249,6 +256,7 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             TASKS_COMPLETED,
             XP_EARNED,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             NEW_LEARNINGS,
             WENT_WELL,
@@ -269,12 +277,13 @@ def fetch_daily_overviews(cur, user_id, start_date, end_date):
             "tasks_completed": row[1] or 0,
             "xp_earned": row[2] or 0,
             "meeting_minutes": row[3] or 0,
-            "focus_minutes": row[4] or 0,
-            "new_learnings": _json_list(row[5]),
-            "went_well": _json_list(row[6]),
-            "went_wrong": _json_list(row[7]),
-            "summary": _text(row[8]),
-            "updated_at": row[9],
+            "focus_seconds": row[4] if row[4] is not None else (row[5] or 0) * 60,
+            "focus_minutes": row[5] or 0,
+            "new_learnings": _json_list(row[6]),
+            "went_well": _json_list(row[7]),
+            "went_wrong": _json_list(row[8]),
+            "summary": _text(row[9]),
+            "updated_at": row[10],
         }
         for row in cur.fetchall()
     ]
@@ -350,6 +359,7 @@ def update_ai_run(cur, ai_run_id, status, response_payload=None, error_code=None
 
 
 def upsert_daily_overview(cur, user_id, overview_date, ai_run_id, overview):
+    _ensure_focus_seconds_columns(cur, "DAILY_OVERVIEWS")
     cur.execute(
         """
         MERGE INTO DAILY_OVERVIEWS target
@@ -363,6 +373,7 @@ def upsert_daily_overview(cur, user_id, overview_date, ai_run_id, overview):
             TASKS_COMPLETED = :tasks_completed,
             XP_EARNED = :xp_earned,
             MEETING_MINUTES = :meeting_minutes,
+            FOCUS_SECONDS = :focus_seconds,
             FOCUS_MINUTES = :focus_minutes,
             NEW_LEARNINGS = :new_learnings,
             WENT_WELL = :went_well,
@@ -378,6 +389,7 @@ def upsert_daily_overview(cur, user_id, overview_date, ai_run_id, overview):
             TASKS_COMPLETED,
             XP_EARNED,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             NEW_LEARNINGS,
             WENT_WELL,
@@ -395,6 +407,7 @@ def upsert_daily_overview(cur, user_id, overview_date, ai_run_id, overview):
             :tasks_completed,
             :xp_earned,
             :meeting_minutes,
+            :focus_seconds,
             :focus_minutes,
             :new_learnings,
             :went_well,
@@ -410,6 +423,7 @@ def upsert_daily_overview(cur, user_id, overview_date, ai_run_id, overview):
 
 
 def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overview):
+    _ensure_focus_seconds_columns(cur, "WEEKLY_OVERVIEWS")
     binds = _overview_binds(user_id, week_start, ai_run_id, overview)
     binds["week_end"] = week_end
     binds["top_accomplishments"] = _json(overview.get("top_accomplishments", []))
@@ -430,6 +444,7 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             TASKS_COMPLETED = :tasks_completed,
             XP_EARNED = :xp_earned,
             MEETING_MINUTES = :meeting_minutes,
+            FOCUS_SECONDS = :focus_seconds,
             FOCUS_MINUTES = :focus_minutes,
             TOP_ACCOMPLISHMENTS = :top_accomplishments,
             NEW_LEARNINGS = :new_learnings,
@@ -448,6 +463,7 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             TASKS_COMPLETED,
             XP_EARNED,
             MEETING_MINUTES,
+            FOCUS_SECONDS,
             FOCUS_MINUTES,
             TOP_ACCOMPLISHMENTS,
             NEW_LEARNINGS,
@@ -468,6 +484,7 @@ def upsert_weekly_overview(cur, user_id, week_start, week_end, ai_run_id, overvi
             :tasks_completed,
             :xp_earned,
             :meeting_minutes,
+            :focus_seconds,
             :focus_minutes,
             :top_accomplishments,
             :new_learnings,
@@ -545,6 +562,9 @@ def table_exists(cur, table_name):
 
 
 def _overview_binds(user_id, overview_date, ai_run_id, overview):
+    focus_seconds = overview.get("focus_seconds")
+    if focus_seconds is None:
+        focus_seconds = (overview.get("focus_minutes", 0) or 0) * 60
     return {
         "user_id": user_id,
         "overview_date": overview_date,
@@ -552,9 +572,30 @@ def _overview_binds(user_id, overview_date, ai_run_id, overview):
         "tasks_completed": overview.get("tasks_completed", 0),
         "xp_earned": overview.get("xp_earned", 0),
         "meeting_minutes": overview.get("meeting_minutes", 0),
+        "focus_seconds": focus_seconds,
         "focus_minutes": overview.get("focus_minutes", 0),
         "new_learnings": _json(overview.get("new_learnings", [])),
         "went_well": _json(overview.get("went_well", [])),
         "went_wrong": _json(overview.get("went_wrong", [])),
         "summary": overview.get("summary") or "",
     }
+
+
+def _ensure_focus_seconds_columns(cur, table_name):
+    if not table_exists(cur, table_name):
+        return
+    if not _column_exists(cur, table_name, "FOCUS_SECONDS"):
+        cur.execute(f"ALTER TABLE {table_name} ADD FOCUS_SECONDS NUMBER(19)")
+
+
+def _column_exists(cur, table_name, column_name):
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM USER_TAB_COLS
+        WHERE TABLE_NAME = :table_name
+          AND COLUMN_NAME = :column_name
+        """,
+        {"table_name": table_name.upper(), "column_name": column_name.upper()},
+    )
+    return bool(cur.fetchone()[0])

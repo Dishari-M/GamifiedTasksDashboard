@@ -155,6 +155,7 @@ def update_oracle_task(task_id, payload, user_id=None):
             _not_found()
         if row_version is not None and int(existing["row_version"]) != row_version:
             _conflict(existing["row_version"])
+        existing_task = task_repository.fetch_task(cur, resolved_user_id, task_id, _today_utc())
 
         fields = _update_fields(data)
         if data.get("status") == "Done":
@@ -167,6 +168,11 @@ def update_oracle_task(task_id, payload, user_id=None):
             context_task = {**data, "priority": data.get("priority") or "Medium", "task_type": data.get("task_type") or "Task"}
             ai = enrich_task_with_ai(context_task)
             fields.extend(_ai_fields(ai))
+        elif _should_refresh_derived_xp(data):
+            context_task = _xp_refresh_context(existing_task, data)
+            ai = fallback_task_enrichment(context_task)
+            fields.extend(_ai_fields(ai))
+            fields.append(("XP_VALUE", "xp_value", ai.get("xp_value")))
 
         work_date_change_requested = "worked_dates" in data or "working_today" in data
         if fields:
@@ -411,6 +417,8 @@ def _normalize_payload(payload):
 
 def _normalize_update_payload(payload):
     raw = _normalize_aliases(payload or {})
+    if raw.get("xp_value") in (None, ""):
+        raw.pop("xp_value", None)
     data = {}
     for field in (
         "title",
@@ -718,6 +726,32 @@ def _event_payload(task, ai):
 def _should_run_ai(payload):
     data = _normalize_aliases(payload or {})
     return bool(data.get("run_ai_enrichment"))
+
+
+def _should_refresh_derived_xp(data):
+    if "xp_value" in data:
+        return False
+    return any(
+        field in data
+        for field in ("priority", "task_type", "estimated_minutes", "rca_tshirt_size", "rca_file_change_count")
+    )
+
+
+def _xp_refresh_context(existing_task, data):
+    return {
+        "title": data.get("title", existing_task.get("title")),
+        "description": data.get("description", existing_task.get("description")),
+        "task_type": data.get("task_type", existing_task.get("task_type")),
+        "priority": data.get("priority", existing_task.get("priority")),
+        "status": data.get("status", existing_task.get("status")),
+        "estimated_minutes": data.get("estimated_minutes", existing_task.get("estimated_minutes")),
+        "actual_minutes": data.get("actual_minutes", existing_task.get("actual_minutes")),
+        "rca_tshirt_size": data.get("rca_tshirt_size", existing_task.get("rca_tshirt_size")),
+        "rca_file_change_count": data.get("rca_file_change_count", existing_task.get("rca_file_change_count")),
+        "notes": data.get("notes", existing_task.get("notes")),
+        "labels": data.get("labels", existing_task.get("labels")),
+        "xp_value": None,
+    }
 
 
 def _not_found():

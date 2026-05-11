@@ -88,9 +88,12 @@ const questFocusTargetMinutes = (task) => {
   return Math.min(90, Math.max(25, Math.ceil((effort * 0.55) / 5) * 5));
 };
 
+const questFocusTargetSeconds = (task) => questFocusTargetMinutes(task) * 60;
+
 const buildQuestForTask = (task, index, focusMultiplier = FOCUS_XP_MULTIPLIER) => {
   const reason = questReason(task, index);
   const reward = taskRewardDetails(task, 0, null, focusMultiplier);
+  const focusTargetMinutes = questFocusTargetMinutes(task);
   return {
     id: questIdForTask(task.id),
     taskId: task.id,
@@ -104,7 +107,9 @@ const buildQuestForTask = (task, index, focusMultiplier = FOCUS_XP_MULTIPLIER) =
     focusBonusXp: reward.focusBonusXp,
     rewardMultiplier: reward.rewardMultiplier,
     hasFocusReward: reward.hasFocusReward,
-    focusTargetMinutes: questFocusTargetMinutes(task),
+    focusTargetMinutes,
+    focusTargetSeconds: focusTargetMinutes * 60,
+    focusSeconds: 0,
     focusMinutes: 0,
     startedAt: null,
     completedAt: task.status === "Done" ? task.completedAt || nowIso() : null,
@@ -166,14 +171,18 @@ export const deriveQuestProgress = (run, tasks, focusSessions = [], focusMultipl
   const synced = isQuestRunSynced(tasks, run);
   const quests = (run.quests || []).map((quest) => {
     const task = taskById.get(quest.taskId);
-    const focusReward = focusByTask[quest.taskId] || { focusMinutes: 0, rewardMultiplier: quest.rewardMultiplier || null };
-    const focusMinutes = focusReward.focusMinutes || 0;
-    if (!task) return { ...quest, focusMinutes, state: quest.state === "active" ? "queued" : quest.state };
-    const reward = taskRewardDetails(task, focusMinutes, focusReward.rewardMultiplier, focusMultiplier);
-    if (quest.state === "skipped") return { ...quest, focusMinutes, baseXp: reward.baseXp, rewardXp: reward.rewardXp, focusBonusXp: reward.focusBonusXp, rewardMultiplier: reward.rewardMultiplier, hasFocusReward: reward.hasFocusReward, actionLabel: questActionLabel(task), focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task) };
+    const focusReward = focusByTask[quest.taskId] || { focusSeconds: 0, rewardMultiplier: quest.rewardMultiplier || null };
+    const focusSeconds = focusReward.focusSeconds || 0;
+    const focusMinutes = Math.floor(focusSeconds / 60);
+    if (!task) return { ...quest, focusSeconds, focusMinutes, state: quest.state === "active" ? "queued" : quest.state };
+    const reward = taskRewardDetails(task, focusSeconds, focusReward.rewardMultiplier, focusMultiplier);
+    const focusTargetMinutes = quest.focusTargetMinutes || questFocusTargetMinutes(task);
+    const focusTargetSeconds = quest.focusTargetSeconds || questFocusTargetSeconds(task);
+    if (quest.state === "skipped") return { ...quest, focusSeconds, focusMinutes, baseXp: reward.baseXp, rewardXp: reward.rewardXp, focusBonusXp: reward.focusBonusXp, rewardMultiplier: reward.rewardMultiplier, hasFocusReward: reward.hasFocusReward, actionLabel: questActionLabel(task), focusTargetMinutes, focusTargetSeconds };
     const isCompleted = task.status === "Done";
     return {
       ...quest,
+      focusSeconds,
       focusMinutes,
       baseXp: reward.baseXp,
       rewardXp: reward.rewardXp,
@@ -181,7 +190,8 @@ export const deriveQuestProgress = (run, tasks, focusSessions = [], focusMultipl
       rewardMultiplier: reward.rewardMultiplier,
       hasFocusReward: reward.hasFocusReward,
       actionLabel: questActionLabel(task),
-      focusTargetMinutes: quest.focusTargetMinutes || questFocusTargetMinutes(task),
+      focusTargetMinutes,
+      focusTargetSeconds,
       state: isCompleted ? "completed" : quest.state,
       completedAt: isCompleted ? quest.completedAt || task.completedAt || nowIso() : quest.completedAt,
     };
@@ -262,10 +272,10 @@ export const questRationale = (task, index) => {
 };
 
 export const questGeneratedLabel = (tasks, questRun, taskCount) => {
-  if (!isCurrentQuestRun(questRun)) return `${taskCount} Working Today task${taskCount === 1 ? "" : "s"} ready`;
-  if (!isQuestRunSynced(tasks, questRun)) return `Working Today changed since ${formatDateTime(questRun.generatedAt)}. Update quests to refresh the route.`;
-  if (questRun.status === "completed") return "Daily run completed. Review the summary or regenerate if the day changed.";
-  return `Generated ${formatDateTime(questRun.generatedAt)} from ${taskCount} task${taskCount === 1 ? "" : "s"}`;
+  if (!isCurrentQuestRun(questRun)) return `${taskCount} Working Today task${taskCount === 1 ? "" : "s"} ready to turn into Quests.`;
+  if (!isQuestRunSynced(tasks, questRun)) return `Working Today changed since ${formatDateTime(questRun.generatedAt)}. Refresh Quests to match the latest task list.`;
+  if (questRun.status === "completed") return "Today's Quests are complete. Rebuild them if your Working Today list changes.";
+  return `Built ${formatDateTime(questRun.generatedAt)} from ${taskCount} Working Today task${taskCount === 1 ? "" : "s"}.`;
 };
 
 export const getQuestTask = (tasks, quest) => tasks.find((task) => taskQuestKeys(task).includes(String(quest?.taskId)));
@@ -282,6 +292,7 @@ export const questProgressSummary = (questRun) => {
   const skipped = quests.filter((quest) => quest.state === "skipped").length;
   const earnedXp = quests.filter((quest) => quest.state === "completed").reduce((sum, quest) => sum + parseNumber(quest.rewardXp, 0), 0);
   const availableXp = quests.reduce((sum, quest) => sum + parseNumber(quest.rewardXp, 0), 0);
+  const focusSeconds = quests.reduce((sum, quest) => sum + parseNumber(quest.focusSeconds, parseNumber(quest.focusMinutes, 0) * 60), 0);
   const focusMinutes = quests.reduce((sum, quest) => sum + parseNumber(quest.focusMinutes, 0), 0);
-  return { total: quests.length, completed, skipped, earnedXp, availableXp, focusMinutes };
+  return { total: quests.length, completed, skipped, earnedXp, availableXp, focusSeconds, focusMinutes };
 };

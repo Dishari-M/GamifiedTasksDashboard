@@ -74,24 +74,31 @@ export const focusUnlockThresholdMinutes = (estimatedMinutes = 60) => {
   return clamp(Math.round(effort * FOCUS_UNLOCK_RATIO), FOCUS_UNLOCK_MIN, FOCUS_UNLOCK_MAX);
 };
 
+export const focusUnlockThresholdSeconds = (estimatedMinutes = 60) => focusUnlockThresholdMinutes(estimatedMinutes) * 60;
+
 export const focusMultiplierForMinutes = (estimatedMinutes, focusMinutes, maxMultiplier = DEFAULT_FOCUS_XP_CAP) => {
+  return focusMultiplierForSeconds(estimatedMinutes, Math.max(0, parseNumber(focusMinutes, 0)) * 60, maxMultiplier);
+};
+
+export const focusMultiplierForSeconds = (estimatedMinutes, focusSeconds, maxMultiplier = DEFAULT_FOCUS_XP_CAP) => {
   const effort = estimatedMinutesForTask({ estimatedMinutes });
-  const minutes = Math.max(0, parseNumber(focusMinutes, 0));
+  const seconds = Math.max(0, parseNumber(focusSeconds, 0));
   const rewardCap = Math.max(1, Number(maxMultiplier || DEFAULT_FOCUS_XP_CAP));
-  const unlockMinutes = focusUnlockThresholdMinutes(effort);
-  if (minutes < unlockMinutes || rewardCap <= 1) return 1;
-  const focusRatio = minutes / Math.max(effort, 1);
+  const unlockSeconds = focusUnlockThresholdSeconds(effort);
+  if (seconds < unlockSeconds || rewardCap <= 1) return 1;
+  const focusRatio = seconds / Math.max(effort * 60, 1);
   if (focusRatio >= 0.75) return rewardCap;
   if (focusRatio >= 0.5) return Math.min(rewardCap, 1.2);
   return Math.min(rewardCap, 1.1);
 };
 
-export const taskRewardDetailsWithThreshold = (task, focusMinutes = 0, persistedMultiplier = null, multiplierCap = DEFAULT_FOCUS_XP_CAP) => {
+export const taskRewardDetailsWithThreshold = (task, focusSeconds = 0, persistedMultiplier = null, multiplierCap = DEFAULT_FOCUS_XP_CAP) => {
   const breakdown = deriveTaskXpBreakdown(task);
   const baseXp = deriveTaskXp(task);
-  const minutes = Math.max(0, parseNumber(focusMinutes, 0));
+  const seconds = Math.max(0, parseNumber(focusSeconds, 0));
   const unlockMinutes = breakdown.focusUnlockMinutes;
-  const computedMultiplier = focusMultiplierForMinutes(breakdown.estimatedMinutes, minutes, multiplierCap);
+  const unlockSeconds = focusUnlockThresholdSeconds(breakdown.estimatedMinutes);
+  const computedMultiplier = focusMultiplierForSeconds(breakdown.estimatedMinutes, seconds, multiplierCap);
   const savedMultiplier = Number(persistedMultiplier || 0);
   const rewardMultiplier = savedMultiplier > 1 ? savedMultiplier : computedMultiplier;
   const hasFocusReward = rewardMultiplier > 1;
@@ -99,13 +106,16 @@ export const taskRewardDetailsWithThreshold = (task, focusMinutes = 0, persisted
   return {
     ...breakdown,
     baseXp,
-    focusMinutes: minutes,
+    focusSeconds: seconds,
+    focusMinutes: Math.floor(seconds / 60),
     unlockMinutes,
+    unlockSeconds,
     hasFocusReward,
     rewardMultiplier,
     rewardXp,
     focusBonusXp: Math.max(0, rewardXp - baseXp),
-    nextFocusUnlockMinutes: Math.max(0, unlockMinutes - minutes),
+    nextFocusUnlockMinutes: Math.max(0, Math.ceil(Math.max(0, unlockSeconds - seconds) / 60)),
+    nextFocusUnlockSeconds: Math.max(0, unlockSeconds - seconds),
   };
 };
 
@@ -140,8 +150,15 @@ export const levelProgressFromXp = (xpValue) => {
   };
 };
 
-export const streakHeat = (streakDays = 0) => {
+export const streakHeat = (streakDays = 0, { atRisk = false } = {}) => {
   const days = Math.max(0, parseNumber(streakDays, 0));
+  if (atRisk && days > 0) {
+    return {
+      tone: "risk",
+      label: "At risk",
+      description: `Complete one quest today or your ${days}-day streak resets.`,
+    };
+  }
   if (days >= 15) return { tone: "blaze", label: "Blazing", description: "Legend-tier consistency." };
   if (days >= 10) return { tone: "ember", label: "On fire", description: "You are carrying serious heat." };
   if (days >= 6) return { tone: "spark", label: "Heating up", description: "Momentum is compounding." };

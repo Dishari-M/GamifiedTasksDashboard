@@ -247,6 +247,8 @@ def update_filesystem_task(task_id, payload, user_id=LOCAL_USER_ID):
         update_data = _normalize_update_payload(payload)
         _apply_task_updates(task, update_data)
         now = _now_iso()
+        if _should_refresh_derived_xp(update_data):
+            task.update(_build_ai_fields({**task, "xp_value": None}))
         if task.get("status") == "Done":
             _clear_working_today(task, daily_items, now)
         _finish_task_update(task, now)
@@ -475,6 +477,8 @@ def _normalize_update_payload(payload):
     for alias, canonical in ALIASES.items():
         if canonical not in raw and alias in raw:
             raw[canonical] = raw[alias]
+    if raw.get("xp_value") in (None, ""):
+        raw.pop("xp_value", None)
 
     allowed = {
         "title",
@@ -611,6 +615,15 @@ def _validate_row_version(task, payload):
 def _should_run_ai(payload):
     data = dict(payload or {})
     return bool(data.get("run_ai_enrichment") or data.get("runAiEnrichment"))
+
+
+def _should_refresh_derived_xp(update_data):
+    if "xp_value" in update_data:
+        return False
+    return any(
+        field in update_data
+        for field in ("priority", "task_type", "estimated_minutes", "rca_tshirt_size", "rca_file_change_count")
+    )
 
 
 def _filter_values(value):

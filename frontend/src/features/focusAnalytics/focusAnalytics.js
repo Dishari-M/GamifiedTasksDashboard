@@ -1,6 +1,6 @@
 import { addDaysKey, formatMinutes, todayKey } from "../../utils/dateTime";
 import { parseNumber } from "../../utils/number";
-import { sessionMinutes } from "../focus/focusSessions";
+import { sessionMinutes, sessionSeconds } from "../focus/focusSessions";
 import { FOCUS_XP_MULTIPLIER, focusRewardsByTaskId, taskRewardDetails } from "../rewards/xpRewards";
 
 export const FOCUS_ANALYTICS_PERIODS = [
@@ -106,9 +106,9 @@ const xpForCompletedTasks = (tasks, focusSessions, range, dailyRows, focusMultip
   completedTasksForRange(tasks, range).forEach((task) => {
     const completedDay = dateKeyFromValue(task.completedAt || task.completed_at);
     const completedDaySessions = focusSessions.filter((session) => session.task_id === task.id && sessionDayKey(session) === completedDay);
-    const focusMinutes = completedDaySessions.reduce((sum, session) => sum + sessionMinutes(session), 0);
-    const taskReward = focusRewardsByTaskId(completedDaySessions)[task.id] || { focusMinutes: 0, rewardMultiplier: null };
-    const reward = taskRewardDetails(task, focusMinutes, taskReward.rewardMultiplier, focusMultiplier);
+    const focusSeconds = completedDaySessions.reduce((sum, session) => sum + sessionSeconds(session), 0);
+    const taskReward = focusRewardsByTaskId(completedDaySessions)[task.id] || { focusSeconds: 0, rewardMultiplier: null };
+    const reward = taskRewardDetails(task, focusSeconds, taskReward.rewardMultiplier, focusMultiplier);
     baseXp += reward.baseXp;
     focusBonusXp += reward.focusBonusXp;
     if (rowByDate[completedDay]) rowByDate[completedDay].xp += reward.rewardXp;

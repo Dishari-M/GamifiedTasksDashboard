@@ -683,6 +683,29 @@ class Phase4TaskInsertTests(unittest.TestCase):
         self.assertEqual(body["row_version"], 2)
         self.assertEqual(self._read_json("work_item_events.json")[-1]["event_type"], "TASK_UPDATED")
 
+    def test_patch_task_recomputes_xp_when_xp_driver_fields_change(self):
+        create_response = self._create_task("Patch XP")
+        task = create_response.json()
+
+        response = self.client.patch(
+            f"/api/v1/tasks/{task['id']}",
+            json={
+                "row_version": task["row_version"],
+                "priority": "Critical",
+                "type": "Epic",
+                "rcaTshirtSize": "XL",
+                "xp": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["priority"], "Critical")
+        self.assertEqual(body["task_type"], "Epic")
+        self.assertEqual(body["rca_tshirt_size"], "XL")
+        self.assertGreater(body["xp_value"], task["xp_value"])
+        self.assertEqual(body["xp"], body["xp_value"])
+
     def test_patch_task_updates_worked_dates(self):
         create_response = self._create_task("Patch worked dates")
         task = create_response.json()
