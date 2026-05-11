@@ -97,16 +97,28 @@ const dedupeGet = (key, requestFactory) => {
   return request;
 };
 
+const invalidateReadRequests = () => {
+  inFlightGetRequests.clear();
+};
+
+const writeRequest = (requestFactory) => requestFactory().then((data) => {
+  invalidateReadRequests();
+  return data;
+});
+
 export const authApi = {
-  register: (payload) => api.post("/auth/register", payload).then(unwrap),
+  register: (payload) => writeRequest(() => api.post("/auth/register", payload).then(unwrap)),
   login: (payload) => api.post("/auth/login", payload).then(unwrap),
-  logout: () => api.post("/auth/logout", {}).then(unwrap),
-  getProfile: (identifier) => api.get("/users/profile", { params: { identifier } }).then(unwrap),
+  logout: () => writeRequest(() => api.post("/auth/logout", {}).then(unwrap)),
+  getProfile: (identifier) => dedupeGet(
+    getKey("users:profile", { identifier }),
+    () => api.get("/users/profile", { params: { identifier } }).then(unwrap),
+  ),
 };
 
 export const settingsApi = {
-  get: () => api.get("/users/settings").then(unwrap),
-  save: (payload) => api.put("/users/settings", payload).then(unwrap),
+  get: () => dedupeGet("users:settings", () => api.get("/users/settings").then(unwrap)),
+  save: (payload) => writeRequest(() => api.put("/users/settings", payload).then(unwrap)),
 };
 
 export const tasksApi = {
@@ -114,18 +126,18 @@ export const tasksApi = {
     getKey("tasks:list", params),
     () => api.get("/tasks", { params }).then(unwrap),
   ),
-  create: (payload) => api.post("/tasks", payload).then(unwrap),
-  update: (taskId, payload) => api.patch(`/tasks/${taskId}`, payload).then(unwrap),
-  remove: (taskId) => api.delete(`/tasks/${taskId}`).then(unwrap),
-  updateNotes: (taskId, payload) => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap),
-  updateStatus: (taskId, payload) => api.patch(`/tasks/${taskId}/status`, payload).then(unwrap),
-  updateToday: (taskId, payload) => api.put(`/tasks/${taskId}/today`, payload).then(unwrap),
-  complete: (taskId, payload = {}) => api.post(`/tasks/${taskId}/complete`, payload).then(unwrap),
-  enrich: (taskId, payload = {}) => api.post(`/tasks/${taskId}/ai/enrich`, payload).then(unwrap),
+  create: (payload) => writeRequest(() => api.post("/tasks", payload).then(unwrap)),
+  update: (taskId, payload) => writeRequest(() => api.patch(`/tasks/${taskId}`, payload).then(unwrap)),
+  remove: (taskId) => writeRequest(() => api.delete(`/tasks/${taskId}`).then(unwrap)),
+  updateNotes: (taskId, payload) => writeRequest(() => api.put(`/tasks/${taskId}/notes`, payload).then(unwrap)),
+  updateStatus: (taskId, payload) => writeRequest(() => api.patch(`/tasks/${taskId}/status`, payload).then(unwrap)),
+  updateToday: (taskId, payload) => writeRequest(() => api.put(`/tasks/${taskId}/today`, payload).then(unwrap)),
+  complete: (taskId, payload = {}) => writeRequest(() => api.post(`/tasks/${taskId}/complete`, payload).then(unwrap)),
+  enrich: (taskId, payload = {}) => writeRequest(() => api.post(`/tasks/${taskId}/ai/enrich`, payload).then(unwrap)),
 };
 
 export const taskEnrichmentApi = {
-  start: (payload) => api.post("/task-enrichments", payload).then(unwrap),
+  start: (payload) => writeRequest(() => api.post("/task-enrichments", payload).then(unwrap)),
   list: (params = {}) => dedupeGet(
     getKey("task-enrichments:list", params),
     () => api.get("/task-enrichments", { params, timeout: ENRICHMENT_POLL_TIMEOUT_MS }).then(unwrap),
@@ -137,15 +149,24 @@ export const taskEnrichmentApi = {
 };
 
 export const questsApi = {
-  today: (params = {}) => api.get("/quests/today", { params }).then(unwrap),
-  progress: (params = {}) => api.get("/quests/progress", { params }).then(unwrap),
-  generate: (payload) => api.post("/quests/generate", payload).then(unwrap),
-  update: (questItemId, payload) => api.patch(`/quests/${questItemId}`, payload).then(unwrap),
+  today: (params = {}) => dedupeGet(
+    getKey("quests:today", params),
+    () => api.get("/quests/today", { params }).then(unwrap),
+  ),
+  progress: (params = {}) => dedupeGet(
+    getKey("quests:progress", params),
+    () => api.get("/quests/progress", { params }).then(unwrap),
+  ),
+  generate: (payload) => writeRequest(() => api.post("/quests/generate", payload).then(unwrap)),
+  update: (questItemId, payload) => writeRequest(() => api.patch(`/quests/${questItemId}`, payload).then(unwrap)),
 };
 
 export const focusApi = {
-  list: (params = {}) => api.get("/focus-sessions", { params }).then(unwrap),
-  create: (payload) => api.post("/focus-sessions", payload).then(unwrap),
+  list: (params = {}) => dedupeGet(
+    getKey("focus-sessions:list", params),
+    () => api.get("/focus-sessions", { params }).then(unwrap),
+  ),
+  create: (payload) => writeRequest(() => api.post("/focus-sessions", payload).then(unwrap)),
 };
 
 export const insightsApi = {
@@ -155,13 +176,16 @@ export const insightsApi = {
   ),
   generateToday: (payload) => {
     inFlightGetRequests.delete(getKey("insights:today", { date: payload.date }));
-    return api.post("/insights/today/generate", payload).then(unwrap);
+    return writeRequest(() => api.post("/insights/today/generate", payload).then(unwrap));
   },
 };
 
 export const standupApi = {
-  get: (params = {}) => api.get("/standup-notes", { params }).then(unwrap),
-  generate: (payload) => api.post("/standup-notes/generate", payload).then(unwrap),
+  get: (params = {}) => dedupeGet(
+    getKey("standup-notes:get", params),
+    () => api.get("/standup-notes", { params }).then(unwrap),
+  ),
+  generate: (payload) => writeRequest(() => api.post("/standup-notes/generate", payload).then(unwrap)),
 };
 
 export const overviewApi = {
@@ -169,10 +193,10 @@ export const overviewApi = {
     `overviews:daily:${params.date || ""}`,
     () => phase8Api.get("/overviews/daily", { params }).then(unwrap),
   ),
-  saveDaily: (payload) => phase8Api.put("/overviews/daily", payload).then(unwrap),
+  saveDaily: (payload) => writeRequest(() => phase8Api.put("/overviews/daily", payload).then(unwrap)),
   generateDaily: (payload) => {
     inFlightGetRequests.delete(`overviews:daily:${payload.date || ""}`);
-    return phase8Api.post("/overviews/daily/generate", payload).then(unwrap);
+    return writeRequest(() => phase8Api.post("/overviews/daily/generate", payload).then(unwrap));
   },
   weekly: (params = {}) => dedupeGet(
     `overviews:weekly:${params.week_start || ""}`,
@@ -180,16 +204,19 @@ export const overviewApi = {
   ),
   generateWeekly: (payload) => {
     inFlightGetRequests.delete(`overviews:weekly:${payload.week_start || ""}`);
-    return phase8Api.post("/overviews/weekly/generate", payload).then(unwrap);
+    return writeRequest(() => phase8Api.post("/overviews/weekly/generate", payload).then(unwrap));
   },
 };
 
 export const calendarApi = {
-  events: (params = {}) => api.get("/calendar/events", { params }).then(unwrap),
-  fetchEvents: (payload = {}) => api.post("/calendar/events/fetch", payload).then(unwrap),
-  updateEvent: (eventId, payload) => api.patch(`/calendar/events/${eventId}`, payload).then(unwrap),
-  removeEvent: (eventId) => api.delete(`/calendar/events/${eventId}`).then(unwrap),
-  restoreEvent: (eventId) => api.post(`/calendar/events/${eventId}/restore`).then(unwrap),
+  events: (params = {}) => dedupeGet(
+    getKey("calendar:events", params),
+    () => api.get("/calendar/events", { params }).then(unwrap),
+  ),
+  fetchEvents: (payload = {}) => writeRequest(() => api.post("/calendar/events/fetch", payload).then(unwrap)),
+  updateEvent: (eventId, payload) => writeRequest(() => api.patch(`/calendar/events/${eventId}`, payload).then(unwrap)),
+  removeEvent: (eventId) => writeRequest(() => api.delete(`/calendar/events/${eventId}`).then(unwrap)),
+  restoreEvent: (eventId) => writeRequest(() => api.post(`/calendar/events/${eventId}/restore`).then(unwrap)),
 };
 
 export const dashboardApi = {
@@ -207,8 +234,11 @@ export const capacityApi = {
 };
 
 export const syncApi = {
-  run: (payload) => api.post("/sync/run", payload).then(unwrap),
-  runs: (params = {}) => api.get("/sync/runs", { params }).then(unwrap),
+  run: (payload) => writeRequest(() => api.post("/sync/run", payload).then(unwrap)),
+  runs: (params = {}) => dedupeGet(
+    getKey("sync:runs", params),
+    () => api.get("/sync/runs", { params }).then(unwrap),
+  ),
 };
 
 export const jiraApi = {
