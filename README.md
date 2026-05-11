@@ -1,7 +1,14 @@
-# 🚀 Gamified Tasks Dashboard
+<h1 align="center">
+  <img src="docs/assets/gamified-tasks-dashboard-hero.png" alt="Gamified Tasks Dashboard logo" width="64" align="center" />
+  Gamified Tasks Dashboard
+</h1>
 
 <p align="center">
-  <img src="docs/assets/gamified-tasks-dashboard-hero.png" alt="Gamified Tasks Dashboard hero" width="420" />
+  <strong>AI-assisted missions, XP, focus planning, standup notes, and developer productivity insights in one workspace.</strong>
+</p>
+
+<p align="center">
+  <img src="docs/assets/gamified-tasks-dashboard-screenshot.png" alt="Gamified Tasks Dashboard screenshot" width="920" />
 </p>
 
 Gamified Tasks Dashboard is an AI-assisted, gamified productivity dashboard for developers. It brings tasks, meetings, focus time, daily missions, quests, XP, standup notes, and productivity overviews into one workspace so a developer can quickly decide what to work on next and explain progress clearly.
@@ -17,6 +24,7 @@ The app is built for the hackathon flow where work is scattered across task syst
 | ✨ AI Insights | Generate AI-backed task insights, risks, recommendations, focus guidance, and standup context. |
 | 🏁 Quests | Convert prioritized work into mission-style quest plans based on impact, effort, XP, due dates, and available capacity. |
 | 🎯 Focus Mode | Track focused work sessions and use them for XP, progress, and daily summaries. |
+| 📝 Standup Notes Generator | Produce concise standup updates from completed work, in-progress tasks, blockers, focus sessions, and calendar context. |
 | 📊 Overviews | Generate daily and weekly summaries from completed work, meetings, notes, blockers, and focus activity. |
 | 🏆 Progress | XP, streaks, levels, and reward-style feedback for consistent execution. |
 
@@ -161,6 +169,8 @@ Common local endpoints:
 - `POST /api/v1/quests/today/generate`
 - `GET /api/v1/insights/today?date=YYYY-MM-DD`
 - `POST /api/v1/insights/today/generate`
+- `GET /api/v1/standup-notes?date=YYYY-MM-DD`
+- `POST /api/v1/standup-notes/generate`
 - `GET /api/v1/overviews/daily?date=YYYY-MM-DD`
 - `POST /api/v1/overviews/daily/generate`
 - `GET /api/v1/overviews/weekly?week_start=YYYY-MM-DD`
