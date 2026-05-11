@@ -46,6 +46,7 @@ import "./App.css";
 import "./responsive-fixes.css";
 import "./feature-additions.css";
 import { authApi, calendarApi, CURRENT_USER_STORAGE_KEY, dashboardApi, focusApi, insightsApi, jiraApi, overviewApi, questsApi, settingsApi, standupApi, syncApi, taskEnrichmentApi, tasksApi } from "./api/client";
+import FocusDurationRing, { clampFocusDurationMinutes, FOCUS_DURATION_DEFAULT, focusDurationProfile } from "./features/focus/FocusDurationRing";
 import { FocusQuestBadge, FocusSavedQuestPanel } from "./features/focus/FocusMomentum";
 import FocusAnalyticsPage from "./features/focusAnalytics/FocusAnalyticsPage";
 import { activeFocusSeconds, ACTIVE_FOCUS_STORAGE_KEY, createFocusId, FOCUS_SESSIONS_STORAGE_KEY, focusMinutesForSessions, focusOutcomes, orderedFocusTasks, sessionsForDay, sessionMinutes, topFocusedTask } from "./features/focus/focusSessions";
@@ -694,9 +695,11 @@ const ShortFocusSessionDialog = ({ open, onCancel, onConfirm }) => {
   );
 };
 
-const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
+const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questRun, questContext, onStartFocus, onPauseFocus, onResumeFocus, onStopFocus, compact = false }) => {
   const taskOptions = useMemo(() => orderedFocusTasks(tasks), [tasks]);
   const [selectedTaskId, setSelectedTaskId] = useState(() => activeSession?.task_id || taskOptions[0]?.id || "");
+  const [selectedDurationMinutes, setSelectedDurationMinutes] = useState(FOCUS_DURATION_DEFAULT);
+  const [hasCustomDuration, setHasCustomDuration] = useState(false);
   const [outcomeType, setOutcomeType] = useState("Progress made");
   const [outcomeNote, setOutcomeNote] = useState("");
   const [isShortFocusDialogOpen, setIsShortFocusDialogOpen] = useState(false);
@@ -719,22 +722,45 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
 
   const elapsedSeconds = activeFocusSeconds(activeSession);
   const todaySessions = sessionsForDay(focusSessions);
-  const focusedToday = focusMinutesForSessions(todaySessions);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const activeTask = activeSession ? tasks.find((task) => task.id === activeSession.task_id) || selectedTask : null;
   const selectedTaskSessions = selectedTask ? todaySessions.filter((session) => session.task_id === selectedTask.id) : [];
   const selectedTaskFocusedToday = focusMinutesForSessions(selectedTaskSessions);
-  const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id ? questContext.quest : null;
+  const selectedQuest = questContext && selectedTask && questContext.task?.id === selectedTask.id
+    ? questContext.quest
+    : selectedTask ? getOpenQuestForTask(questRun, taskBackendKey(selectedTask)) : null;
   const selectedQuestFocusMinutes = selectedQuest ? selectedQuest.focusMinutes : selectedTaskFocusedToday;
   const selectedQuestTargetMinutes = selectedQuest?.focusTargetMinutes || selectedTask?.time || 0;
-  const progress = Math.min(360, (elapsedSeconds / (25 * 60)) * 360);
-  const statusLabel = activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
+  const suggestedDurationMinutes = clampFocusDurationMinutes(selectedQuest?.focusTargetMinutes || FOCUS_DURATION_DEFAULT);
+  const activeTargetMinutes = clampFocusDurationMinutes(activeSession?.targetDurationMinutes || Math.ceil((activeSession?.targetDurationSeconds || 0) / 60) || FOCUS_DURATION_DEFAULT);
+  const activeTargetSeconds = Math.max(1, Number(activeSession?.targetDurationSeconds || activeTargetMinutes * 60));
+  const activeDurationProfile = focusDurationProfile(activeTargetMinutes);
+  const progress = activeSession ? Math.min(360, (elapsedSeconds / activeTargetSeconds) * 360) : 0;
+  const isOverTarget = Boolean(activeSession && elapsedSeconds >= activeTargetSeconds);
+  const statusLabel = activeSession?.targetReachedAt && activeSession?.isRunning ? "Overtime" : activeSession?.targetReachedAt ? "Target reached" : activeSession?.isRunning ? "In focus" : activeSession ? "Paused" : "Ready to start";
+  const activeStatusLabel = activeSession ? `${statusLabel} - ${formatMinutes(activeTargetMinutes)} target` : statusLabel;
   const plannedMinutes = selectedTask ? formatMinutes(selectedTask.time) : "No task";
   const hasTasks = taskOptions.length > 0;
 
+  useEffect(() => {
+    if (activeSession || hasCustomDuration) return;
+    setSelectedDurationMinutes(suggestedDurationMinutes);
+  }, [activeSession, hasCustomDuration, suggestedDurationMinutes]);
+
+  useEffect(() => {
+    if (!activeSession?.isRunning || activeSession.targetReachedAt || !activeTargetSeconds) return;
+    if (elapsedSeconds < activeTargetSeconds) return;
+    onPauseFocus({ targetReachedAt: nowIso() });
+  }, [activeSession?.isRunning, activeSession?.targetReachedAt, activeTargetSeconds, elapsedSeconds, onPauseFocus]);
+
+  const updateSelectedDuration = (minutes) => {
+    setHasCustomDuration(true);
+    setSelectedDurationMinutes(clampFocusDurationMinutes(minutes));
+  };
+
   const startFocus = () => {
     if (!selectedTask) return;
-    onStartFocus(selectedTask);
+    onStartFocus(selectedTask, selectedQuest?.id, { targetDurationMinutes: selectedDurationMinutes });
   };
 
   const saveFocusSession = () => {
@@ -755,13 +781,35 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
   if (activeSession) {
     const activeTaskTitle = activeSession.task_title || activeTask?.title || "Current focus task";
     const activeTaskContext = activeTask?.source ? `${activeTask.source}${activeTask.priority ? ` - ${activeTask.priority}` : ""}` : "Focus session";
+    const isPaused = !activeSession.isRunning;
 
     return (
       <>
         <section className="surface focus-widget focus-widget-active" data-testid="focus-widget" aria-label="Active focus session">
           <div className="focus-hero-grid focus-hero-grid-active">
-            <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-              <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
+            <div
+              className={`timer-ring focus-session-ring focus-session-ring-${activeDurationProfile.tone}${isOverTarget ? " focus-session-ring-overtime" : ""}${isPaused ? " focus-session-ring-paused" : ""}`}
+              style={{
+                "--timer-progress": `${progress}deg`,
+                "--focus-ring-start": activeDurationProfile.start,
+                "--focus-ring-end": activeDurationProfile.end,
+                "--focus-ring-glow": activeDurationProfile.glow,
+              }}
+              data-testid="focus-timer-ring"
+              aria-label="Focus session progress"
+            >
+              <div className="focus-timer-content"><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{activeStatusLabel}</span></div>
+              {isPaused && (
+                <button
+                  className="focus-ring-resume-button"
+                  type="button"
+                  onClick={onResumeFocus}
+                  aria-label="Resume focus session"
+                  data-testid="focus-ring-resume-button"
+                >
+                  <Play size={34} weight="fill" aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
           <article className="focus-active-task-card" data-testid="focus-active-task">
@@ -793,9 +841,13 @@ const FocusWidget = ({ tasks = [], focusSessions = [], activeSession, questConte
       </div>
       <div className="focus-launcher-layout" data-testid="focus-session-layout">
         <div className="focus-hero-grid focus-launcher-hero">
-          <div className="timer-ring focus-session-ring" style={{ "--timer-progress": `${progress}deg` }} data-testid="focus-timer-ring" aria-label="Focus session progress">
-            <div><strong data-testid="focus-timer-value">{formatTimer(elapsedSeconds)}</strong><span data-testid="focus-timer-label">{statusLabel}</span></div>
-          </div>
+          <FocusDurationRing
+            value={selectedDurationMinutes}
+            onChange={updateSelectedDuration}
+            disabled={!selectedTask}
+            compact={compact}
+            data-testid="focus-duration-ring"
+          />
         </div>
         <div className="focus-launcher-panel">
           <label className="focus-task-picker">
@@ -1577,7 +1629,7 @@ const Dashboard = ({ tasks, questRun, focusSessions, activeSession, focusMultipl
         <section className="surface missions-panel" data-testid="missions-panel"><div className="section-heading"><h2><Flag size={26} weight="duotone" aria-hidden="true" /> Today&apos;s Missions</h2><NavLink to="/quests" data-testid="view-all-missions-link">{questRun?.status === "needs_update" ? "Update quests" : "View quests"}</NavLink></div>{questRun?.status === "needs_update" && <p className="quest-board-summary quest-board-warning" data-testid="dashboard-quests-update-warning">Working Today changed. Update the run before trusting the order.</p>}<div className="mission-list">{topMissions.map((task, index) => <MissionCard key={task.id} task={task} index={index} questMeta={isUsableQuestRun(tasks, questRun) ? { action: questActionLabel(task), rationale: questRationale(task, index) } : null} />)}</div></section>
         <SchedulePanel events={dashboardSchedule} />
         <section className="surface my-tasks-panel" data-testid="my-tasks-panel"><div className="section-heading task-panel-heading"><h2><ListBullets size={26} weight="duotone" aria-hidden="true" /> My Tasks</h2><NavLink className="add-task-link" to="/tasks" data-testid="dashboard-add-task-link"><Plus size={19} weight="bold" aria-hidden="true" /> Add Task</NavLink></div><div className="tab-row" role="tablist" aria-label="Task filters">{dashboardTaskFilters.map((tab) => <button key={tab} type="button" className={activeTaskFilter === tab ? "tab active" : "tab"} role="tab" aria-selected={activeTaskFilter === tab} onClick={() => setActiveTaskFilter(tab)} data-testid={`task-filter-${slug(tab)}`}>{tab}</button>)}</div><TaskTable tasks={filteredTasks} onStatusChange={onStatusChange} onEdit={onEdit} onToggleToday={onToggleToday} onUpdateNotes={onUpdateNotes} todayToggleLoadingId={todayToggleLoadingId} editable={false} /></section>
-        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
+        <aside className="right-stack" data-testid="right-stack"><FocusWidget compact tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questRun={questRun} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} /><section className="surface insight-card" data-testid="ai-insight-card"><div className="quote-mark" aria-hidden="true">&quot;</div><h2><Sparkle size={25} weight="duotone" aria-hidden="true" /> AI Insight</h2><p data-testid="ai-insight-text">{dashboardInsight?.text || topMissions[0]?.aiInsight || "Select work for today to generate focused insights."}</p><div className="insight-grid"><span data-testid="ai-capacity-value">{formatMinutes(dashboardInsight?.capacity_minutes ?? todayTasks.reduce((sum, task) => sum + task.time, 0))} {dashboardInsight ? "capacity" : "planned"}</span><span data-testid="ai-impact-value">{dashboardInsight?.impact_score ? `${dashboardInsight.impact_score}/10 impact` : `${Math.round((topMissions[0]?.priorityScore || 0) * 100)} priority score`}</span></div></section><section className="surface quote-card" data-testid="quote-card"><div className="quote-mark" aria-hidden="true">&quot;</div><p data-testid="quote-text">Discipline is the bridge between goals and accomplishment.</p><span data-testid="quote-author">- Jim Rohn</span></section></aside>
       </div>
       <p className="footer-note" data-testid="dashboard-footer-note">You&apos;re doing great. Keep the momentum going.</p>
     </main>
@@ -1788,7 +1840,7 @@ const FocusPage = ({ tasks, questRun, focusSessions, activeSession, lastSavedFoc
 
   return (
     <main className={`focus-page ${activeSession ? "focus-page-active" : ""}`} data-testid="focus-page">
-      <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
+      <FocusWidget tasks={tasks} focusSessions={focusSessions} activeSession={activeSession} questRun={questRun} questContext={questContext} onStartFocus={onStartFocus} onPauseFocus={onPauseFocus} onResumeFocus={onResumeFocus} onStopFocus={onStopFocus} />
       {!activeSession && (
         <section className="focus-secondary-grid" data-testid="focus-support-grid">
           <article className="surface focus-secondary-card focus-today-card" data-testid="focus-today-card">
@@ -3355,9 +3407,10 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
   const handleClearQuests = () => {
     setQuestRun(null);
   };
-  const handleStartFocus = (task, questId) => {
+  const handleStartFocus = (task, questId, options = {}) => {
     const startedAt = nowIso();
     const linkedQuest = questId ? getQuestById(questRun, questId) : getOpenQuestForTask(questRun, taskBackendKey(task));
+    const targetDurationMinutes = clampFocusDurationMinutes(options?.targetDurationMinutes || linkedQuest?.focusTargetMinutes || FOCUS_DURATION_DEFAULT);
     setLastSavedFocus(null);
     setSavingFocusState(null);
     const nextSession = {
@@ -3370,6 +3423,9 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       started_at: startedAt,
       lastStartedAt: startedAt,
       accumulatedSeconds: 0,
+      targetDurationMinutes,
+      targetDurationSeconds: targetDurationMinutes * 60,
+      targetReachedAt: null,
       isRunning: true,
       created_at: startedAt,
     };
@@ -3385,8 +3441,8 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
         });
     }
   };
-  const handleStartQuestFocus = (task, questId) => {
-    handleStartFocus(task, questId);
+  const handleStartQuestFocus = (task, questId, options) => {
+    handleStartFocus(task, questId, options);
   };
   const handleCompleteQuest = async (questId) => {
     const quest = questRun?.quests?.find((item) => item.id === questId);
@@ -3455,9 +3511,15 @@ const AppShell = ({ currentUser, isLoggingOut, onLogout, onUserUpdate }) => {
       setTaskLoadError(apiErrorMessage(error, "Unable to activate quest."));
     }
   };
-  const handlePauseFocus = () => setActiveSession((session) => {
+  const handlePauseFocus = (metadata = {}) => setActiveSession((session) => {
     if (!session || !session.isRunning) return session;
-    return { ...session, accumulatedSeconds: activeFocusSeconds(session), isRunning: false, lastStartedAt: null };
+    return {
+      ...session,
+      accumulatedSeconds: activeFocusSeconds(session),
+      isRunning: false,
+      lastStartedAt: null,
+      ...(metadata?.targetReachedAt ? { targetReachedAt: metadata.targetReachedAt } : {}),
+    };
   });
   const handleResumeFocus = () => setActiveSession((session) => {
     if (!session || session.isRunning) return session;

@@ -9491,3 +9491,416 @@ html[data-theme="light"] .focus-confirm-actions .ghost-button {
     width: 100%;
   }
 }
+
+.focus-duration-ring {
+  --focus-ring-size: min(214px, 68vw);
+  width: var(--focus-ring-size);
+  aspect-ratio: 1;
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 10px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background:
+    radial-gradient(circle at center, rgba(12, 17, 27, 0.98) 0 53%, transparent 54%),
+    radial-gradient(circle at center, rgba(137, 145, 163, 0.13) 54%, rgba(137, 145, 163, 0.13) 62%, transparent 63%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 30px var(--focus-ring-glow),
+    inset 0 0 32px rgba(255, 255, 255, 0.035);
+  transition: filter 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.focus-page .focus-duration-ring {
+  --focus-ring-size: min(206px, 58vw);
+}
+
+.focus-compact .focus-duration-ring,
+.focus-duration-compact {
+  --focus-ring-size: min(184px, 56vw);
+}
+
+.focus-duration-ring:hover,
+.focus-duration-ring:focus-visible,
+.focus-duration-ring.is-dragging {
+  filter: saturate(1.1);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 44px var(--focus-ring-glow),
+    inset 0 0 38px rgba(255, 255, 255, 0.045);
+}
+
+.focus-duration-ring.is-dragging {
+  cursor: grabbing;
+  transform: scale(1.015);
+}
+
+.focus-duration-ring.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  filter: grayscale(0.25);
+}
+
+.focus-duration-ring-center {
+  width: 56%;
+  aspect-ratio: 1;
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  border-radius: 50%;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.06), transparent 58%),
+    rgba(9, 13, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.focus-duration-ring-center strong {
+  font-family: "Exo 2", sans-serif;
+  font-size: clamp(2.05rem, 5.8vw, 3rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.focus-duration-ring-center span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.focus-duration-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.focus-duration-ring-track,
+.focus-duration-ring-arc {
+  fill: none;
+  transform: rotate(-90deg);
+  transform-origin: 60px 60px;
+}
+
+.focus-duration-ring-track {
+  stroke: rgba(137, 145, 163, 0.16);
+}
+
+.focus-duration-ring-arc {
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 12px var(--focus-ring-glow));
+  transition: stroke-dashoffset 120ms ease;
+}
+
+.focus-duration-marker {
+  stroke: rgba(255, 255, 255, 0.24);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  transform: none;
+}
+
+.focus-duration-marker.active {
+  stroke: #fff;
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 8px var(--focus-ring-glow));
+}
+
+.focus-duration-ring-handle-glow {
+  fill: var(--focus-ring-glow);
+  opacity: 0.9;
+  filter: drop-shadow(0 0 12px var(--focus-ring-glow));
+}
+
+.focus-duration-ring-handle {
+  fill: #fff;
+  stroke: rgba(255, 255, 255, 0.72);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 12px var(--focus-ring-glow));
+  transition: cx 120ms ease, cy 120ms ease, filter 180ms ease;
+}
+
+.focus-duration-ring.is-dragging .focus-duration-ring-arc,
+.focus-duration-ring.is-dragging .focus-duration-ring-handle {
+  transition: none;
+}
+
+.focus-session-ring {
+  background:
+    radial-gradient(circle at center, var(--surface) 58%, transparent 60%),
+    conic-gradient(from -90deg, var(--focus-ring-start, var(--violet)) var(--timer-progress), rgba(137, 145, 163, 0.15) 0);
+  filter: drop-shadow(0 0 18px var(--focus-ring-glow, rgba(112, 71, 255, 0.24)));
+}
+
+.focus-session-ring-overtime {
+  background:
+    radial-gradient(circle at center, var(--surface) 58%, transparent 60%),
+    conic-gradient(from -90deg, var(--focus-ring-start, var(--gold)) 0deg, var(--focus-ring-end, #ff4fd8) 360deg);
+  filter: drop-shadow(0 0 26px var(--focus-ring-glow, rgba(255, 113, 198, 0.35)));
+}
+
+.focus-session-ring span {
+  display: block;
+  max-width: 16ch;
+  margin: 0 auto;
+  line-height: 1.25;
+}
+
+html[data-theme="light"] .focus-duration-ring {
+  color: #16231d;
+  background:
+    radial-gradient(circle at center, #fffaf1 0 53%, transparent 54%),
+    radial-gradient(circle at center, #dbe6d3 54%, #dbe6d3 62%, transparent 63%);
+  box-shadow:
+    0 0 0 1px rgba(107, 89, 62, 0.22),
+    0 16px 30px rgba(86, 76, 61, 0.12),
+    0 0 24px rgba(124, 100, 154, 0.14);
+}
+
+html[data-theme="light"] .focus-duration-ring-center {
+  background: #fffdf7;
+  border-color: rgba(147, 128, 98, 0.28);
+  box-shadow: inset 0 0 28px rgba(86, 76, 61, 0.05);
+}
+
+html[data-theme="light"] .focus-duration-ring-track {
+  stroke: #dbe6d3;
+}
+
+html[data-theme="light"] .focus-duration-marker {
+  stroke: rgba(63, 76, 69, 0.34);
+}
+
+html[data-theme="light"] .focus-duration-marker.active {
+  stroke: #18231f;
+}
+
+html[data-theme="light"] .focus-duration-ring-handle {
+  fill: #18231f;
+  stroke: rgba(255, 253, 247, 0.72);
+}
+
+html[data-theme="light"] .focus-session-ring {
+  background:
+    radial-gradient(circle at center, #fffaf1 58%, transparent 60%),
+    conic-gradient(from -90deg, var(--focus-ring-start, #4f8559) var(--timer-progress), #dbe6d3 0);
+  filter: none;
+}
+
+html[data-theme="light"] .focus-session-ring-overtime {
+  background:
+    radial-gradient(circle at center, #fffaf1 58%, transparent 60%),
+    conic-gradient(from -90deg, var(--focus-ring-start, #b57918) 0deg, var(--focus-ring-end, #b64b8d) 360deg);
+}
+
+@media (max-width: 760px) {
+  .focus-page .focus-duration-ring {
+    --focus-ring-size: min(210px, 70vw);
+  }
+
+  .focus-compact .focus-duration-ring,
+  .focus-duration-compact {
+    --focus-ring-size: min(184px, 62vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-duration-ring,
+  .focus-duration-ring-handle {
+    transition: none !important;
+  }
+
+  .focus-duration-ring.is-dragging {
+    transform: none;
+  }
+}
+
+.focus-secondary-grid {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  min-width: 0;
+}
+
+.focus-quest-saved-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.focus-quest-saved .ghost-button,
+.focus-quest-saved .primary-action {
+  width: 100%;
+  min-height: 44px;
+  align-self: stretch;
+}
+
+html[data-theme="light"] .focus-quest-badge em {
+  color: #1f7a3a;
+  font-weight: 950;
+}
+
+.focus-session-ring {
+  position: relative;
+  overflow: hidden;
+}
+
+.focus-timer-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  transition: opacity 180ms ease, filter 180ms ease, transform 180ms ease;
+}
+
+.focus-session-ring-paused .focus-timer-content {
+  opacity: 0.3;
+  filter: blur(3px);
+  transform: scale(0.98);
+}
+
+.focus-session-ring-paused::before {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  z-index: 2;
+  border-radius: 50%;
+  background: rgba(6, 10, 18, 0.34);
+  backdrop-filter: blur(7px);
+  pointer-events: none;
+}
+
+.focus-ring-resume-button {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  width: clamp(64px, 18vw, 88px);
+  height: clamp(64px, 18vw, 88px);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #fff;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.28), transparent 34%),
+    linear-gradient(135deg, var(--violet), #276bff);
+  box-shadow:
+    0 0 0 10px rgba(255, 255, 255, 0.05),
+    0 16px 36px rgba(39, 107, 255, 0.35),
+    0 0 36px var(--focus-ring-glow, rgba(112, 71, 255, 0.32));
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.focus-ring-resume-button:hover,
+.focus-ring-resume-button:focus-visible {
+  transform: translate(-50%, -50%) scale(1.04);
+  filter: saturate(1.08);
+  box-shadow:
+    0 0 0 12px rgba(255, 255, 255, 0.07),
+    0 18px 40px rgba(39, 107, 255, 0.42),
+    0 0 44px var(--focus-ring-glow, rgba(112, 71, 255, 0.4));
+}
+
+html[data-theme="light"] .focus-session-ring-paused::before {
+  background: rgba(255, 250, 241, 0.48);
+}
+
+html[data-theme="light"] .focus-ring-resume-button {
+  color: #fff;
+  border-color: rgba(65, 80, 71, 0.22);
+  box-shadow:
+    0 0 0 10px rgba(47, 107, 61, 0.08),
+    0 14px 30px rgba(86, 76, 61, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-timer-content,
+  .focus-ring-resume-button {
+    transition: none !important;
+  }
+}
+
+html[data-theme="light"] .focus-period-control {
+  border-color: rgba(112, 96, 70, 0.5);
+  background: #e7ded2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="light"] .focus-period-control button {
+  color: #18231f;
+  background: transparent;
+}
+
+html[data-theme="light"] .focus-period-control button:hover,
+html[data-theme="light"] .focus-period-control button:focus-visible {
+  color: #102019;
+  background: #f6efe4;
+}
+
+html[data-theme="light"] .focus-period-control button.active {
+  color: #fffdf7;
+  border-color: #4f7898;
+  background: linear-gradient(135deg, #587fa3, #7699bd);
+  box-shadow: 0 8px 18px rgba(64, 93, 119, 0.22);
+}
+
+html[data-theme="light"] .focus-analytics-hero .quest-eyebrow {
+  color: #11636f;
+  border-color: rgba(17, 99, 111, 0.34);
+  background: #d8f3f5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html[data-theme="light"] .focus-analytics-stat {
+  border-color: rgba(116, 98, 70, 0.52);
+  background: #fffaf1;
+  box-shadow: 0 12px 28px rgba(86, 76, 61, 0.08);
+}
+
+html[data-theme="light"] .focus-analytics-stat-head {
+  color: #17231f;
+}
+
+html[data-theme="light"] .focus-analytics-stat-head svg {
+  color: #2f79ad;
+  opacity: 1;
+  filter: drop-shadow(0 4px 8px rgba(47, 121, 173, 0.16));
+}
+
+html[data-theme="light"] .focus-analytics-stat p {
+  color: #33443d;
+}
+
+html[data-theme="light"] .focus-analytics-insights {
+  border-color: rgba(116, 98, 70, 0.44);
+  background: #fffaf1;
+}
+
+html[data-theme="light"] .focus-insight-grid article {
+  border-color: rgba(147, 128, 98, 0.42);
+  background: #fffdf7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="light"] .focus-insight-grid svg {
+  color: #2f8a58;
+  opacity: 1;
+  filter: drop-shadow(0 4px 8px rgba(47, 138, 88, 0.14));
+}
+
+html[data-theme="light"] .focus-insight-grid p {
+  color: #23302b;
+}

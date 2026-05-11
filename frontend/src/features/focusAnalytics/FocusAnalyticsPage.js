@@ -1,10 +1,23 @@
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { CalendarBlank, ChartLineUp, Clock, Fire, Lightbulb, TrendUp, Trophy } from "@phosphor-icons/react";
-import { formatMinutes } from "../../utils/dateTime";
+import { addDaysKey, formatMinutes } from "../../utils/dateTime";
 import { buildFocusAnalytics, FOCUS_ANALYTICS_PERIODS } from "./focusAnalytics";
 
 const CHART_COLORS = ["#7bb7ff", "#9bd7b1", "#f3c96b", "#c8a7ff", "#f28b82", "#67d7e5"];
+const SHORT_MONTH_FORMATTER = new Intl.DateTimeFormat("en", { month: "short" });
+
+const shortWeekRangeLabel = (weekKey) => {
+  const start = new Date(`${weekKey}T12:00:00`);
+  const endKey = addDaysKey(weekKey, 6);
+  const end = new Date(`${endKey}T12:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return weekKey;
+  const startMonth = SHORT_MONTH_FORMATTER.format(start);
+  const endMonth = SHORT_MONTH_FORMATTER.format(end);
+  return startMonth === endMonth
+    ? `${startMonth} ${start.getDate()}-${end.getDate()}`
+    : `${startMonth} ${start.getDate()}-${endMonth} ${end.getDate()}`;
+};
 
 const AnalyticsStatCard = ({ label, value, detail, icon: Icon, testId }) => (
   <article className="surface focus-analytics-stat" data-testid={testId}>
@@ -35,8 +48,8 @@ const NoChartData = ({ message = "No chart data for this period yet." }) => (
 
 const chartValue = (item, valueKey) => Math.max(0, Number(item?.[valueKey]) || 0);
 
-const SvgText = ({ x, y, children, anchor = "middle", className = "focus-chart-label" }) => (
-  <text x={x} y={y} textAnchor={anchor} className={className}>{children}</text>
+const SvgText = ({ x, y, children, anchor = "middle", className = "focus-chart-label", transform }) => (
+  <text x={x} y={y} textAnchor={anchor} className={className} transform={transform}>{children}</text>
 );
 
 const LineTrendChart = ({ data, valueKey = "minutes", unit = "min", color = CHART_COLORS[0] }) => {
@@ -80,7 +93,7 @@ const LineTrendChart = ({ data, valueKey = "minutes", unit = "min", color = CHAR
   );
 };
 
-const BarMetricChart = ({ data, valueKey = "minutes", unit = "min", color = CHART_COLORS[1], emptyMessage }) => {
+const BarMetricChart = ({ data, valueKey = "minutes", unit = "min", color = CHART_COLORS[1], emptyMessage, verticalLabels = false }) => {
   const filteredData = data.length ? data : [];
   const values = filteredData.map((item) => chartValue(item, valueKey));
   const max = Math.max(1, ...values);
@@ -92,17 +105,19 @@ const BarMetricChart = ({ data, valueKey = "minutes", unit = "min", color = CHAR
   const left = 44;
   const right = 18;
   const top = 18;
-  const bottom = 48;
+  const bottom = verticalLabels ? 42 : 48;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
   const gap = 10;
   const barWidth = Math.max(12, (plotWidth - gap * Math.max(0, filteredData.length - 1)) / filteredData.length);
-  const labelEvery = Math.max(1, Math.ceil(filteredData.length / 6));
+  const labelEvery = verticalLabels ? 1 : Math.max(1, Math.ceil(filteredData.length / 6));
+  const baselineY = top + plotHeight;
+  const verticalLabelY = baselineY + 16;
 
   return (
     <svg className="native-focus-chart" viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
       {[0, 0.5, 1].map((ratio) => {
-        const y = top + plotHeight - ratio * plotHeight;
+        const y = baselineY - ratio * plotHeight;
         return <line key={ratio} className="focus-chart-grid-line" x1={left} x2={left + plotWidth} y1={y} y2={y} />;
       })}
       <SvgText x={left - 12} y={top + 4} anchor="end">{max} {unit}</SvgText>
@@ -110,12 +125,16 @@ const BarMetricChart = ({ data, valueKey = "minutes", unit = "min", color = CHAR
         const value = chartValue(item, valueKey);
         const barHeight = Math.max(2, (value / max) * plotHeight);
         const x = left + index * (barWidth + gap);
-        const y = top + plotHeight - barHeight;
+        const y = baselineY - barHeight;
         return (
           <g key={item.week || item.date || item.label}>
             <rect className="focus-chart-bar" x={x} y={y} width={barWidth} height={barHeight} rx="7" fill={color} />
             {filteredData.length <= 8 && value > 0 && <SvgText x={x + barWidth / 2} y={Math.max(12, y - 7)}>{value}</SvgText>}
-            {(index % labelEvery === 0 || index === filteredData.length - 1) && <SvgText x={x + barWidth / 2} y={height - 18}>{item.label}</SvgText>}
+            {(index % labelEvery === 0 || index === filteredData.length - 1) && (
+              verticalLabels
+                ? <SvgText x={x + barWidth / 2} y={verticalLabelY} anchor="end" transform={`rotate(-90 ${x + barWidth / 2} ${verticalLabelY})`}>{item.label}</SvgText>
+                : <SvgText x={x + barWidth / 2} y={height - 18}>{item.label}</SvgText>
+            )}
           </g>
         );
       })}
@@ -207,6 +226,7 @@ const FocusAnalyticsPage = ({ tasks = [], focusSessions = [], focusMultiplier })
   const dateRangeLabel = `${analytics.range.start} to ${analytics.range.end}`;
   const dailySummary = `${analytics.dailyRows.filter((row) => row.minutes > 0).length} active day(s), ${formatMinutes(stats.totalMinutes)} total.`;
   const weeklySummary = analytics.weeklyRows.length ? `${analytics.weeklyRows.length} week bucket(s) in range.` : "No weekly focus yet.";
+  const weeklyChartRows = analytics.weeklyRows.map((row) => ({ ...row, label: shortWeekRangeLabel(row.week) }));
   const xpSummary = stats.totalXp ? `${stats.totalXp} XP earned: ${stats.baseXp} base and ${stats.focusBonusXp} focus bonus.` : "No earned XP in this period yet.";
   const depthSummary = analytics.focusDepth.length ? analytics.focusDepth.map((item) => `${item.name}: ${formatMinutes(item.value)}`).join(", ") : "No focus depth data yet.";
 
@@ -259,7 +279,7 @@ const FocusAnalyticsPage = ({ tasks = [], focusSessions = [], focusMultiplier })
             </ChartPanel>
 
             <ChartPanel title="Weekly Focus" summary={weeklySummary} testId="focus-analytics-weekly-chart">
-              <BarMetricChart data={analytics.weeklyRows} valueKey="minutes" unit="min" color={CHART_COLORS[1]} emptyMessage="No weekly focus data in this period." />
+              <BarMetricChart data={weeklyChartRows} valueKey="minutes" unit="min" color={CHART_COLORS[1]} emptyMessage="No weekly focus data in this period." verticalLabels={periodDays === 90} />
             </ChartPanel>
 
             <ChartPanel title="XP Over Time" summary={xpSummary} testId="focus-analytics-xp-chart">
