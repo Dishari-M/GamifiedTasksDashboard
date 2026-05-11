@@ -88,6 +88,14 @@ class JiraRcaRequest(BaseModel):
         default=None,
         description="Optional local workspace or codebase directory where RCA should analyze source files.",
     )
+    memory_bank_path: str | None = Field(
+        default=None,
+        description="Optional local memory-bank directory to use as RCA architecture/context reference.",
+    )
+    skill_path: str | None = Field(
+        default=None,
+        description="Optional local RCA skill directory or SKILL.md file to use for the RCA workflow.",
+    )
 
 
 class JiraRcaResponse(BaseModel):
@@ -101,6 +109,8 @@ class JiraRcaJobResponse(BaseModel):
     job_id: str
     jira_key: str
     code_base_path: str | None = None
+    memory_bank_path: str | None = None
+    skill_path: str | None = None
     status: str
     logs: list[str]
     result: dict | None = None
@@ -110,10 +120,12 @@ class JiraRcaJobResponse(BaseModel):
 
 class JiraRcaWorkspaceSelectRequest(BaseModel):
     initial_path: str | None = None
+    title: str | None = None
 
 
 class JiraRcaWorkspaceSelectResponse(BaseModel):
     code_base_path: str
+    selected_path: str | None = None
 
 
 class JiraOneLineDescriptionRequest(BaseModel):
@@ -285,7 +297,13 @@ async def jira_rca(
     try:
         start = perf_counter()
         rca_output = await codex_config.run_codex_async(
-            codex_config.build_jira_rca_prompt(jira_key, req.additional_context, req.code_base_path),
+            codex_config.build_jira_rca_prompt(
+                jira_key,
+                req.additional_context,
+                req.code_base_path,
+                req.memory_bank_path,
+                req.skill_path,
+            ),
             req.code_base_path,
         )
         if codex_config.looks_like_mcp_auth_cancelled(rca_output):
@@ -328,6 +346,8 @@ async def start_jira_rca_job(
             user_id=x_devquest_user_id or codex_config.LOCAL_USER_ID,
             priority=req.priority,
             code_base_path=req.code_base_path,
+            memory_bank_path=req.memory_bank_path,
+            skill_path=req.skill_path,
         )
     except HTTPException:
         raise
@@ -355,8 +375,9 @@ def select_jira_rca_workspace(
 ) -> JiraRcaWorkspaceSelectResponse:
     verify_api_key(x_api_key)
     try:
-        selected_path = codex_config.select_rca_workspace_folder((req or JiraRcaWorkspaceSelectRequest()).initial_path)
-        return JiraRcaWorkspaceSelectResponse(code_base_path=selected_path)
+        request = req or JiraRcaWorkspaceSelectRequest()
+        selected_path = codex_config.select_rca_workspace_folder(request.initial_path, request.title)
+        return JiraRcaWorkspaceSelectResponse(code_base_path=selected_path, selected_path=selected_path)
     except Exception as exc:
         raise HTTPException(
             status_code=503,

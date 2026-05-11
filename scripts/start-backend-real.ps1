@@ -10,9 +10,12 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $BackendDir = Join-Path $RepoRoot "backend"
 $PythonExe = Join-Path $BackendDir ".venv\Scripts\python.exe"
-$EnvFile = Join-Path $BackendDir ".env.real.local"
+$BackendEnvFile = Join-Path $BackendDir ".env.real.local"
+$DownloadedEnvFile = Join-Path $RepoRoot "env.real.download"
+$EnvFile = if (Test-Path -LiteralPath $BackendEnvFile) { $BackendEnvFile } else { $DownloadedEnvFile }
 $OutLog = Join-Path $BackendDir "uvicorn-8000-real.out.log"
 $ErrLog = Join-Path $BackendDir "uvicorn-8000-real.err.log"
+$OracleClientDir = "C:\oracle\instantclient_23_0"
 
 function Import-EnvFile {
     param([string]$Path)
@@ -74,6 +77,25 @@ if (-not (Test-Path -LiteralPath $PythonExe)) {
 
 Import-EnvFile -Path $EnvFile
 
+if (-not [Environment]::GetEnvironmentVariable("ORACLE_DB_THICK_MODE", "Process")) {
+    [Environment]::SetEnvironmentVariable("ORACLE_DB_THICK_MODE", "1", "Process")
+}
+if (-not [Environment]::GetEnvironmentVariable("ORACLE_CLIENT_LIB_DIR", "Process")) {
+    [Environment]::SetEnvironmentVariable("ORACLE_CLIENT_LIB_DIR", $OracleClientDir, "Process")
+}
+if (-not [Environment]::GetEnvironmentVariable("TNS_ADMIN", "Process")) {
+    [Environment]::SetEnvironmentVariable("TNS_ADMIN", [Environment]::GetEnvironmentVariable("DB_WALLET_DIR", "Process"), "Process")
+}
+if (-not [Environment]::GetEnvironmentVariable("DB_POOL_MIN", "Process")) {
+    [Environment]::SetEnvironmentVariable("DB_POOL_MIN", "1", "Process")
+}
+if (-not [Environment]::GetEnvironmentVariable("DB_POOL_MAX", "Process")) {
+    [Environment]::SetEnvironmentVariable("DB_POOL_MAX", "10", "Process")
+}
+if (-not [Environment]::GetEnvironmentVariable("DB_POOL_INCREMENT", "Process")) {
+    [Environment]::SetEnvironmentVariable("DB_POOL_INCREMENT", "1", "Process")
+}
+
 $RequiredEnv = @(
     "DB_USER",
     "DB_PASSWORD",
@@ -91,7 +113,13 @@ $RequiredEnv = @(
     "OCI_GENAI_ENDPOINT",
     "OCI_GENAI_SERVING_MODE",
     "OCI_GENAI_REQUEST_FORMAT",
-    "OCI_GENAI_MODEL_ID"
+    "OCI_GENAI_MODEL_ID",
+    "ORACLE_DB_THICK_MODE",
+    "ORACLE_CLIENT_LIB_DIR",
+    "TNS_ADMIN",
+    "DB_POOL_MIN",
+    "DB_POOL_MAX",
+    "DB_POOL_INCREMENT"
 )
 
 $missing = $RequiredEnv | Where-Object { -not [Environment]::GetEnvironmentVariable($_, "Process") }

@@ -189,7 +189,7 @@ export const defaultOverview = {
 
 export const normalizeApiTask = (task) =>
   normalizeTask({
-    id: String(task.external_id || task.task_id),
+    id: String(task.task_id || task.id || task.external_id || ""),
     taskId: task.task_id,
     rowVersion: task.row_version,
     externalId: task.external_id || "",
@@ -244,6 +244,8 @@ export const emptyTaskForm = {
   source: "Custom",
   externalId: "",
   codeBaseLocation: "",
+  memoryBankLocation: "",
+  skillLocation: "",
   type: "Task",
   priority: "Medium",
   status: "To Do",
@@ -265,6 +267,8 @@ export const formFromTask = (task) => ({
   source: task.source || "Custom",
   externalId: task.externalId || task.id || "",
   codeBaseLocation: task.codeBaseLocation || "",
+  memoryBankLocation: task.memoryBankLocation || "",
+  skillLocation: task.skillLocation || "",
   type: task.type || "Task",
   priority: task.priority || "Medium",
   status: task.status || "To Do",
@@ -289,6 +293,8 @@ export const taskFromForm = (form, existingTask) => {
     id: existingTask?.id || makeTaskId(form.source, form.externalId),
     externalId: form.externalId || existingTask?.externalId || "",
     codeBaseLocation: form.codeBaseLocation || "",
+    memoryBankLocation: form.memoryBankLocation || "",
+    skillLocation: form.skillLocation || "",
     title: form.title.trim(),
     description: form.description,
     source: form.source,

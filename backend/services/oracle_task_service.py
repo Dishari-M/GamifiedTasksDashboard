@@ -273,7 +273,6 @@ def complete_oracle_task(task_id, payload, user_id=None):
 
 
 def update_oracle_task_today(task_id, payload, user_id=None):
-    task_id = _task_id(task_id)
     data = _normalize_aliases(payload or {})
     requested = data.get("working_today")
     row_version = _optional_int(data.get("row_version"), "row_version")
@@ -283,6 +282,7 @@ def update_oracle_task_today(task_id, payload, user_id=None):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        task_id = _resolve_today_task_id(cur, resolved_user_id, task_id)
         existing = task_repository.fetch_task_for_update(cur, resolved_user_id, task_id)
         if not existing:
             _not_found()
@@ -364,6 +364,18 @@ def _set_work_date(cur, user_id, task_id, work_date, enabled):
         if enabled
         else task_repository.delete_work_date(cur, user_id, task_id, work_date)
     )
+
+
+def _resolve_today_task_id(cur, user_id, value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        external_id = str(value or "").strip().upper()
+        if external_id:
+            existing = task_repository.fetch_task_by_external_identity_for_update(cur, user_id, "Jira", external_id)
+            if existing:
+                return int(existing["task_id"])
+        _not_found()
 
 
 def _task_list_cache_key(user_id, filters, work_date):
